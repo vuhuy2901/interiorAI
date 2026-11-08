@@ -66,6 +66,14 @@ from app.services.mcp_gateway import (
     list_pascal_mcp_tools,
     sync_canonical_to_pascal,
 )
+from app.services.house_plan_designer import (
+    build_default_multiroom_floorspec,
+    convert_floorspec_to_canonical_project,
+    convert_floorspec_to_pascal_scenegraph,
+)
+from app.services.research_agent import search_real_products, VERIFIED_VIETNAM_PRODUCTS
+from app.services.inventory_bom import generate_project_inventory_bom, export_inventory_bom_csv
+from app.services.blender_mcp import generate_custom_furniture_glb, is_blender_available
 from app.services.orchestrator import (
     answer_question_and_resume,
     approve_scene_proposal,
@@ -383,9 +391,11 @@ def api_get_chat_history(project_id: str = "proj_demo_4x5m"):
 
 
 @app.post("/api/v1/chat/messages")
-async def api_send_chat_message(body: ChatMessagePayload):
+@app.post("/api/v1/projects/{project_id}/chat/messages")
+async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[str] = None):
+    pid = project_id or body.project_id
     res = await process_user_chat_message(
-        project_id=body.project_id,
+        project_id=pid,
         user_text=body.message,
         selected_entity_id=body.selected_entity_id,
     )
@@ -796,3 +806,130 @@ def api_export_project_file(project_id: str, fmt: str):
         raise HTTPException(status_code=400, detail=f"Định dạng xuất '{fmt}' không được hỗ trợ")
 
     return FileResponse(path=str(path), filename=path.name, media_type=media)
+
+
+# ==============================================================================
+# UPGRADE 1 & 3: HOUSE PLAN DESIGNER (MULTI-ROOM APARTMENT GENERATOR)
+# ==============================================================================
+class HousePlanGeneratePayload(BaseModel):
+    reference_length_mm: float = 4000.0
+    scale_confirmed: bool = True
+    project_name: str = "Căn Hộ Đa Phòng Mẫu ATELIER"
+
+
+@app.post("/api/v1/projects/{project_id}/house-plan/generate")
+async def api_generate_multiroom_house_plan(project_id: str, body: HousePlanGeneratePayload):
+    proj = get_project(project_id)
+    if not proj:
+        proj = build_default_demo_project()
+        proj.project_id = project_id
+
+    # Build multiroom FloorSpec
+    floorspec = build_default_multiroom_floorspec(
+        scale_confirmed=body.scale_confirmed,
+        reference_length_mm=body.reference_length_mm,
+    )
+
+    # Convert to CanonicalProject
+    canonical = convert_floorspec_to_canonical_project(floorspec, project_id=project_id, project_name=body.project_name)
+    scenegraph = convert_floorspec_to_pascal_scenegraph(floorspec)
+    canonical.pascal_scene_json = scenegraph
+
+    # Recalculate deterministic BOQ
+    canonical.estimate_snapshot = calculate_project_estimate(canonical)
+
+    saved = save_project(canonical, author="Floor Plan Specialist (House Plan Designer)", reason="Tạo mặt bằng căn hộ đa phòng tự động", bump_revision=True)
+
+    return {
+        "ok": True,
+        "floor_spec": floorspec.model_dump(),
+        "pascal_scene": scenegraph,
+        "project": saved.model_dump(),
+    }
+
+
+# ==============================================================================
+# UPGRADE 5: RESEARCH AGENT & VERIFIED VIETNAM PRODUCTS
+# ==============================================================================
+@app.get("/api/v1/research/products")
+def api_research_products(q: str = "", category: Optional[str] = None, max_budget_vnd: Optional[float] = None):
+    items = search_real_products(query=q, category=category, max_budget_vnd=max_budget_vnd)
+    return {
+        "ok": True,
+        "total_results": len(items),
+        "results": [i.model_dump() for i in items],
+    }
+
+
+# ==============================================================================
+# UPGRADE 6: DESIGN INVENTORY / BILL OF MATERIALS (BOM)
+# ==============================================================================
+@app.get("/api/v1/projects/{project_id}/inventory")
+def api_get_project_inventory_bom(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    bom = generate_project_inventory_bom(proj)
+    return {
+        "ok": True,
+        "inventory_bom": bom.model_dump(),
+    }
+
+
+@app.get("/api/v1/projects/{project_id}/inventory/export/csv")
+def api_export_inventory_bom_csv(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    bom = generate_project_inventory_bom(proj)
+    out_dir = ROOT_DIR / "data" / "exports"
+    out_path = out_dir / f"{project_id}_inventory_bom_rev{proj.revision}.csv"
+    export_inventory_bom_csv(bom, out_path)
+
+    return FileResponse(
+        path=str(out_path),
+        filename=out_path.name,
+        media_type="text/csv",
+    )
+
+
+# ==============================================================================
+# UPGRADE 7: BLENDER MCP ON-DEMAND ENGINE
+# ==============================================================================
+class BlenderMeshPayload(BaseModel):
+    item_id: str
+    name: str
+    category: str = "custom_furniture"
+    dimensions_mm: List[float] = [1200.0, 600.0, 750.0]
+
+
+@app.get("/api/v1/render/blender/status")
+def api_blender_status():
+    available, msg = is_blender_available()
+    return {
+        "ok": True,
+        "blender_available": available,
+        "status_message": msg,
+        "low_spec_optimization": {
+            "on_demand_execution": True,
+            "max_memory_limit_mb": 1024,
+            "timeout_seconds": 25,
+            "fallback_to_pascal_mesh": True,
+        },
+    }
+
+
+@app.post("/api/v1/render/blender/custom-mesh")
+def api_generate_blender_mesh(body: BlenderMeshPayload):
+    out_dir = ROOT_DIR / "data" / "exports" / "meshes"
+    out_path = out_dir / f"{body.item_id}.glb"
+    res = generate_custom_furniture_glb(
+        item_id=body.item_id,
+        name=body.name,
+        category=body.category,
+        dimensions_mm=body.dimensions_mm,
+        output_glb_path=out_path,
+    )
+    return res

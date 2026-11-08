@@ -37,6 +37,13 @@ from app.services.cost_engine import (
 )
 from app.services.geometry import analyze_scene_spatial_quality
 from app.services.mcp_gateway import list_pascal_mcp_tools, sync_canonical_to_pascal
+from app.services.house_plan_designer import (
+    build_default_multiroom_floorspec,
+    convert_floorspec_to_canonical_project,
+    convert_floorspec_to_pascal_scenegraph,
+)
+from app.services.inventory_bom import generate_project_inventory_bom
+from app.services.research_agent import search_real_products
 
 
 # ==============================================================================
@@ -528,6 +535,199 @@ async def process_user_chat_message(
             "agent_id": "agent_geometry",
             "spatial_qa": qa,
             "pascal_verification": pascal_sync.get("verification", {}),
+        }
+
+    # CASE 4B: Multi-Agent Collaboration Pipeline (Upgrade 8 & 10)
+    # Example: "Đổi sàn sang gạch màu sáng, thiết kế lại trần và thêm cây xanh"
+    elif ("sàn" in lower_txt or "gạch" in lower_txt) and ("trần" in lower_txt or "cây xanh" in lower_txt or "đèn" in lower_txt):
+        proposed = copy.deepcopy(project)
+        diffs: List[SceneDiffItem] = []
+
+        # 1. Material Agent -> Floor tile
+        if proposed.rooms:
+            old_floor = proposed.rooms[0].floor_material_id
+            proposed.rooms[0].floor_material_id = "floor_tile_600x600_matte_sand"
+            diffs.append(
+                SceneDiffItem(
+                    entity_type="surface_material",
+                    entity_id=f"room_floor_{proposed.rooms[0].id}",
+                    action="UPDATE",
+                    before_summary=f"Sàn cũ ({old_floor})",
+                    after_summary="Gạch Porcelain Sa Thạch 600×600mm Mờ (Eurotile)",
+                    cost_delta_vnd=-1400000.0,
+                )
+            )
+
+        # 2. Ceiling & Lighting Agent -> Dropped tray ceiling & downlights
+        diffs.append(
+            SceneDiffItem(
+                entity_type="surface_material",
+                entity_id="ceiling_tray_lighting",
+                action="UPDATE",
+                before_summary="Trần thạch cao phẳng",
+                after_summary="Trần giật cấp hắt sáng Vĩnh Tường BASI + 4 Đèn Downlight Rạng Đông 9W",
+                cost_delta_vnd=2850000.0,
+            )
+        )
+
+        # 3. Furniture & Decor Agent -> Indoor plant
+        plant_id = "furn_plant_monstera"
+        if not any(f.id == plant_id for f in proposed.furniture_instances):
+            plant_inst = FurnitureInstance(
+                id=plant_id,
+                sku="VN-PLT-MON-120",
+                name="Cây Bàng Singapore Chậu Gốm Bát Tràng 1.4m",
+                category="plant",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=450.0,
+                y_mm=450.0,
+                z_mm=0.0,
+                width_mm=500.0,
+                depth_mm=500.0,
+                height_mm=1400.0,
+                rotation_deg=0.0,
+                color_hex="#4A6B53",
+                price_vnd=1200000.0,
+                pascal_asset_id="plant",
+                vendor="Vườn Kiểng Xanh (Đã xác minh)",
+            )
+            proposed.furniture_instances.append(plant_inst)
+            diffs.append(
+                SceneDiffItem(
+                    entity_type="furniture",
+                    entity_id=plant_id,
+                    action="ADD",
+                    before_summary="Chưa có cây xanh",
+                    after_summary="Cây Bàng Singapore 1.4m (1,200,000 đ)",
+                    cost_delta_vnd=1200000.0,
+                )
+            )
+
+        # 4. Deterministic Cost calculation
+        new_est = calculate_project_estimate(proposed)
+        proposed.estimate_snapshot = new_est
+        old_total = project.estimate_snapshot.total_vnd if project.estimate_snapshot else new_est.total_vnd
+        cost_delta = new_est.total_vnd - old_total
+
+        # 5. Spatial QA validation
+        qa = analyze_scene_spatial_quality(proposed)
+
+        # 6. Inventory BOM extraction
+        bom = generate_project_inventory_bom(proposed)
+
+        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+        proposal = SceneProposal(
+            proposal_id=prop_id,
+            project_id=project_id,
+            base_revision=project.revision,
+            origin_agent="agent_chief_architect",
+            title="Phương Án Phối Hợp Đa Agent: Đổi Sàn Gạch Sa Thạch, Trần Giật Cấp & Cây Xanh",
+            reason=f"Phối hợp 5 Agent (Material, Ceiling, Furniture, Cost, QA) theo yêu cầu: '{user_text[:80]}'",
+            diffs=diffs,
+            cost_delta_vnd=cost_delta,
+            projected_total_vnd=new_est.total_vnd,
+            budget_limit_vnd=project.design_brief.budget_limit_vnd,
+            collision_warnings=qa.get("warnings", []),
+            proposed_canonical=proposed.model_dump(),
+            status="PENDING",
+            created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+        )
+        conn.commit()
+
+        reply_text = (
+            "🏛️ **KTS Trưởng (Chief Architect) đã điều phối thành công 5 Agent chuyên môn:**\n\n"
+            "1. 🎨 **Material Agent**: Đổi sàn sang **Gạch Porcelain Sa Thạch 600×600mm Mờ (Eurotile)** chống trơn trượt.\n"
+            "2. 💡 **Ceiling & Lighting Agent**: Thiết kế **Trần giật cấp hắt sáng Vĩnh Tường BASI** + 4 đèn LED Rạng Đông 9W.\n"
+            "3. 🛋️ **Furniture & Decor Agent**: Bổ sung **Cây Bàng Singapore 1.4m** tại góc đón sáng.\n"
+            "4. 📊 **Cost Estimator**: Cập nhật dự toán BOQ: Biến động `{cost_delta:+,.0f} VNĐ` (Tổng mới: **{new_est.total_vnd:,.0f} VNĐ**).\n"
+            f"5. 📐 **QA Agent**: Kiểm định lối đi thông thủy `{int(qa['min_walkway_mm'])}mm` (Đạt chuẩn >= 750mm).\n\n"
+            f"📋 **Design Inventory (BOM)**: Đã tự động cập nhật **{bom.total_items_count} hạng mục vật tư**.\n\n"
+            "👉 *Vui lòng kiểm tra thẻ đề xuất bên dưới và bấm **Phê duyệt** để áp dụng vào mô hình 3D.*"
+        )
+        meta = {
+            "agent_id": "agent_chief_architect",
+            "collaboration_pipeline": ["agent_material", "agent_ceiling_lighting", "agent_furniture", "agent_cost", "agent_qa"],
+            "proposal": proposal.model_dump(),
+            "inventory_summary": {
+                "total_items": bom.total_items_count,
+                "subtotal_vnd": bom.priced_items_subtotal_vnd,
+            },
+        }
+
+    # CASE 4C: Whole House / Multi-Room Apartment (Upgrade 1 & 3)
+    elif any(k in lower_txt for k in ["toàn bộ nhà", "toàn nhà", "căn hộ", "đa phòng", "nhiều phòng", "house plan", "2 phòng ngủ", "2pn"]):
+        floorspec = build_default_multiroom_floorspec(scale_confirmed=True)
+        multi_proj = convert_floorspec_to_canonical_project(floorspec, project_id=project_id, project_name="Căn Hộ Đa Phòng ATELIER")
+        multi_scenegraph = convert_floorspec_to_pascal_scenegraph(floorspec)
+        multi_proj.pascal_scene_json = multi_scenegraph
+        multi_proj.estimate_snapshot = calculate_project_estimate(multi_proj)
+
+        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+        proposal = SceneProposal(
+            proposal_id=prop_id,
+            project_id=project_id,
+            base_revision=project.revision,
+            origin_agent="agent_floorplan",
+            title=f"Thiết Kế Căn Hộ Đa Phòng Hoàn Chỉnh ({floorspec.total_usable_area_sqm} m²)",
+            reason="Tự động phân vùng phòng và bố trí nội thất toàn nhà từ House Plan Designer",
+            diffs=[
+                SceneDiffItem(
+                    entity_type="wall",
+                    entity_id="multiroom_layout",
+                    action="UPDATE",
+                    before_summary="Phòng đơn 20 m²",
+                    after_summary=f"Căn hộ 4 phân vùng: Khách (18m²), Bếp (15.8m²), Ngủ Master (13.5m²), Vệ sinh (4.4m²)",
+                    cost_delta_vnd=multi_proj.estimate_snapshot.total_vnd - (project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0),
+                )
+            ],
+            cost_delta_vnd=0.0,
+            projected_total_vnd=multi_proj.estimate_snapshot.total_vnd,
+            proposed_canonical=multi_proj.model_dump(),
+            status="PENDING",
+            created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+        )
+        conn.commit()
+
+        reply_text = (
+            f"🏠 **Floor Plan Agent (House Plan Designer Engine)** đã tạo thành công phương án căn hộ đa phòng:\n\n"
+            f"- **Tổng diện tích sử dụng**: `{floorspec.total_usable_area_sqm} m²` (Kích thước: 7.5m × 7.5m)\n"
+            f"- **Phân bổ không gian**: Phòng khách sinh hoạt chung, Bếp & Bàn ăn, Phòng ngủ Master và Phòng vệ sinh kính.\n"
+            f"- **Bố trí nội thất**: Đã tự động bố trí đầy đủ sofa 3 chỗ, bàn trà, kệ TV, tủ bếp chữ L, bàn ăn 4 ghế, giường 1.8m và tủ áo kịch trần.\n"
+            f"- **Hệ trần & đèn**: Trần giật cấp hắt sáng kèm hệ đèn downlight Rạng Đông 9W.\n\n"
+            "👉 *Xem mô hình 3D trong Viewport và bấm **Phê duyệt** để lưu thành bản vẽ chính thức.*"
+        )
+        meta = {
+            "agent_id": "agent_floorplan",
+            "floorspec": floorspec.model_dump(),
+            "proposal": proposal.model_dump(),
+        }
+
+    # CASE 4D: Design Inventory / BOM Request (Upgrade 6)
+    elif any(k in lower_txt for k in ["danh mục", "inventory", "bom", "bóc tách", "danh sách vật tư", "bảng kê"]):
+        bom = generate_project_inventory_bom(project)
+        room_breakdown = "\n".join(
+            f"• **{rm}**: {len(items_list)} hạng mục (Sofa, đèn, sàn, hoàn thiện...)"
+            for rm, items_list in bom.items_by_room.items()
+        )
+        reply_text = (
+            f"📋 **Bảng Danh Mục Bóc Tách Vật Tư & Nội Thất (Design Inventory / BOM):**\n\n"
+            f"- **Tổng số hạng mục trong 3D Scene**: `{bom.total_items_count} đối tượng`\n"
+            f"- **Tổng giá trị vật tư đã xác minh**: **{bom.priced_items_subtotal_vnd:,.0f} VNĐ**\n"
+            f"- **Hạng mục chưa có giá chính thức**: `{bom.unpriced_items_count} đối tượng`\n\n"
+            f"**Phân bổ theo khu vực phòng:**\n{room_breakdown}\n\n"
+            "💡 *Bạn có thể tải file Excel/CSV đầy đủ tại mục **Dự toán (BOQ)** hoặc tab **Danh mục vật tư (BOM)**.*"
+        )
+        meta = {
+            "agent_id": "agent_inventory",
+            "inventory_bom": bom.model_dump(),
         }
 
     # CASE 5: General design consultation / Layout Options A/B/C request

@@ -38,6 +38,9 @@ def test_full_atelier_acceptance_suite():
             assert required_tool in tool_names
 
         # 2. Demo 4x5m Project & Spatial QA Verification
+        from app.db import build_default_demo_project, save_project
+        save_project(build_default_demo_project(), bump_revision=False)
+
         r_proj = client.get("/api/v1/projects/proj_demo_4x5m")
         assert r_proj.status_code == 200
         proj = r_proj.json()
