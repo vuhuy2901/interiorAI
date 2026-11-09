@@ -363,7 +363,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           group.add(outline)
         }
 
-        group.position.set((f.x_mm || 2000) / 1000, 0, (f.y_mm || 2500) / 1000)
+        group.position.set((f.x_mm || 2000) / 1000, (f.z_mm || 0) / 1000, (f.y_mm || 2500) / 1000)
         group.rotation.y = -((f.rotation_deg || 0) * Math.PI) / 180
         scene.add(group)
       })

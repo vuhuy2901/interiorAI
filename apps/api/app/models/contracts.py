@@ -247,3 +247,42 @@ class SceneProposal(BaseModel):
     proposed_canonical: Dict[str, Any] = Field(default_factory=dict)
     status: Literal["PENDING", "APPROVED", "REJECTED", "SUPERSEDED"] = "PENDING"
     created_at: str = ""
+
+
+class TelegramProgressStep(BaseModel):
+    step_id: str
+    label: str
+    agent_id: str
+    status: Literal["PENDING", "RUNNING", "COMPLETED", "SKIPPED", "FAILED"] = "PENDING"
+    detail: str = ""
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class TaskProgressRecord(BaseModel):
+    task_id: str
+    project_id: str
+    run_id: Optional[str] = None
+    title: str
+    prompt: str
+    assigned_agent: str
+    status: Literal["QUEUED", "RUNNING", "WAITING_FOR_INPUT", "WAITING_FOR_APPROVAL", "COMPLETED", "FAILED"] = "QUEUED"
+    progress_pct: int = Field(default=0, ge=0, le=100)
+    current_step_label: str = ""
+    steps: List[TelegramProgressStep] = Field(default_factory=list)
+    telegram_chat_id: Optional[str] = None
+    telegram_message_id: Optional[str] = None
+    proposal_id: Optional[str] = None
+    question_id: Optional[str] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class TelegramConfigPayload(BaseModel):
+    bot_token: str = ""
+    chat_id: str = ""
+    enabled: bool = False
+    update_mode: Literal["edit_single_message", "milestone_messages"] = "edit_single_message"
+    notify_on_assign: bool = True
+    notify_on_step: bool = True
+    notify_on_approval: bool = True

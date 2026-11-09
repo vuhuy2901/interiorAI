@@ -44,6 +44,13 @@ from app.services.house_plan_designer import (
 )
 from app.services.inventory_bom import generate_project_inventory_bom
 from app.services.research_agent import search_real_products
+from app.services.skill_router import route_user_request
+from app.services.telegram_progress import (
+    advance_task_progress,
+    attach_proposal_or_question_to_progress,
+    complete_task_progress,
+    start_task_progress,
+)
 
 
 # ==============================================================================
@@ -289,6 +296,13 @@ async def process_user_chat_message(
     if not project:
         raise ValueError(f"Không tìm thấy dự án {project_id}")
 
+    skill_route = route_user_request(user_text, project)
+    progress = await start_task_progress(
+        project_id, "Yêu cầu thiết kế từ KTS Trưởng", user_text, skill_route.assigned_agent
+    )
+    await advance_task_progress(progress.task_id, "n4_brief", "COMPLETED", "Đã phân tích yêu cầu và kiểm tra tỷ lệ mặt bằng", 20)
+    await advance_task_progress(progress.task_id, "n5_geometry", "COMPLETED", "Đã điều phối Agent chuyên môn xử lý bố cục / vật liệu", 50)
+
     conn = get_conn()
     user_msg_id = f"msg_{uuid.uuid4().hex[:10]}"
     ts = now_iso()
@@ -350,8 +364,26 @@ async def process_user_chat_message(
         project.approval_state = "WAITING_FOR_INPUT"
         save_project(project, author="FloorPlan Agent", reason="Chờ xác nhận tỷ lệ mặt bằng", bump_revision=False)
 
+    # Low-confidence or incomplete requests must pause for clarification instead of guessing.
+    elif skill_route.requires_clarification:
+        q_id = f"q_{uuid.uuid4().hex[:10]}"
+        q_req = QuestionRequest(
+            question_id=q_id, project_id=project_id, origin_agent=skill_route.assigned_agent,
+            context=f"Skill Router confidence={skill_route.confidence:.2f}; missing={skill_route.missing_slots}",
+            question_text=skill_route.clarification_question or "Bạn muốn thay đổi điều gì trong dự án?",
+            why_needed="Yêu cầu chưa đủ rõ để thay đổi Scene an toàn. Hệ thống cần xác nhận intent trước khi thực thi.",
+            choices=[QuestionChoice(id=f"route_{i}", label=label) for i, label in enumerate(skill_route.clarification_choices, 1)],
+            allow_free_text=True, blocking=True, resume_token=f"resume_{uuid.uuid4().hex[:8]}",
+            status="PENDING", created_at=now_iso(),
+        )
+        conn.execute("INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                     (q_id, project_id, "PENDING", q_req.model_dump_json(), q_req.created_at))
+        conn.commit()
+        reply_text = f"🤔 **KTS Trưởng cần làm rõ trước khi giao Agent:**\n\n{q_req.question_text}"
+        meta = {"agent_id": skill_route.assigned_agent, "question": q_req.model_dump(), "workflow_state": "WAITING_FOR_INPUT"}
+
     # CASE 2: User asks for sofa replacement / smaller sofa ("nhỏ hơn", "1.8m", "đổi sofa")
-    elif any(k in lower_txt for k in ["sofa", "ghế", "nhỏ hơn", "1.8m", "1800"]):
+    elif skill_route.skill_id == "furniture.replace_sofa" or any(k in lower_txt for k in ["sofa", "ghế", "nhỏ hơn", "1.8m", "1800"]):
         proposed = copy.deepcopy(project)
         old_sofa = next((f for f in proposed.furniture_instances if f.category == "sofa"), None)
         old_summary = f"{old_sofa.name} ({int(old_sofa.width_mm)}×{int(old_sofa.depth_mm)}mm — {old_sofa.price_vnd:,.0f} đ)" if old_sofa else "Chưa có sofa"
@@ -432,8 +464,133 @@ async def process_user_chat_message(
             "invalidated_nodes": ["n7_furniture", "n8_clearance", "n9_shopping", "n10_cost"],
         }
 
+    # CASE 2B: Add a flower pot / small plant on the requested support surface.
+    elif skill_route.skill_id == "decor.add_plant":
+        proposed = copy.deepcopy(project)
+        support = next((f for f in proposed.furniture_instances if f.category == "coffee_table"), None)
+        existing = next((f for f in proposed.furniture_instances if f.id == "decor_flower_pot_coffee_table"), None)
+        if not support:
+            skill_route.requires_clarification = True
+            skill_route.missing_slots = ["support_surface"]
+            q_id = f"q_{uuid.uuid4().hex[:10]}"
+            q_req = QuestionRequest(
+                question_id=q_id, project_id=project_id, origin_agent="agent_furniture",
+                context="Không tìm thấy bàn trà trong Scene", question_text="Dự án chưa có bàn trà. Bạn muốn đặt chậu hoa ở đâu?",
+                why_needed="Cần bề mặt đỡ hợp lệ để đặt vật trang trí.",
+                choices=[QuestionChoice(id="floor_corner", label="Góc sàn gần cửa sổ"), QuestionChoice(id="tv_cabinet", label="Trên kệ TV")],
+                resume_token=f"resume_{uuid.uuid4().hex[:8]}", created_at=now_iso(),
+            )
+            conn.execute("INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (q_id, project_id, "PENDING", q_req.model_dump_json(), q_req.created_at)); conn.commit()
+            reply_text = f"🤔 {q_req.question_text}"
+            meta = {"agent_id": "agent_furniture", "question": q_req.model_dump(), "workflow_state": "WAITING_FOR_INPUT"}
+        else:
+            pot = FurnitureInstance(
+                id="decor_flower_pot_coffee_table", sku="DECOR-FLOWER-POT-25",
+                name="Chậu Hoa Gốm Trang Trí Bàn Trà", category="plant",
+                room_id=support.room_id, x_mm=support.x_mm, y_mm=support.y_mm,
+                z_mm=support.height_mm + 10.0, width_mm=250.0, depth_mm=250.0, height_mm=350.0,
+                rotation_deg=0.0, color_hex="#6F8F72", price_vnd=650000.0,
+                pascal_asset_id="plant", vendor="Decor Việt Nam (Giá minh họa)",
+            )
+            if existing:
+                proposed.furniture_instances = [pot if f.id == existing.id else f for f in proposed.furniture_instances]
+            else:
+                proposed.furniture_instances.append(pot)
+            new_est = calculate_project_estimate(proposed); proposed.estimate_snapshot = new_est
+            old_total = project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0
+            cost_delta = new_est.total_vnd - old_total
+            qa = analyze_scene_spatial_quality(proposed)
+            prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+            proposal = SceneProposal(
+                proposal_id=prop_id, project_id=project_id, base_revision=project.revision,
+                origin_agent="agent_furniture", title="Thêm chậu hoa gốm trang trí trên bàn trà",
+                reason="Chậu hoa 250mm được căn giữa trên mặt bàn trà và không chiếm diện tích lối đi.",
+                diffs=[SceneDiffItem(entity_type="furniture", entity_id=pot.id, action="UPDATE" if existing else "ADD",
+                    before_summary=existing.name if existing else "Bàn trà chưa có vật trang trí",
+                    after_summary="Chậu hoa gốm 250×250×350mm trên bàn trà", cost_delta_vnd=cost_delta)],
+                cost_delta_vnd=cost_delta, projected_total_vnd=new_est.total_vnd,
+                budget_limit_vnd=project.design_brief.budget_limit_vnd,
+                collision_warnings=qa.get("warnings", []), proposed_canonical=proposed.model_dump(),
+                status="PENDING", created_at=now_iso(),
+            )
+            conn.execute("INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at)); conn.commit()
+            mark_workflow_invalidation("furniture_change")
+            reply_text = (
+                "🌿 **Decor Agent đã tạo đề xuất chậu hoa trên bàn trà:**\n\n"
+                "- Chậu gốm `250×250×350mm`, đặt giữa mặt bàn trà.\n"
+                "- Không làm giảm lối đi vì nằm trên bề mặt bàn.\n"
+                f"- Chi phí minh họa: `{cost_delta:+,.0f} VNĐ`.\n\n"
+                "Bấm **Phê duyệt áp dụng** để thêm vào Scene 2D/3D."
+            )
+            meta = {"agent_id": "agent_furniture", "proposal": proposal.model_dump(), "spatial_qa": qa}
+
+    # CASE 2C: Add/update a real television on the existing TV cabinet.
+    elif skill_route.skill_id == "furniture.add_television":
+        proposed = copy.deepcopy(project)
+        cabinet = next((f for f in proposed.furniture_instances if f.category == "tv_cabinet"), None)
+        existing_tv = next((f for f in proposed.furniture_instances if f.category in {"television", "tv_screen"}), None)
+        tv = FurnitureInstance(
+            id=existing_tv.id if existing_tv else "furn_tv_screen_55",
+            sku="TV-55-UHD-ATELIER",
+            name="Smart TV 4K 55 inch",
+            category="television",
+            room_id=cabinet.room_id if cabinet else "room_main",
+            x_mm=cabinet.x_mm if cabinet else 3600.0,
+            y_mm=cabinet.y_mm if cabinet else 2300.0,
+            z_mm=(cabinet.height_mm if cabinet else 500.0) + 30.0,
+            width_mm=round(float(skill_route.slots.get("size_inch", 55)) * 22.36 / 10.0) * 10.0,
+            depth_mm=80.0,
+            height_mm=710.0,
+            rotation_deg=cabinet.rotation_deg if cabinet else 270.0,
+            color_hex="#17191C",
+            price_vnd=11900000.0,
+            pascal_asset_id="television",
+            source_url="https://example.com/tv-55 (Giá minh họa)",
+            vendor="Catalog điện máy minh họa",
+        )
+        if existing_tv:
+            proposed.furniture_instances = [tv if f.id == existing_tv.id else f for f in proposed.furniture_instances]
+        else:
+            proposed.furniture_instances.append(tv)
+        new_est = calculate_project_estimate(proposed)
+        proposed.estimate_snapshot = new_est
+        old_total = project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0
+        cost_delta = new_est.total_vnd - old_total
+        qa = analyze_scene_spatial_quality(proposed)
+        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+        proposal = SceneProposal(
+            proposal_id=prop_id, project_id=project_id, base_revision=project.revision,
+            origin_agent="agent_furniture", title="Bổ sung Smart TV 4K 55 inch trên kệ TV hiện có",
+            reason="TV 55 inch rộng 1230mm, vừa kệ 1800mm và được đặt theo đúng tọa độ kệ TV.",
+            diffs=[SceneDiffItem(
+                entity_type="furniture", entity_id=tv.id, action="UPDATE" if existing_tv else "ADD",
+                before_summary=existing_tv.name if existing_tv else "Chưa có màn hình TV",
+                after_summary="Smart TV 4K 55 inch (1230×80×710mm) đặt trên kệ TV 1.8m",
+                cost_delta_vnd=cost_delta,
+            )],
+            cost_delta_vnd=cost_delta, projected_total_vnd=new_est.total_vnd,
+            budget_limit_vnd=project.design_brief.budget_limit_vnd,
+            collision_warnings=qa.get("warnings", []), proposed_canonical=proposed.model_dump(),
+            status="PENDING", created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+        )
+        conn.commit(); mark_workflow_invalidation("furniture_change")
+        reply_text = (
+            "📺 **Furniture Agent đã tạo đề xuất thêm Smart TV 4K 55 inch:**\n\n"
+            "- Kích thước TV: `1230×80×710mm`; kệ hiện có rộng `1800mm` — **vừa kệ**.\n"
+            f"- QA lối đi nhỏ nhất: `{int(qa.get('min_walkway_mm', 0))}mm`.\n"
+            f"- Chi phí minh họa tăng: `{cost_delta:+,.0f} VNĐ`; tổng mới: **{new_est.total_vnd:,.0f} VNĐ**.\n\n"
+            "Hãy bấm **Phê duyệt áp dụng** để TV xuất hiện trên mặt bằng 2D và Scene 3D."
+        )
+        meta = {"agent_id": "agent_furniture", "proposal": proposal.model_dump(), "spatial_qa": qa}
+
     # CASE 3: User requests paint / wall color / floor tile change (Section 7B)
-    elif any(k in lower_txt for k in ["sơn", "màu", "gạch", "sàn", "xanh", "terrazzo", "xương cá", "cổ vịt", "teal"]):
+    elif skill_route.skill_id == "surface.change_material" or any(k in lower_txt for k in ["sơn", "màu", "gạch", "sàn", "xanh", "terrazzo", "xương cá", "cổ vịt", "teal"]):
         proposed = copy.deepcopy(project)
         diffs: List[SceneDiffItem] = []
 
@@ -836,6 +993,16 @@ async def process_user_chat_message(
             "proposal": proposal.model_dump(),
             "options": [o.model_dump() for o in options],
         }
+
+    await advance_task_progress(progress.task_id, "n8_clearance", "COMPLETED", "Đã kiểm định lối đi và tính dự toán hình học", 80)
+    if meta.get("proposal"):
+        await attach_proposal_or_question_to_progress(progress.task_id, proposal=meta["proposal"])
+    elif meta.get("question"):
+        await attach_proposal_or_question_to_progress(progress.task_id, question=meta["question"])
+    else:
+        await complete_task_progress(progress.task_id, "Hoàn tất xử lý yêu cầu", project.revision)
+    meta["task_progress"] = {"task_id": progress.task_id, "telegram_synced": True}
+    meta["skill_route"] = skill_route.model_dump()
 
     assistant_msg_id = f"msg_{uuid.uuid4().hex[:10]}"
     conn.execute(

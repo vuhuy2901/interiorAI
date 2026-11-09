@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -62,7 +63,13 @@ def main() -> int:
             raise RuntimeError("Frontend Vite server failed to start on 127.0.0.1:5173")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            chrome_candidates = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            ]
+            system_browser = next((path for path in chrome_candidates if os.path.exists(path)), None)
+            browser = p.chromium.launch(headless=True, executable_path=system_browser) if system_browser else p.chromium.launch(headless=True)
             context = browser.new_context(viewport={"width": 1440, "height": 900})
             page = context.new_page()
 

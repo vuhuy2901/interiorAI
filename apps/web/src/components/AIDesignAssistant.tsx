@@ -310,6 +310,9 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
               <span className={`status-dot ${sendingChat ? 'amber' : ''}`} />
               <span>{sendingChat ? 'Đang suy luận & gọi Pascal MCP...' : 'Sẵn sàng • 8 Agents kết nối'}</span>
             </div>
+            <div className="status-badge teal" style={{ marginTop: 4, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Dự án: {project?.name} • Rev #{project?.revision}
+            </div>
           </div>
         </div>
 
@@ -434,6 +437,11 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                   </div>
 
                   <div style={{ whiteSpace: 'pre-line' }}>{m.content}</div>
+                  {m.metadata?.task_progress?.task_id && !isUser && (
+                    <div className="status-badge teal" style={{ marginTop: 8, width: 'fit-content' }}>
+                      📲 Đã đồng bộ tiến độ Telegram #{m.metadata.task_progress.task_id}
+                    </div>
+                  )}
 
                   {/* Interactive Question Request Card (ask_user interrupt) */}
                   {m.metadata?.question && (

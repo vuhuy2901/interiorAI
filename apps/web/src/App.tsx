@@ -35,6 +35,7 @@ import { StudioViewport } from './components/StudioViewport'
 import { ObjectInspector } from './components/ObjectInspector'
 import { AIDesignAssistant } from './components/AIDesignAssistant'
 import { RevisionHistoryDrawer } from './components/RevisionHistoryDrawer'
+import { CreateProjectModal } from './components/CreateProjectModal'
 import { AIControlCenterView, AIAgentsRegistryView } from './components/AIControlCenterView'
 import {
   DashboardOverviewPage,
@@ -120,6 +121,7 @@ export default function App() {
   const [uploadingFile, setUploadingFile] = useState<boolean>(false)
   const [lastImportResult, setLastImportResult] = useState<any | null>(null)
   const [fitCheckResults, setFitCheckResults] = useState<Record<string, any>>({})
+  const [showCreateProject, setShowCreateProject] = useState(false)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -130,7 +132,13 @@ export default function App() {
     setTimeout(() => setStatusToast(null), 4000)
   }
 
-  const loadAllData = async (projectId = 'proj_demo_4x5m') => {
+  const switchProject = async (projectId = 'proj_demo_4x5m') => {
+    setChatInput('')
+    setFitCheckResults({})
+    setLastImportResult(null)
+    setSelectedEntityId(null)
+    setChatHistory({ messages: [], pending_questions: [], proposals: [] })
+    setShowHistoryDrawer(false)
     try {
       const [
         projListRes,
@@ -150,7 +158,7 @@ export default function App() {
         fetch('/api/v1/catalog').then((r) => r.json()),
         fetch(`/api/v1/chat/history?project_id=${projectId}`).then((r) => r.json()),
         fetch('/api/v1/workflows').then((r) => r.json()),
-        fetch('/api/v1/runs').then((r) => r.json()),
+        fetch(`/api/v1/runs?project_id=${projectId}`).then((r) => r.json()),
         fetch('/api/v1/agents').then((r) => r.json()),
         fetch('/api/v1/connections').then((r) => r.json()),
         fetch('/api/v1/mcp/tools').then((r) => r.json()),
@@ -165,13 +173,15 @@ export default function App() {
       setAgents(Array.isArray(agRes) ? agRes : [])
       setConnections(Array.isArray(connRes) ? connRes : [])
       setMcpTools(mcpRes?.tools || [])
+      setSelectedEntityId(projRes?.furniture_instances?.[0]?.id || null)
+      localStorage.setItem('atelier_active_project_id', projectId)
     } catch (err) {
       console.error('Failed to load initial studio data:', err)
     }
   }
 
   useEffect(() => {
-    loadAllData()
+    switchProject(localStorage.getItem('atelier_active_project_id') || 'proj_demo_4x5m')
   }, [])
 
   // ============================================================================
@@ -367,7 +377,7 @@ export default function App() {
     await fetch(`/api/v1/workflows/${wfId}/runs?project_id=${project?.project_id || 'proj_demo_4x5m'}`, {
       method: 'POST',
     })
-    const runsRes = await fetch('/api/v1/runs').then((r) => r.json())
+    const runsRes = await fetch(`/api/v1/runs?project_id=${project?.project_id || ''}`).then((r) => r.json())
     setRuns(runsRes)
     notify('Đã thực thi luồng 14 Node Multi-Agent thành công!')
   }
@@ -465,7 +475,7 @@ export default function App() {
                 className="project-switcher"
                 aria-label="Chọn dự án"
                 value={project?.project_id || 'proj_demo_4x5m'}
-                onChange={(e) => loadAllData(e.target.value)}
+                onChange={(e) => switchProject(e.target.value)}
               >
                 {projects.map((p: any) => (
                   <option key={p.project_id} value={p.project_id}>
@@ -474,6 +484,7 @@ export default function App() {
                 ))}
               </select>
             )}
+            {!sidebarCollapsed && <button className="btn btn-sm" style={{ width: '100%', marginTop: 6 }} onClick={() => setShowCreateProject(true)}>+ Dự án mới · {projects.length} dự án</button>}
           </div>
 
           {/* 8 Primary Navigation Links */}
@@ -807,6 +818,7 @@ export default function App() {
               {/* COLLAPSIBLE CHIEF ARCHITECT AI DESIGN ASSISTANT DOCK (Section 7 & 10) */}
               {showAiPanel && (
                 <AIDesignAssistant
+                  key={project?.project_id}
                   project={project}
                   chatHistory={chatHistory}
                   sendingChat={sendingChat}
@@ -830,9 +842,10 @@ export default function App() {
               project={project}
               mcpToolsCount={mcpTools.length}
               onOpenWorkspace={(pid) => {
-                if (pid && pid !== project?.project_id) loadAllData(pid)
+                if (pid && pid !== project?.project_id) switchProject(pid)
                 setActiveTab('workspace')
               }}
+              onCreateProject={() => setShowCreateProject(true)}
               onNavigate={setActiveTab}
             />
           )}
@@ -851,6 +864,8 @@ export default function App() {
 
           {activeTab === 'control_center' && (
             <AIControlCenterView
+              key={project?.project_id}
+              projectId={project?.project_id || 'proj_demo_4x5m'}
               workflows={workflows}
               runs={runs}
               agents={agents}
@@ -933,11 +948,13 @@ export default function App() {
 
       {/* SLIDE-OVER REVISION HISTORY DRAWER (Section 13) */}
       <RevisionHistoryDrawer
+        key={project?.project_id}
         isOpen={showHistoryDrawer}
         onClose={() => setShowHistoryDrawer(false)}
         project={project}
         onRestoreRevision={handleRestoreRevision}
       />
+      <CreateProjectModal open={showCreateProject} onClose={() => setShowCreateProject(false)} onCreated={async (created) => { setShowCreateProject(false); await switchProject(created.project_id); setActiveTab('workspace'); notify(`Đã tạo dự án ${created.name}`) }} />
     </div>
   )
 }

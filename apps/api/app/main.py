@@ -40,6 +40,7 @@ from app.models.contracts import (
     DesignBrief,
     FurnitureInstance,
     WallTileZone,
+    TelegramConfigPayload,
 )
 from app.services.cad_export import (
     ensure_sample_dxf_seed,
@@ -83,6 +84,18 @@ from app.services.orchestrator import (
     reject_scene_proposal,
     test_ai_connection,
 )
+from app.services.telegram_progress import (
+    advance_task_progress,
+    complete_task_progress,
+    find_task_by_link,
+    get_telegram_config,
+    list_task_progress,
+    save_telegram_config,
+    start_task_progress,
+    start_telegram_inbound_worker,
+    stop_telegram_inbound_worker,
+)
+from app.services.skill_router import list_skills, route_user_request
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 UPLOADS_DIR = ROOT_DIR / "data" / "uploads"
@@ -106,7 +119,9 @@ async def lifespan(app: FastAPI):
         if res.get("ok") and res.get("sceneJson"):
             demo.pascal_scene_json = res["sceneJson"]
             save_project(demo, author="Pascal MCP Bootstrap", reason="Đồng bộ khởi tạo Pascal SceneGraph", bump_revision=False)
+    telegram_worker = start_telegram_inbound_worker()
     yield
+    await stop_telegram_inbound_worker(telegram_worker)
 
 
 app = FastAPI(
@@ -150,6 +165,8 @@ class CreateProjectPayload(BaseModel):
     style: str = "Japandi"
     budget_limit_vnd: float = 120000000.0
     scale_calibrated: bool = True
+    empty_furniture: bool = False
+    room_type: str = "living"
 
 
 @app.get("/api/v1/projects")
@@ -173,16 +190,53 @@ async def api_create_project(body: CreateProjectPayload):
     d = body.depth_mm
     if base.rooms:
         base.rooms[0].polygon_mm = [[0.0, 0.0], [w, 0.0], [w, d], [0.0, d]]
+        base.rooms[0].room_type = body.room_type
+        base.rooms[0].name = {
+            "living": "Phòng khách", "bedroom": "Phòng ngủ", "office": "Phòng làm việc",
+            "kitchen": "Phòng bếp", "dining": "Phòng ăn", "bathroom": "Phòng tắm",
+        }.get(body.room_type, "Không gian chính")
     base.walls[0].start_mm, base.walls[0].end_mm = [0.0, 0.0], [w, 0.0]
     base.walls[1].start_mm, base.walls[1].end_mm = [w, 0.0], [w, d]
     base.walls[2].start_mm, base.walls[2].end_mm = [w, d], [0.0, d]
     base.walls[3].start_mm, base.walls[3].end_mm = [0.0, d], [0.0, 0.0]
+
+    # Keep openings and starter furniture valid for the selected dimensions.
+    for opening in base.openings:
+        opening.t = 0.5
+        opening.width_mm = min(opening.width_mm, max(700.0, w * 0.35))
+    for window in base.windows:
+        window.t = 0.5
+        window.width_mm = min(window.width_mm, max(800.0, d * 0.45))
+    if body.empty_furniture:
+        base.furniture_instances = []
+    else:
+        for item in base.furniture_instances:
+            item.width_mm = min(item.width_mm, max(500.0, w - 600.0))
+            item.depth_mm = min(item.depth_mm, max(450.0, d - 600.0))
+            item.x_mm = max(item.width_mm / 2 + 150.0, min(item.x_mm * w / 4000.0, w - item.width_mm / 2 - 150.0))
+            item.y_mm = max(item.depth_mm / 2 + 150.0, min(item.y_mm * d / 5000.0, d - item.depth_mm / 2 - 150.0))
+
+    base.estimate_snapshot = calculate_project_estimate(base)
 
     sync_res = await sync_canonical_to_pascal(base)
     if sync_res.get("ok") and sync_res.get("sceneJson"):
         base.pascal_scene_json = sync_res["sceneJson"]
 
     saved = save_project(base, author="User", reason="Khởi tạo dự án mới", bump_revision=False)
+    area_m2 = w * d / 1_000_000
+    welcome = (
+        f"Xin chào! Tôi là **Kiến Trúc Sư Trưởng AI** phụ trách riêng dự án **{body.name}**.\n\n"
+        f"Không gian khởi tạo có kích thước **{w/1000:.1f} × {d/1000:.1f}m ({area_m2:.1f} m²)**, "
+        f"phong cách **{body.style}**, ngân sách mục tiêu **{body.budget_limit_vnd:,.0f} VNĐ**.\n\n"
+        "Bạn có thể giao việc đầu tiên như: đề xuất bố trí A/B/C, kiểm tra lối đi, chọn vật liệu hoặc tối ưu dự toán."
+    )
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (f"msg_{uuid.uuid4().hex[:10]}", pid, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", welcome,
+         json.dumps({"agent_id": "agent_chief_architect", "project_welcome": True}, ensure_ascii=False), now_iso()),
+    )
+    conn.commit(); conn.close()
     return saved.model_dump()
 
 
@@ -407,8 +461,13 @@ class AnswerQuestionPayload(BaseModel):
 
 
 @app.post("/api/v1/questions/{question_id}/answer")
-def api_answer_question(question_id: str, body: AnswerQuestionPayload):
-    return answer_question_and_resume(question_id, body.answer)
+async def api_answer_question(question_id: str, body: AnswerQuestionPayload):
+    result = answer_question_and_resume(question_id, body.answer)
+    task = find_task_by_link(question_id=question_id)
+    if task:
+        revision = (result.get("project") or {}).get("revision", 0)
+        await complete_task_progress(task.task_id, "Đã nhận phản hồi và tiếp tục quy trình", revision)
+    return result
 
 
 class ApproveProposalPayload(BaseModel):
@@ -417,7 +476,11 @@ class ApproveProposalPayload(BaseModel):
 
 @app.post("/api/v1/proposals/{proposal_id}/approve")
 async def api_approve_proposal(proposal_id: str, body: ApproveProposalPayload = ApproveProposalPayload()):
-    return await approve_scene_proposal(proposal_id, body.option_id)
+    result = await approve_scene_proposal(proposal_id, body.option_id)
+    task = find_task_by_link(proposal_id=proposal_id)
+    if task:
+        await complete_task_progress(task.task_id, "Đã phê duyệt & đồng bộ 3D", result["project"]["revision"])
+    return result
 
 
 class RejectProposalPayload(BaseModel):
@@ -425,8 +488,12 @@ class RejectProposalPayload(BaseModel):
 
 
 @app.post("/api/v1/proposals/{proposal_id}/reject")
-def api_reject_proposal(proposal_id: str, body: RejectProposalPayload = RejectProposalPayload()):
-    return reject_scene_proposal(proposal_id, body.reason)
+async def api_reject_proposal(proposal_id: str, body: RejectProposalPayload = RejectProposalPayload()):
+    result = reject_scene_proposal(proposal_id, body.reason)
+    task = find_task_by_link(proposal_id=proposal_id)
+    if task:
+        await complete_task_progress(task.task_id, "Đề xuất đã được từ chối", 0)
+    return result
 
 
 @app.get("/api/v1/projects/{project_id}/design-brief")
@@ -565,6 +632,60 @@ def api_get_estimate(project_id: str):
 # ==============================================================================
 # AI CONTROL CENTER: WORKFLOWS, RUNS, AGENTS & CONNECTIONS
 # ==============================================================================
+@app.get("/api/v1/skills")
+def api_list_skills():
+    return list_skills()
+
+
+class SkillRoutePayload(BaseModel):
+    text: str
+    project_id: str = "proj_demo_4x5m"
+
+
+@app.post("/api/v1/skills/route")
+def api_route_skill(body: SkillRoutePayload):
+    return route_user_request(body.text, get_project(body.project_id)).model_dump()
+
+
+@app.get("/api/v1/telegram/config")
+def api_get_telegram_config():
+    return get_telegram_config(False).model_dump()
+
+
+@app.put("/api/v1/telegram/config")
+def api_put_telegram_config(body: TelegramConfigPayload):
+    return save_telegram_config(body).model_dump()
+
+
+@app.post("/api/v1/telegram/test")
+async def api_test_telegram_progress(project_id: str = "proj_demo_4x5m"):
+    task = await start_task_progress(project_id, "Kiểm tra luồng Telegram", "Mô phỏng 0% → 50% → 100%", "agent_chief_architect")
+    await advance_task_progress(task.task_id, "n5_geometry", "COMPLETED", "Đã kiểm tra kết nối và luồng cập nhật", 50)
+    project = get_project(project_id)
+    final = await complete_task_progress(task.task_id, "Luồng kiểm tra hoàn tất", project.revision if project else 0)
+    return final.model_dump()
+
+
+class DispatchTaskPayload(BaseModel):
+    project_id: str = "proj_demo_4x5m"
+    title: str = "Công việc thiết kế mới"
+    prompt: str
+    agent_id: str = "agent_chief_architect"
+
+
+@app.post("/api/v1/tasks/dispatch")
+async def api_dispatch_task(body: DispatchTaskPayload):
+    result = await process_user_chat_message(body.project_id, body.prompt)
+    result["dispatch_title"] = body.title
+    result["assigned_agent"] = body.agent_id
+    return result
+
+
+@app.get("/api/v1/tasks/progress")
+def api_list_task_progress(limit: int = 50, project_id: Optional[str] = None):
+    return list_task_progress(limit, project_id)
+
+
 @app.get("/api/v1/workflows")
 def api_list_workflows():
     conn = get_conn()
@@ -589,11 +710,15 @@ def api_update_workflow(workflow_id: str, wf_payload: Dict[str, Any]):
 
 
 @app.post("/api/v1/workflows/{workflow_id}/runs")
-def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m"):
+async def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m"):
     run_id = f"run_{uuid.uuid4().hex[:10]}"
     conn = get_conn()
     wf_row = conn.execute("SELECT payload_json FROM workflows WHERE workflow_id = ?", (workflow_id,)).fetchone()
     wf = json.loads(wf_row["payload_json"]) if wf_row else {"nodes": []}
+
+    progress = await start_task_progress(
+        project_id, f"Chạy workflow {workflow_id}", "Thực thi toàn bộ workflow", "agent_chief_architect", run_id=run_id
+    )
 
     events = []
     for idx, node in enumerate(wf.get("nodes", [])):
@@ -624,13 +749,18 @@ def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m")
     )
     conn.commit()
     conn.close()
+    await complete_task_progress(progress.task_id, "Workflow đã hoàn tất", get_project(project_id).revision if get_project(project_id) else 0)
+    run_doc["task_id"] = progress.task_id
     return run_doc
 
 
 @app.get("/api/v1/runs")
-def api_list_runs():
+def api_list_runs(project_id: Optional[str] = None):
     conn = get_conn()
-    rows = conn.execute("SELECT payload_json FROM workflow_runs ORDER BY updated_at DESC LIMIT 20").fetchall()
+    if project_id:
+        rows = conn.execute("SELECT payload_json FROM workflow_runs WHERE project_id = ? ORDER BY updated_at DESC LIMIT 20", (project_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT payload_json FROM workflow_runs ORDER BY updated_at DESC LIMIT 20").fetchall()
     conn.close()
     return [json.loads(r["payload_json"]) for r in rows]
 

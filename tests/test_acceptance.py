@@ -7,12 +7,16 @@ Covers:
 """
 from __future__ import annotations
 import sys
+import os
+import tempfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 API_DIR = ROOT_DIR / "apps" / "api"
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="atelier-tests-"))
+os.environ["ATELIER_DB_PATH"] = str(TEST_DATA_DIR / "atelier-test.db")
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
@@ -177,3 +181,148 @@ def test_full_atelier_acceptance_suite():
             r_exp = client.get(f"/api/v1/exports/proj_demo_4x5m/{fmt}")
             assert r_exp.status_code == 200
             assert len(r_exp.content) > 100
+
+
+def test_telegram_realtime_task_progress_flow():
+    with TestClient(app) as client:
+        configured = client.put("/api/v1/telegram/config", json={
+            "bot_token": "123456:super-secret-test-token", "chat_id": "", "enabled": False,
+            "update_mode": "edit_single_message", "notify_on_assign": True,
+            "notify_on_step": True, "notify_on_approval": True,
+        })
+        assert configured.status_code == 200
+        visible = client.get("/api/v1/telegram/config").json()
+        assert visible["bot_token"] == "REDACTED"
+        assert "super-secret-test-token" not in str(visible)
+
+        dispatched = client.post("/api/v1/tasks/dispatch", json={
+            "project_id": "proj_demo_4x5m", "title": "Tối ưu sofa",
+            "prompt": "Đổi sofa hiện tại sang sofa nhỏ hơn 1.8m", "agent_id": "agent_furniture",
+        })
+        assert dispatched.status_code == 200
+        payload = dispatched.json()
+        task_id = payload["metadata"]["task_progress"]["task_id"]
+        assert task_id.startswith("ATL-")
+
+        tasks = client.get("/api/v1/tasks/progress").json()
+        task = next(t for t in tasks if t["task_id"] == task_id)
+        assert task["status"] == "WAITING_FOR_APPROVAL"
+        assert task["progress_pct"] == 95
+        assert task["delivery_logs"][0]["status"] == "SIMULATED"
+
+        proposal_id = payload["metadata"]["proposal"]["proposal_id"]
+        assert client.post(f"/api/v1/proposals/{proposal_id}/approve", json={}).status_code == 200
+        task = next(t for t in client.get("/api/v1/tasks/progress").json() if t["task_id"] == task_id)
+        assert task["status"] == "COMPLETED"
+        assert task["progress_pct"] == 100
+
+
+def test_strict_per_project_isolation_and_project_welcome():
+    with TestClient(app) as client:
+        project_a = client.post("/api/v1/projects", json={
+            "name": "Project A Isolation", "description": "Living room A", "width_mm": 4200,
+            "depth_mm": 5100, "style": "Japandi", "budget_limit_vnd": 110000000,
+            "empty_furniture": False, "room_type": "living", "scale_calibrated": True,
+        }).json()
+        project_b = client.post("/api/v1/projects", json={
+            "name": "Project B Isolation", "description": "Empty office B", "width_mm": 3500,
+            "depth_mm": 4000, "style": "Minimalist", "budget_limit_vnd": 80000000,
+            "empty_furniture": True, "room_type": "office", "scale_calibrated": True,
+        }).json()
+        aid, bid = project_a["project_id"], project_b["project_id"]
+        assert project_a["revision"] == project_b["revision"] == 1
+        assert project_b["furniture_instances"] == []
+
+        history_b = client.get(f"/api/v1/chat/history?project_id={bid}").json()
+        assert len(history_b["messages"]) == 1
+        assert "Project B Isolation" in history_b["messages"][0]["content"]
+        assert history_b["proposals"] == [] and history_b["pending_questions"] == []
+
+        chat_a = client.post("/api/v1/chat/messages", json={
+            "project_id": aid, "message": "Đổi sofa nhỏ hơn 1.8m",
+        })
+        assert chat_a.status_code == 200
+        proposal_id = chat_a.json()["metadata"]["proposal"]["proposal_id"]
+        history_a = client.get(f"/api/v1/chat/history?project_id={aid}").json()
+        history_b_after = client.get(f"/api/v1/chat/history?project_id={bid}").json()
+        assert any(p["proposal_id"] == proposal_id for p in history_a["proposals"])
+        assert all(p.get("proposal_id") != proposal_id for p in history_b_after["proposals"])
+        assert "Đổi sofa nhỏ hơn" not in str(history_b_after)
+
+        assert client.post(f"/api/v1/proposals/{proposal_id}/approve", json={}).status_code == 200
+        final_a = client.get(f"/api/v1/projects/{aid}").json()
+        final_b = client.get(f"/api/v1/projects/{bid}").json()
+        assert final_a["revision"] == 2
+        assert final_b["revision"] == 1
+
+        tasks_a = client.get(f"/api/v1/tasks/progress?project_id={aid}").json()
+        tasks_b = client.get(f"/api/v1/tasks/progress?project_id={bid}").json()
+        assert tasks_a and all(t["project_id"] == aid for t in tasks_a)
+        assert all(t["project_id"] == bid for t in tasks_b)
+
+
+def test_add_tv_proposal_approval_updates_2d_3d_scene_data():
+    with TestClient(app) as client:
+        created = client.post("/api/v1/projects", json={
+            "name": "TV Scene Test", "width_mm": 4000, "depth_mm": 5000,
+            "style": "Japandi", "budget_limit_vnd": 120000000,
+            "empty_furniture": False, "room_type": "living",
+        }).json()
+        pid = created["project_id"]
+        result = client.post("/api/v1/chat/messages", json={
+            "project_id": pid,
+            "message": "Thêm một TV 55 inch đặt trên kệ TV hiện có, kiểm tra lối đi và tạo đề xuất để duyệt",
+        })
+        assert result.status_code == 200
+        metadata = result.json()["metadata"]
+        assert metadata["proposal"]["status"] == "PENDING"
+        assert metadata["proposal"]["diffs"][0]["entity_id"] == "furn_tv_screen_55"
+        proposal_id = metadata["proposal"]["proposal_id"]
+        approved = client.post(f"/api/v1/proposals/{proposal_id}/approve", json={})
+        assert approved.status_code == 200
+        final_project = approved.json()["project"]
+        tv = next(f for f in final_project["furniture_instances"] if f["id"] == "furn_tv_screen_55")
+        assert tv["category"] == "television"
+        assert tv["width_mm"] == 1230.0
+        assert tv["z_mm"] > 500.0
+
+
+def test_skill_router_paraphrases_slots_and_clarification_guard():
+    with TestClient(app) as client:
+        tv_phrases = [
+            "Thêm một TV 55 inch đặt trên kệ TV",
+            "Bổ sung tivi 65 inch trên kệ hiện có",
+            "Tôi muốn gắn màn hình 55 inch ở khu vực kệ tivi",
+        ]
+        for phrase in tv_phrases:
+            routed = client.post("/api/v1/skills/route", json={"text": phrase}).json()
+            assert routed["skill_id"] == "furniture.add_television"
+            assert routed["confidence"] >= 0.8
+            assert routed["assigned_agent"] == "agent_furniture"
+            assert routed["slots"]["size_inch"] in {55, 65}
+            assert routed["requires_approval"] is True
+
+        sofa = client.post("/api/v1/skills/route", json={"text": "Ghế sofa hơi to, thay loại nhỏ hơn 1.8m"}).json()
+        assert sofa["skill_id"] == "furniture.replace_sofa"
+        assert sofa["slots"]["max_width_mm"] == 1800
+
+        unclear = client.post("/api/v1/skills/route", json={"text": "Thêm cho tôi một món đồ đẹp hơn"}).json()
+        assert unclear["requires_clarification"] is True
+        assert unclear["confidence"] < 0.8
+        assert unclear["clarification_question"]
+
+        plant_route = client.post("/api/v1/skills/route", json={"text": "Thêm 1 chậu hoa đặt trên bàn trà gỗ sồi bo góc"}).json()
+        assert plant_route["skill_id"] == "decor.add_plant"
+        assert plant_route["slots"]["placement"] == "coffee_table"
+        assert plant_route["confidence"] >= 0.9
+
+        plant_result = client.post("/api/v1/chat/messages", json={
+            "project_id": "proj_demo_4x5m", "message": "Thêm 1 chậu hoa đặt trên bàn trà gỗ sồi bo góc",
+        })
+        assert plant_result.status_code == 200
+        plant_proposal = plant_result.json()["metadata"]["proposal"]
+        assert plant_proposal["diffs"][0]["entity_id"] == "decor_flower_pot_coffee_table"
+        approved = client.post(f"/api/v1/proposals/{plant_proposal['proposal_id']}/approve", json={}).json()
+        pot = next(f for f in approved["project"]["furniture_instances"] if f["id"] == "decor_flower_pot_coffee_table")
+        assert pot["category"] == "plant"
+        assert pot["z_mm"] > 400

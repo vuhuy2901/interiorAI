@@ -6,6 +6,7 @@ Workflow Runs, and Audit Logs.
 """
 from __future__ import annotations
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ from app.services.cost_engine import calculate_project_estimate
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 DATA_DIR = ROOT_DIR / "data"
-DB_PATH = DATA_DIR / "atelier.db"
+DB_PATH = Path(os.environ.get("ATELIER_DB_PATH", str(DATA_DIR / "atelier.db")))
 
 
 def now_iso() -> str:
@@ -35,9 +36,11 @@ def now_iso() -> str:
 
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)
+    # Autocommit prevents a connection from holding a write transaction while
+    # Telegram/HTTP handlers await network calls on another connection.
+    conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 
@@ -514,6 +517,8 @@ DEFAULT_WORKFLOW: Dict[str, Any] = {
 
 def init_db() -> None:
     conn = get_conn()
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     cur = conn.cursor()
     cur.executescript(
         """
@@ -592,6 +597,42 @@ def init_db() -> None:
             project_id TEXT NOT NULL,
             status TEXT NOT NULL,
             payload_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS task_progress (
+            task_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT,
+            status TEXT NOT NULL,
+            progress_pct INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS telegram_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            payload_json TEXT NOT NULL,
+            bot_token TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS telegram_delivery_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT,
+            delivery_mode TEXT NOT NULL,
+            method TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message_text TEXT NOT NULL,
+            response_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS telegram_chat_sessions (
+            chat_id TEXT PRIMARY KEY,
+            active_project_id TEXT,
+            last_update_id INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL
         );
         """
