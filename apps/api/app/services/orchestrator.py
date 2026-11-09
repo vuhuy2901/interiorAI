@@ -730,6 +730,55 @@ async def process_user_chat_message(
             "inventory_bom": bom.model_dump(),
         }
 
+    # CASE 4E: Ambiguous feedback handling (Chief Architect Rule 3 & Test Case 5)
+    # Converts vague feedback ("chưa đẹp", "chưa sang", "xấu", "chưa ưng") into 1 clarifying question + 2-3 concrete options.
+    elif any(k in lower_txt for k in ["chưa đẹp", "chưa sang", "không đẹp", "xấu", "chưa ưng", "sang hơn", "chưa ổn", "chưa hài lòng"]):
+        q_id = f"q_{uuid.uuid4().hex[:10]}"
+        q_req = QuestionRequest(
+            question_id=q_id,
+            project_id=project_id,
+            origin_agent="agent_concierge",
+            context="Khách hàng nhận xét không gian 'chưa đẹp / chưa sang', cần chuyển thành câu hỏi làm rõ + 3 hướng cụ thể.",
+            question_text="Kiến Trúc Sư Trưởng đã ghi nhận góp ý của bạn. Để biến không gian trở nên tinh tế và sang trọng hơn đúng ý bạn, bạn mong muốn điều chỉnh theo trọng tâm nào nhất?",
+            why_needed="Chief Architect Quy tắc 3: Chuyển nhận xét mơ hồ thành 1 câu hỏi làm rõ kèm 2-3 hướng cụ thể trước khi tạo Task.",
+            choices=[
+                QuestionChoice(
+                    id="opt_lighting",
+                    label="Phương án A: Nâng cấp ánh sáng & Mood",
+                    description="Hắt trần gián tiếp, đèn ray rọi điểm nhấn 3000K ấm cúng. Khe hắt trần thạch cao + đèn rọi tranh nghệ thuật.",
+                ),
+                QuestionChoice(
+                    id="opt_accent_wall",
+                    label="Phương án B: Tạo mảng tường điểm nhấn kiến trúc",
+                    description="Accent Wall sơn màu Sage mist hoặc ốp vách nan gỗ tự nhiên, tăng chiều sâu và vẻ sang trọng cho phòng.",
+                ),
+                QuestionChoice(
+                    id="opt_declutter_luxury",
+                    label="Phương án C: Tinh giản nội thất & Nâng cấp vật liệu cao cấp",
+                    description="Japandi Luxury, da/nỉ cao cấp, giải phóng diện tích thông thủy, mở rộng tầm nhìn thoáng đãng và đẳng cấp.",
+                ),
+            ],
+            allow_free_text=True,
+            blocking=True,
+            resume_token=f"resume_{uuid.uuid4().hex[:8]}",
+            status="PENDING",
+            created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (q_id, project_id, "PENDING", q_req.model_dump_json(), q_req.created_at),
+        )
+        conn.commit()
+        reply_text = (
+            "🏛️ **Ý kiến từ Kiến Trúc Sư Trưởng:**\n\n"
+            "Tôi hoàn toàn thấu hiểu cảm giác của bạn! Một không gian đẹp và sang trọng cần sự hài hòa chặt chẽ giữa **ánh sáng kiến trúc, chất cảm vật liệu và độ thoáng của bố cục**.\n\n"
+            "Để tôi cùng đội ngũ chuyên gia (Style, Lighting, Furniture) triển khai chính xác phương án nâng cấp cho bạn, xin mời bạn chọn 1 trong 3 hướng đột phá bên dưới:"
+        )
+        meta = {
+            "agent_id": "agent_concierge",
+            "question_request": q_req.model_dump(),
+        }
+
     # CASE 5: General design consultation / Layout Options A/B/C request
     else:
         options = generate_design_options(project)

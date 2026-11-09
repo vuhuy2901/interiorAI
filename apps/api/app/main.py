@@ -661,6 +661,46 @@ def api_list_agents():
     return [json.loads(r["payload_json"]) for r in rows]
 
 
+@app.get("/api/v1/agents/prompts")
+def api_get_all_agent_prompts():
+    from app.services.agent_prompts import AGENT_SPECIFIC_PROMPTS, build_agent_system_prompt
+    result = []
+    for key, spec in AGENT_SPECIFIC_PROMPTS.items():
+        result.append({
+            "key": key,
+            "name": spec["name"],
+            "role_title": spec["role_title"],
+            "allowed_tools": spec["allowed_tools"],
+            "forbidden_tools": spec["forbidden_tools"],
+            "token_limit": spec["token_limit"],
+            "system_prompt": build_agent_system_prompt(key),
+        })
+    return result
+
+
+@app.get("/api/v1/agents/evaluation/test-cases")
+def api_get_prompt_test_cases():
+    from app.services.agent_prompts import TEST_CASES_SPEC
+    return TEST_CASES_SPEC
+
+
+@app.get("/api/v1/agents/{agent_key}/prompt")
+def api_get_agent_prompt(agent_key: str):
+    from app.services.agent_prompts import AGENT_SPECIFIC_PROMPTS, build_agent_system_prompt
+    if agent_key not in AGENT_SPECIFIC_PROMPTS:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_key}' not found in prompt registry")
+    spec = AGENT_SPECIFIC_PROMPTS[agent_key]
+    return {
+        "key": agent_key,
+        "name": spec["name"],
+        "role_title": spec["role_title"],
+        "allowed_tools": spec["allowed_tools"],
+        "forbidden_tools": spec["forbidden_tools"],
+        "token_limit": spec["token_limit"],
+        "system_prompt": build_agent_system_prompt(agent_key),
+    }
+
+
 @app.put("/api/v1/agents/{agent_id}")
 def api_update_agent(agent_id: str, payload: Dict[str, Any]):
     conn = get_conn()
@@ -680,6 +720,7 @@ def api_update_agent(agent_id: str, payload: Dict[str, Any]):
     conn.commit()
     conn.close()
     return payload
+
 
 
 @app.get("/api/v1/connections")
