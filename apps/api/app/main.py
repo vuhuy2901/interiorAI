@@ -40,7 +40,13 @@ from app.models.contracts import (
     DesignBrief,
     FurnitureInstance,
     WallTileZone,
+    WallSegment,
+    RoomZone,
+    DoorOpening,
+    WindowOpening,
+    ScaleCalibration,
 )
+from app.services.render_engine import render_scene_visual
 from app.services.cad_export import (
     ensure_sample_dxf_seed,
     export_boq_csv,
@@ -338,6 +344,19 @@ async def api_import_floorplan(
     if proj:
         proj.scale_calibrated = parsed["scale_calibrated"]
         proj.approval_state = "APPROVED" if parsed["scale_calibrated"] else "WAITING_FOR_INPUT"
+        if parsed.get("walls"):
+            proj.walls = [WallSegment(**w) for w in parsed["walls"]]
+        if parsed.get("rooms"):
+            proj.rooms = [RoomZone(**r) for r in parsed["rooms"]]
+        if parsed.get("openings"):
+            proj.openings = [DoorOpening(**d) for d in parsed["openings"]]
+        if parsed.get("windows"):
+            proj.windows = [WindowOpening(**w) for w in parsed["windows"]]
+        if parsed.get("scale_reference"):
+            proj.scale_reference = ScaleCalibration(**parsed["scale_reference"])
+        sync_res = await sync_canonical_to_pascal(proj)
+        if sync_res.get("ok") and sync_res.get("sceneJson"):
+            proj.pascal_scene_json = sync_res["sceneJson"]
         save_project(proj, author="FloorPlan Intake", reason=f"Nhập mặt bằng {fname}", bump_revision=True)
 
     return {
@@ -974,3 +993,44 @@ def api_generate_blender_mesh(body: BlenderMeshPayload):
         output_glb_path=out_path,
     )
     return res
+
+
+
+# ==============================================================================
+# 3D PERSPECTIVE RENDERING ENGINE (Upgrade 7)
+# ==============================================================================
+class RenderScenePayload(BaseModel):
+    camera: str = "perspective"
+    time_of_day: str = "day"
+    seed: int = 1234
+    width_px: int = 1200
+    height_px: int = 800
+
+
+@app.post("/api/v1/projects/{project_id}/render")
+def api_render_project_scene(project_id: str, body: RenderScenePayload = RenderScenePayload()):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    out_dir = ROOT_DIR / "data" / "exports" / "renders"
+    out_path = out_dir / f"{project_id}_rev{proj.revision}_{body.time_of_day}.png"
+    result = render_scene_visual(
+        project=proj,
+        out_path=out_path,
+        camera=body.camera,
+        time_of_day=body.time_of_day,
+        seed=body.seed,
+        width_px=body.width_px,
+        height_px=body.height_px,
+    )
+    result["render_url"] = f"/api/v1/renders/{out_path.name}"
+    return result
+
+
+@app.get("/api/v1/renders/{filename}")
+def api_get_rendered_image(filename: str):
+    file_path = ROOT_DIR / "data" / "exports" / "renders" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy ảnh kết xuất")
+    return FileResponse(path=str(file_path), filename=filename, media_type="image/png")

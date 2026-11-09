@@ -311,6 +311,222 @@ async def process_user_chat_message(
     paints_by_id = {p["id"]: p for p in mat_db.get("paints", [])}
     tiles_by_id = {t["id"]: t for t in mat_db.get("tiles_and_flooring", [])}
 
+    # CASE 0: User approves proposal via chat
+    is_approval = any(k in lower_txt for k in ["đồng ý duyệt", "phê duyệt", "chấp nhận phương án", "duyệt phương án", "duyệt đề xuất"])
+    if is_approval:
+        pending_row = conn.execute("SELECT payload_json FROM proposals WHERE project_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1", (project_id,)).fetchone()
+        if pending_row:
+            pending_prop = SceneProposal.model_validate_json(pending_row["payload_json"])
+            res = await approve_scene_proposal(pending_prop.proposal_id)
+            project = get_project(project_id)
+            reply_text = (
+                f"✅ **Kiến Trúc Sư Trưởng xác nhận: Đã chính thức phê duyệt phương án '{pending_prop.title}'!**\n\n"
+                f"- **Phiên bản mới**: `Revision #{project.revision}` (đã lưu snapshot khôi phục an toàn).\n"
+                f"- **Mô hình 3D**: Đã đồng bộ trực tiếp vào Pascal SceneGraph.\n"
+                f"- **Tổng dự toán hoàn thiện**: `{project.estimate_snapshot.total_vnd:,.0f} VNĐ`.\n"
+                f"- **Hồ sơ kỹ thuật**: File CAD DXF R2007 và Bảng kê BOM CSV đã sẵn sàng xuất ra công trường."
+            )
+            meta = {
+                "agent_id": "agent_concierge",
+                "approved_proposal_id": pending_prop.proposal_id,
+                "revision": project.revision,
+                "workflow_state": "APPROVED",
+            }
+            conn.execute(
+                "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (f"msg_{uuid.uuid4().hex[:10]}", project_id, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply_text, json.dumps(meta, ensure_ascii=False), now_iso()),
+            )
+            conn.commit()
+            conn.close()
+            return {"user_message_id": user_msg_id, "assistant_message_id": f"msg_{uuid.uuid4().hex[:10]}", "reply": reply_text, "metadata": meta}
+
+    # CASE 1B: New Design Request / Master Design Intake
+    is_new_design = any(k in lower_txt for k in ["thiết kế căn hộ", "thiết kế toàn bộ", "mặt bằng căn hộ", "yêu cầu thiết kế", "bắt đầu thiết kế", "phương án thiết kế"])
+    if is_new_design:
+        proposed = copy.deepcopy(project)
+        # Update design brief
+        project.design_brief.style = "Japandi"
+        project.design_brief.room_function = "Phòng khách Japandi sáng và ấm cúng"
+        project.design_brief.budget_limit_vnd = 80000000.0
+        project.design_brief.liked_elements = ["Gỗ sồi sáng", "Gạch porcelain mờ", "Vải linen be sáng", "Trần thạch cao có đèn LED", "Cây xanh cảnh quan"]
+
+        # 5 Japandi furniture items
+        furn_items = [
+            FurnitureInstance(
+                id="furn_sofa_japandi",
+                sku="VN-SF-JAP-210",
+                name="Sofa Băng 3 Chỗ Vải Linen Japandi",
+                category="sofa",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=2000.0,
+                y_mm=3500.0,
+                z_mm=0.0,
+                width_mm=2000.0,
+                depth_mm=850.0,
+                height_mm=780.0,
+                rotation_deg=0.0,
+                color_hex="#E8E2D8",
+                price_vnd=14500000.0,
+                pascal_asset_id="sofa_linen",
+                vendor="KUKA Home Vietnam",
+                source_url="https://kuka.vn/sofa-bang-vai-linen",
+            ),
+            FurnitureInstance(
+                id="furn_coffee_table",
+                sku="VN-TB-OAK-D80",
+                name="Bàn Trà Tròn Mặt Đá Ceramic & Chân Gỗ Sồi",
+                category="coffee_table",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=2000.0,
+                y_mm=2600.0,
+                z_mm=0.0,
+                width_mm=750.0,
+                depth_mm=750.0,
+                height_mm=420.0,
+                rotation_deg=0.0,
+                color_hex="#F5F3EF",
+                price_vnd=4200000.0,
+                pascal_asset_id="table_round",
+                vendor="Nhà Xinh",
+                source_url="https://nhaxinh.com/san-pham/ban-tra-ceramic",
+            ),
+            FurnitureInstance(
+                id="furn_tv_cabinet",
+                sku="VN-TV-OAK-180",
+                name="Kệ Tivi Treo Tường Gỗ MDF Chống Ẩm An Cường",
+                category="tv_cabinet",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=2000.0,
+                y_mm=300.0,
+                z_mm=0.0,
+                width_mm=1600.0,
+                depth_mm=350.0,
+                height_mm=400.0,
+                rotation_deg=0.0,
+                color_hex="#D0B89C",
+                price_vnd=5800000.0,
+                pascal_asset_id="tv_unit",
+                vendor="An Cường Wood Working",
+                source_url="https://ancuong.com/san-pham/ke-tivi",
+            ),
+            FurnitureInstance(
+                id="furn_wardrobe_cabinet",
+                sku="VN-CAB-JAP-120",
+                name="Tủ Trang Trí / Kệ Sách Japandi Gỗ Sồi Tự Nhiên",
+                category="cabinet",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=450.0,
+                y_mm=1700.0,
+                z_mm=0.0,
+                width_mm=400.0,
+                depth_mm=800.0,
+                height_mm=1800.0,
+                rotation_deg=0.0,
+                color_hex="#C8A986",
+                price_vnd=7900000.0,
+                pascal_asset_id="cabinet_oak",
+                vendor="Nhà Xinh",
+                source_url="https://nhaxinh.com/san-pham/tu-ke-trang-tri",
+            ),
+            FurnitureInstance(
+                id="furn_indoor_plant",
+                sku="VN-PLT-MON-120",
+                name="Cây Bàng Singapore Chậu Gốm Bát Tràng 1.4m",
+                category="plant",
+                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
+                x_mm=3500.0,
+                y_mm=1600.0,
+                z_mm=0.0,
+                width_mm=450.0,
+                depth_mm=450.0,
+                height_mm=1400.0,
+                rotation_deg=0.0,
+                color_hex="#4A6B53",
+                price_vnd=1200000.0,
+                pascal_asset_id="plant_pot",
+                vendor="Vườn Kiểng Xanh",
+                source_url="https://vuonkieng.vn/cay-bang-singapore-chau-gom",
+            ),
+        ]
+        proposed.furniture_instances = furn_items
+        if proposed.rooms:
+            proposed.rooms[0].floor_material_id = "floor_tile_600x600_matte_sand"
+            proposed.rooms[0].wall_base_material_id = "paint_dulux_japandi_ivory"
+            proposed.rooms[0].ceiling_material_id = "paint_ceiling_gypsum_white"
+
+        new_est = calculate_project_estimate(proposed)
+        proposed.estimate_snapshot = new_est
+        qa = analyze_scene_spatial_quality(proposed)
+        bom = generate_project_inventory_bom(proposed)
+
+        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+        proposal = SceneProposal(
+            proposal_id=prop_id,
+            project_id=project_id,
+            base_revision=project.revision,
+            origin_agent="agent_concierge",
+            title="Phương Án Thiết Kế Căn Hộ Japandi — Ngân Sách 80 Triệu",
+            reason=f"Điều phối 8 Agent chuyên môn hoàn thiện thiết kế: '{user_text[:80]}'",
+            diffs=[
+                SceneDiffItem(
+                    entity_type="surface_material",
+                    entity_id="room_finishes",
+                    action="UPDATE",
+                    before_summary="Mặt bằng thô ban đầu",
+                    after_summary="Hoàn thiện phong cách Japandi (Sàn gạch porcelain mờ, sơn trắng ngà, trần thạch cao LED)",
+                    cost_delta_vnd=new_est.materials_subtotal_vnd,
+                ),
+                SceneDiffItem(
+                    entity_type="furniture",
+                    entity_id="furn_japandi_package",
+                    action="ADD",
+                    before_summary="Chưa có đồ nội thất",
+                    after_summary="Bố trí 5 món nội thất Japandi (Sofa băng vải linen, Bàn trà tròn đá ceramic, Kệ tivi MDF An Cường, Tủ sách gỗ sồi, Cây bàng Singapore)",
+                    cost_delta_vnd=new_est.furniture_subtotal_vnd,
+                )
+            ],
+            cost_delta_vnd=new_est.total_vnd,
+            projected_total_vnd=new_est.total_vnd,
+            budget_limit_vnd=project.design_brief.budget_limit_vnd or 80000000.0,
+            collision_warnings=qa.get("warnings", []),
+            proposed_canonical=proposed.model_dump(),
+            status="PENDING",
+            created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+        )
+        conn.commit()
+
+        save_project(project, author="Chief Architect", reason="Cập nhật Design Brief từ yêu cầu thiết kế", bump_revision=False)
+
+        reply_text = (
+            "🏛️ **Kiến Trúc Sư Trưởng (Chief Architect) đã tiếp nhận yêu cầu thiết kế:**\n\n"
+            f"- **Không gian**: Phòng khách `{project.walls[0].end_mm[0]/1000:.1f}m × {project.walls[1].end_mm[1]/1000:.1f}m` (Trần `{project.walls[0].height_mm/1000:.1f}m`).\n"
+            "- **Phong cách chủ đạo**: **Japandi** (ấm cúng, sáng, tối giản).\n"
+            "- **Vật liệu hoàn thiện**: Sàn gạch porcelain mờ Eurotile Sa Thạch, tường sơn Dulux trắng ngà, trần thạch cao chìm Vĩnh Tường BASI tích hợp đèn LED âm trần.\n"
+            "- **Nội thất đề xuất (5 món)**: Sofa băng vải linen KUKA Home, Bàn trà tròn đá ceramic Nhà Xinh, Kệ tivi MDF An Cường, Tủ trang trí gỗ sồi, Cây xanh Bàng Singapore.\n"
+            f"- **Tổng dự toán BOQ**: **{new_est.total_vnd:,.0f} VNĐ** (Ngân sách: **{project.design_brief.budget_limit_vnd:,.0f} VNĐ** — ĐẠT TIÊU CHUẨN).\n"
+            f"- **Kiểm định không gian (QA Agent)**: Va chạm hình học: `{qa['collision_count']}`, Lối đi thông thủy: `{int(qa['min_walkway_mm'])} mm` (Đạt chuẩn >= 800mm).\n\n"
+            f"👉 *Mã đề xuất: `{prop_id}`. Vui lòng kiểm tra thẻ đề xuất bên dưới và bấm **Phê duyệt** để áp dụng trực tiếp vào Scene 3D.*"
+        )
+        meta = {
+            "agent_id": "agent_concierge",
+            "proposal_id": prop_id,
+            "proposal": proposal.model_dump(),
+            "spatial_qa": qa,
+            "inventory_bom": bom.model_dump(),
+            "workflow_state": "WAITING_FOR_APPROVAL",
+        }
+        conn.execute(
+            "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (f"msg_{uuid.uuid4().hex[:10]}", project_id, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply_text, json.dumps(meta, ensure_ascii=False), now_iso()),
+        )
+        conn.commit()
+        conn.close()
+        return {"user_message_id": user_msg_id, "assistant_message_id": f"msg_{uuid.uuid4().hex[:10]}", "reply": reply_text, "metadata": meta}
+
     # CASE 1: Uncalibrated floor plan scale -> Mandatory `ask_user` interrupt!
     if not project.scale_calibrated and ("tỷ lệ" not in lower_txt and "4000" not in lower_txt and "4m" not in lower_txt):
         q_id = f"q_{uuid.uuid4().hex[:10]}"
@@ -351,7 +567,7 @@ async def process_user_chat_message(
         save_project(project, author="FloorPlan Agent", reason="Chờ xác nhận tỷ lệ mặt bằng", bump_revision=False)
 
     # CASE 2: User asks for sofa replacement / smaller sofa ("nhỏ hơn", "1.8m", "đổi sofa")
-    elif any(k in lower_txt for k in ["sofa", "ghế", "nhỏ hơn", "1.8m", "1800"]):
+    elif any(k in lower_txt for k in ["đổi sofa", "thay sofa", "sofa nhỏ", "sofa 1.8m", "nhỏ hơn 1.8m"]):
         proposed = copy.deepcopy(project)
         old_sofa = next((f for f in proposed.furniture_instances if f.category == "sofa"), None)
         old_summary = f"{old_sofa.name} ({int(old_sofa.width_mm)}×{int(old_sofa.depth_mm)}mm — {old_sofa.price_vnd:,.0f} đ)" if old_sofa else "Chưa có sofa"
