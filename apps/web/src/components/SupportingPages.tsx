@@ -1,14 +1,14 @@
 /**
- * ATELIER AI — Supporting Studio Pages (Sections 11, 12 & 19 Phase 5)
+ * ATELIER AI — Supporting Studio Pages (Sections 11, 12 & 19 Phase 5 + G5/G6 Real Blender Cycles Integration)
  * Includes:
- * 1. DashboardOverviewPage (Project summary, spatial metrics, quick navigation)
+ * 1. DashboardOverviewPage (Project summary, spatial metrics, quick navigation, create new project)
  * 2. FloorPlanImportPage (2D DXF/PDF/PNG/JPG upload & 1-edge mandatory Scale Calibration Gate)
  * 3. MaterialsAndCatalogPage (Section 7B Paint/Accent/Floor Library + Vietnamese Furniture Catalog Fit-Check & Replace)
- * 4. RenderGalleryPage (Viewport renders + CAD/BIM Export integration hub)
+ * 4. RenderAndCadPage (Real Blender Cycles 4.2 LTS Preview & Final Render Queue, Cancel, Retry, Cache, Gallery, Download, Watermark & CAD/BIM Export hub)
  * 5. CostEstimationPage (Financial Dashboard BOQ with right-aligned monospace numbers, budget variance, CSV/XLSX export)
  * 6. AIConnectionsSettingsPage (Multi-provider API/CLI/MCP/Ollama connections with REDACTED secrets & Low-Spec mode)
  */
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Box,
   Upload,
@@ -25,6 +25,10 @@ import {
   ArrowUpRight,
   Layers,
   Check,
+  Play,
+  XCircle,
+  Sparkles,
+  Plus,
 } from 'lucide-react'
 import { StudioViewport } from './StudioViewport'
 
@@ -39,9 +43,30 @@ export const DashboardOverviewPage: React.FC<{
   mcpToolsCount: number
   onOpenWorkspace: (projectId?: string) => void
   onNavigate: (tab: any) => void
-}> = ({ projects, project, mcpToolsCount, onOpenWorkspace, onNavigate }) => {
+  onCreateProject?: (name: string, style: string, budgetLimitVnd: number) => Promise<any>
+}> = ({ projects, project, mcpToolsCount, onOpenWorkspace, onNavigate, onCreateProject }) => {
+  const [newProjName, setNewProjName] = useState('')
+  const [newProjStyle, setNewProjStyle] = useState('Japandi — Sáng, ấm cúng')
+  const [newProjBudget, setNewProjBudget] = useState(95000000)
+  const [creating, setCreating] = useState(false)
+
   const est = project?.estimate_snapshot
   const budgetDiff = (est?.budget_limit_vnd || 120000000) - (est?.total_vnd || 0)
+
+  const handleCreate = async () => {
+    if (!newProjName.trim() || !onCreateProject) return
+    setCreating(true)
+    try {
+      const created = await onCreateProject(newProjName.trim(), newProjStyle, newProjBudget)
+      setNewProjName('')
+      if (created?.project_id) {
+        onOpenWorkspace(created.project_id)
+        onNavigate('import')
+      }
+    } finally {
+      setCreating(false)
+    }
+  }
 
   return (
     <div className="page-container">
@@ -62,6 +87,67 @@ export const DashboardOverviewPage: React.FC<{
         </div>
       </div>
 
+      {/* Create New Project Bar (Step 8.1 Black-Box E2E Support) */}
+      {onCreateProject && (
+        <div
+          className="surface-card"
+          data-testid="create-project-card"
+          style={{
+            marginBottom: 18,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 10,
+            alignItems: 'flex-end',
+          }}
+        >
+          <div style={{ flex: '1 1 240px' }}>
+            <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              Tên dự án mới
+            </label>
+            <input
+              data-testid="new-project-name-input"
+              type="text"
+              className="field-input"
+              placeholder="VD: Căn hộ 2PN Thảo Điền — Japandi"
+              value={newProjName}
+              onChange={(e) => setNewProjName(e.target.value)}
+            />
+          </div>
+          <div style={{ width: 210 }}>
+            <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              Phong cách thiết kế
+            </label>
+            <input
+              data-testid="new-project-style-input"
+              type="text"
+              className="field-input"
+              value={newProjStyle}
+              onChange={(e) => setNewProjStyle(e.target.value)}
+            />
+          </div>
+          <div style={{ width: 170 }}>
+            <label className="text-caption" style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              Ngân sách trần (VNĐ)
+            </label>
+            <input
+              data-testid="new-project-budget-input"
+              type="number"
+              className="field-input mono"
+              value={newProjBudget}
+              onChange={(e) => setNewProjBudget(Number(e.target.value))}
+            />
+          </div>
+          <button
+            data-testid="create-project-submit-btn"
+            className="btn btn-primary"
+            disabled={creating || !newProjName.trim()}
+            onClick={handleCreate}
+          >
+            <Plus size={14} /> {creating ? 'Đang khởi tạo...' : 'Tạo Dự Án Mới'}
+          </button>
+        </div>
+      )}
+
       {/* Key Architectural & Financial Metrics */}
       <div
         style={{
@@ -75,7 +161,9 @@ export const DashboardOverviewPage: React.FC<{
           <div className="text-caption">Dự án đang làm việc</div>
           <div style={{ fontSize: 15.5, fontWeight: 600, marginTop: 6 }}>{project?.name}</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            <span className="status-badge teal">4000 × 5000 mm (20 m²)</span>
+            <span className="status-badge teal">
+              {project?.rooms?.[0]?.area_m2 || 20} m²
+            </span>
             <span className="status-badge emerald">Rev #{project?.revision}</span>
           </div>
         </div>
@@ -109,7 +197,7 @@ export const DashboardOverviewPage: React.FC<{
             {mcpToolsCount || 80} BIM Tools
           </div>
           <div style={{ fontSize: 12, color: 'var(--emerald-text)', marginTop: 6 }}>
-            ✓ @pascal-app/mcp v1.0.7 đã kết nối
+            ✓ @pascal-app/mcp v1.0.7 + Blender Cycles 4.2 LTS
           </div>
         </div>
       </div>
@@ -203,6 +291,7 @@ export const FloorPlanImportPage: React.FC<{
           </label>
           <input
             id="floorplan-upload-input"
+            data-testid="floorplan-upload-input"
             type="file"
             accept=".dxf,.pdf,.png,.jpg,.jpeg"
             onChange={onUploadFloorplan}
@@ -211,7 +300,7 @@ export const FloorPlanImportPage: React.FC<{
           {uploadingFile && <span className="status-badge teal">Đang phân tích hình học mặt bằng...</span>}
 
           {lastImportResult && (
-            <div className="surface-subtle" style={{ marginTop: 6 }}>
+            <div className="surface-subtle" data-testid="import-parsed-summary" style={{ marginTop: 6 }}>
               <div style={{ fontWeight: 600, fontSize: 13 }}>Kết quả bóc tách: {lastImportResult.filename}</div>
               <div className="mono" style={{ fontSize: 12, marginTop: 4 }}>
                 • Kích thước bao: {lastImportResult.parsed?.width_mm} × {lastImportResult.parsed?.depth_mm} mm
@@ -237,18 +326,19 @@ export const FloorPlanImportPage: React.FC<{
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 id="scale-edge-mm"
+                data-testid="scale-edge-mm-input"
                 type="number"
                 className="field-input mono"
                 value={scaleInputMm}
                 onChange={(e) => onScaleInputChange(Number(e.target.value))}
               />
-              <button className="btn btn-primary" onClick={onConfirmScale}>
+              <button data-testid="confirm-scale-btn" className="btn btn-primary" onClick={onConfirmScale}>
                 <ShieldCheck size={14} /> Khóa Tỷ Lệ & Dựng 3D
               </button>
             </div>
           </div>
 
-          <div className="surface-subtle">
+          <div className="surface-subtle" data-testid="scale-status-box">
             <div className="text-caption" style={{ fontWeight: 600 }}>Trạng thái hiệu chuẩn hiện tại:</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
               <span className={`status-badge ${project?.scale_calibrated ? 'emerald' : 'amber'}`}>
@@ -299,12 +389,14 @@ export const MaterialsAndCatalogPage: React.FC<{
 
         <div className="segmented-group">
           <button
+            data-testid="tab-surfaces-7b"
             className={`seg-btn ${sectionView === 'surfaces' ? 'active' : ''}`}
             onClick={() => setSectionView('surfaces')}
           >
             Sơn Tường & Gạch Sàn (Mục 7B)
           </button>
           <button
+            data-testid="tab-furniture-catalog"
             className={`seg-btn ${sectionView === 'catalog' ? 'active' : ''}`}
             onClick={() => setSectionView('catalog')}
           >
@@ -433,6 +525,7 @@ export const MaterialsAndCatalogPage: React.FC<{
 
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
+                      data-testid={`apply-floor-${t.id}`}
                       className={`btn btn-sm ${isFloor ? 'btn-primary' : ''}`}
                       style={{ flex: 1 }}
                       onClick={() => onUpdateSurfaces7B({ floor_material_id: t.id })}
@@ -462,10 +555,15 @@ export const MaterialsAndCatalogPage: React.FC<{
           {catalog.map((item: any) => {
             const fit = fitCheckResults[item.sku]
             return (
-              <div key={item.sku} className="surface-card interactive" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div
+                key={item.sku}
+                data-testid={`catalog-card-${item.sku}`}
+                className="surface-card interactive"
+                style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="status-badge teal">{item.sku}</span>
-                  <span className="status-badge amber">GIÁ MINH HỌA</span>
+                  <span className="status-badge amber">GIÁ THAM KHẢO</span>
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -499,6 +597,7 @@ export const MaterialsAndCatalogPage: React.FC<{
                 {fit && (
                   <div
                     className="surface-subtle"
+                    data-testid={`fit-result-${item.sku}`}
                     style={{
                       fontSize: 11.5,
                       borderColor: fit.overall_fit ? 'var(--emerald-border)' : 'var(--rose-border)',
@@ -513,10 +612,20 @@ export const MaterialsAndCatalogPage: React.FC<{
                 )}
 
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => onFitCheck(item.sku)}>
+                  <button
+                    data-testid={`fit-check-${item.sku}`}
+                    className="btn btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={() => onFitCheck(item.sku)}
+                  >
                     Kiểm tra vừa phòng
                   </button>
-                  <button className="btn btn-sm btn-primary" style={{ flex: 1 }} onClick={() => onReplaceFromCatalog(item.sku)}>
+                  <button
+                    data-testid={`replace-sku-${item.sku}`}
+                    className="btn btn-sm btn-primary"
+                    style={{ flex: 1 }}
+                    onClick={() => onReplaceFromCatalog(item.sku)}
+                  >
                     Thay vào Scene 3D
                   </button>
                 </div>
@@ -530,35 +639,352 @@ export const MaterialsAndCatalogPage: React.FC<{
 }
 
 // ============================================================================
-// 4. RENDER GALLERY & CAD EXPORT INTEGRATION PAGE
+// 4. RENDER GALLERY (BLENDER CYCLES G5/G6) & CAD EXPORT INTEGRATION PAGE
 // ============================================================================
 export const RenderAndCadPage: React.FC<{
   project: any
   materialsDb: any
-}> = ({ project, materialsDb }) => {
+  pbrMaterials?: any[]
+  onNotify?: (msg: string) => void
+  onRefreshChat?: () => void
+}> = ({ project, materialsDb, pbrMaterials = [], onNotify, onRefreshChat }) => {
+  const [blenderProbe, setBlenderProbe] = useState<any>(null)
+  const [renderJobs, setRenderJobs] = useState<any[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('eye_level')
+  const [selectedLighting, setSelectedLighting] = useState<string>('day')
+  const [submittingJob, setSubmittingJob] = useState<boolean>(false)
+  const [verifyingBridge, setVerifyingBridge] = useState<boolean>(false)
+  const [bridgeResult, setBridgeResult] = useState<any>(null)
+
+  const fetchRenderState = async () => {
+    if (!project?.project_id) return
+    try {
+      const [probeRes, jobsRes] = await Promise.all([
+        fetch('/api/v1/render/capabilities').then((r) => r.json()),
+        fetch(`/api/v1/projects/${project.project_id}/render-jobs`).then((r) => r.json()),
+      ])
+      setBlenderProbe(probeRes)
+      setRenderJobs(jobsRes?.jobs || [])
+    } catch (err) {
+      console.error('Failed to load render state:', err)
+    }
+  }
+
+  useEffect(() => {
+    fetchRenderState()
+  }, [project?.project_id, project?.revision])
+
+  // Poll active RUNNING/QUEUED jobs automatically
+  useEffect(() => {
+    const hasActive = renderJobs.some((j) => j.status === 'QUEUED' || j.status === 'RUNNING')
+    if (!hasActive || !project?.project_id) return
+    const timer = setInterval(async () => {
+      const jobsRes = await fetch(`/api/v1/projects/${project.project_id}/render-jobs`).then((r) => r.json())
+      const nextJobs = jobsRes?.jobs || []
+      setRenderJobs(nextJobs)
+      if (!nextJobs.some((j: any) => j.status === 'QUEUED' || j.status === 'RUNNING')) {
+        onRefreshChat?.()
+      }
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [renderJobs, project?.project_id])
+
+  const handleStartRender = async (mode: 'preview' | 'final', waitSync = false) => {
+    if (!project) return
+    setSubmittingJob(true)
+    try {
+      const res = await fetch(`/api/v1/projects/${project.project_id}/render-jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          camera_id: selectedCameraId,
+          mode,
+          lighting_preset: selectedLighting,
+          use_cache: true,
+          wait_for_completion: waitSync,
+        }),
+      }).then((r) => r.json())
+      await fetchRenderState()
+      onRefreshChat?.()
+      onNotify?.(
+        res.cache_hit
+          ? `Đã lấy ảnh Cycles từ Render Cache (${res.job_id}).`
+          : `Đã khởi chạy Blender Cycles (${mode.toUpperCase()}) — Job ${res.job_id}`
+      )
+    } finally {
+      setSubmittingJob(false)
+    }
+  }
+
+  const handleCancelJob = async (jobId: string) => {
+    await fetch(`/api/v1/render-jobs/${jobId}/cancel`, { method: 'POST' })
+    await fetchRenderState()
+    onNotify?.(`Đã hủy Render Job ${jobId}.`)
+  }
+
+  const handleRetryJob = async (jobId: string) => {
+    setSubmittingJob(true)
+    try {
+      await fetch(`/api/v1/render-jobs/${jobId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wait_for_completion: false }),
+      })
+      await fetchRenderState()
+      onNotify?.(`Đã chạy lại Render Job từ ${jobId}.`)
+    } finally {
+      setSubmittingJob(false)
+    }
+  }
+
+  const handleVerifySceneBridge = async () => {
+    if (!project) return
+    setVerifyingBridge(true)
+    try {
+      const res = await fetch(`/api/v1/projects/${project.project_id}/scene-bridge/verify`, {
+        method: 'POST',
+      }).then((r) => r.json())
+      setBridgeResult(res)
+      onNotify?.(
+        res.status === 'PASS'
+          ? 'G5 Scene Bridge → Blender .blend: PASS 100% (Khớp số lượng, vị trí, kích thước, Principled BSDF)!'
+          : `Scene Bridge: ${res.status}`
+      )
+    } finally {
+      setVerifyingBridge(false)
+    }
+  }
+
   if (!project) return null
   return (
     <div className="page-container">
       <div className="page-header-bar">
         <div>
-          <h1 className="text-page-title">Phối Cảnh Render 3D & Xuất Hồ Sơ Kỹ Thuật CAD / BIM</h1>
+          <h1 className="text-page-title">Phối Cảnh Blender Cycles (G5/G6) & Xuất Hồ Sơ Kỹ Thuật CAD / BIM</h1>
           <p className="text-body" style={{ marginTop: 4 }}>
-            Góc nhìn Camera khóa 1:1 với hình học Pascal SceneGraph kèm bộ công cụ xuất DXF R2007 (mm), glTF Binary (.GLB), IFC4 và SketchUp COLLADA (.DAE).
+            Kết xuất Path-Tracing thực tế bằng <strong>Blender 4.2 LTS Cycles</strong> từ đúng SceneGraph hiện tại (GLB + Principled BSDF + CC0 HDRI), kèm đóng dấu Revision, Camera ID, Material Hash.
           </p>
         </div>
       </div>
 
-      {/* Render Gallery Cards */}
+      {/* BLENDER CYCLES RENDER CONTROL PANEL & QUEUE (G5 & G6) */}
+      <div
+        className="surface-card"
+        data-testid="cycles-render-panel"
+        style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 14 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div className="text-section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Sparkles size={16} style={{ color: 'var(--accent)' }} />
+              <span>Blender Cycles Ray-Tracing Studio (Headless Render Queue)</span>
+            </div>
+            <div className="mono" style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 3 }}>
+              Engine: {blenderProbe?.version || 'Blender 4.2.3 LTS'} • Cycles:{' '}
+              {blenderProbe?.cycles_available ? 'AVAILABLE' : 'CHECKING'} • GPU:{' '}
+              {blenderProbe?.gpu_Execution || blenderProbe?.gpu_devices?.[0]?.name || 'CUDA / CPU'}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              data-testid="render-camera-select"
+              className="field-select"
+              style={{ width: 175, fontSize: 12 }}
+              value={selectedCameraId}
+              onChange={(e) => setSelectedCameraId(e.target.value)}
+            >
+              <option value="eye_level">Cam: Eye-Level (1.52m)</option>
+              <option value="corner">Cam: Corner Overview</option>
+              <option value="detail_sofa">Cam: Detail Sofa & Table</option>
+              <option value="wide">Cam: Wide Architectural</option>
+              <option value="top">Cam: Top Orthographic</option>
+            </select>
+
+            <select
+              data-testid="render-lighting-select"
+              className="field-select"
+              style={{ width: 135, fontSize: 12 }}
+              value={selectedLighting}
+              onChange={(e) => setSelectedLighting(e.target.value)}
+            >
+              <option value="day">Ánh sáng: Ngày</option>
+              <option value="sunset">Hoàng hôn</option>
+              <option value="night">Ban đêm</option>
+            </select>
+
+            <button
+              data-testid="verify-scene-bridge-btn"
+              className="btn btn-sm"
+              disabled={verifyingBridge}
+              onClick={handleVerifySceneBridge}
+            >
+              <CheckCircle2 size={13} /> {verifyingBridge ? 'Đang kiểm định .blend...' : 'Kiểm định G5 Bridge'}
+            </button>
+
+            <button
+              data-testid="render-preview-btn"
+              className="btn btn-sm btn-soft"
+              disabled={submittingJob}
+              onClick={() => handleStartRender('preview', true)}
+            >
+              <Play size={13} /> {submittingJob ? 'Đang render...' : 'Render Preview (Cycles)'}
+            </button>
+
+            <button
+              data-testid="render-final-btn"
+              className="btn btn-sm btn-primary"
+              disabled={submittingJob}
+              onClick={() => handleStartRender('final', true)}
+            >
+              <Camera size={13} /> {submittingJob ? 'Đang render...' : 'Render Final HD (Cycles)'}
+            </button>
+          </div>
+        </div>
+
+        {/* G5 Scene Bridge Round-Trip Verification Banner */}
+        {bridgeResult && (
+          <div
+            className="surface-subtle"
+            data-testid="scene-bridge-result"
+            style={{
+              fontSize: 12,
+              borderColor: bridgeResult.status === 'PASS' ? 'var(--emerald-border)' : 'var(--amber-border)',
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>
+              G5 Scene Bridge Status: {bridgeResult.status} • File: <span className="mono">{bridgeResult.blend_file}</span>
+            </div>
+            <div className="mono" style={{ fontSize: 11, marginTop: 4 }}>
+              Exact Object Counts: {String(bridgeResult.verification?.assertions?.exact_object_counts)} | All Positions ≤2mm:{' '}
+              {String(bridgeResult.verification?.assertions?.all_positions_within_2mm)} | All Dimensions ≤2mm:{' '}
+              {String(bridgeResult.verification?.assertions?.all_dimensions_within_2mm)} | Material Hash:{' '}
+              {bridgeResult.manifest?.material_hash}
+            </div>
+          </div>
+        )}
+
+        {/* Render Jobs Gallery & Queue */}
+        <div
+          data-testid="render-gallery-grid"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+            gap: 14,
+          }}
+        >
+          {renderJobs.length === 0 ? (
+            <div className="surface-subtle" style={{ gridColumn: '1 / -1', fontSize: 12.5 }}>
+              Chưa có bản render Blender Cycles nào cho dự án này. Nhấn <strong>Render Preview (Cycles)</strong> hoặc <strong>Render Final HD (Cycles)</strong> để kết xuất.
+            </div>
+          ) : (
+            renderJobs.map((job: any) => {
+              const isCompleted = job.status === 'COMPLETED'
+              const isRunning = job.status === 'RUNNING' || job.status === 'QUEUED'
+              return (
+                <div
+                  key={job.job_id}
+                  data-testid={`render-job-card-${job.job_id}`}
+                  className="surface-subtle"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="mono" style={{ fontWeight: 600, fontSize: 12 }}>
+                      {job.job_id} • {String(job.mode).toUpperCase()} ({job.camera_id})
+                    </span>
+                    <span
+                      data-testid={`render-job-status-${job.job_id}`}
+                      className={`status-badge ${
+                        isCompleted ? 'emerald' : isRunning ? 'amber' : 'neutral'
+                      }`}
+                    >
+                      {job.status} {job.cache_hit ? '(CACHE)' : ''}
+                    </span>
+                  </div>
+
+                  {isCompleted && job.image_url && (
+                    <div
+                      style={{
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        border: '1px solid var(--border-strong)',
+                        background: '#09090b',
+                      }}
+                    >
+                      <img
+                        data-testid={`render-job-image-${job.job_id}`}
+                        src={job.image_url}
+                        alt={`Cycles render ${job.job_id}`}
+                        style={{ width: '100%', height: 220, objectFit: 'cover', display: 'block' }}
+                      />
+                    </div>
+                  )}
+
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                    <div>
+                      Rev #{job.revision} | Cam: {job.camera_id} | MatHash: {job.material_hash?.slice(0, 12)}
+                    </div>
+                    <div>
+                      Res: {job.resolution?.[0]}×{job.resolution?.[1]} ({job.samples} samples) •{' '}
+                      {job.duration_ms ? `${(job.duration_ms / 1000).toFixed(2)}s` : 'Đang xử lý'}
+                    </div>
+                    <div style={{ color: 'var(--amber-text)', fontWeight: 600, marginTop: 2 }}>
+                      {job.mandatory_label || 'ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG.'}
+                    </div>
+                  </div>
+
+                  {job.error && (
+                    <div style={{ fontSize: 11, color: 'var(--rose-text)' }}>Lỗi: {job.error}</div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 6, marginTop: 'auto' }}>
+                    {isCompleted && job.download_url && (
+                      <a
+                        data-testid={`render-download-${job.job_id}`}
+                        className="btn btn-sm btn-primary"
+                        style={{ flex: 1 }}
+                        href={job.download_url}
+                        download
+                      >
+                        <Download size={12} /> Tải PNG Cycles
+                      </a>
+                    )}
+                    {isRunning && (
+                      <button
+                        data-testid={`render-cancel-${job.job_id}`}
+                        className="btn btn-sm"
+                        onClick={() => handleCancelJob(job.job_id)}
+                      >
+                        <XCircle size={12} /> Hủy Job
+                      </button>
+                    )}
+                    <button
+                      data-testid={`render-retry-${job.job_id}`}
+                      className="btn btn-sm"
+                      onClick={() => handleRetryJob(job.job_id)}
+                    >
+                      <RefreshCw size={12} /> Chạy lại (Retry)
+                    </button>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Live Real-Time Three.js Reference Viewports */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 18, marginBottom: 24 }}>
         <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="text-card-title">Cam 01 — Phối Cảnh Cắt Tường (Cutaway Isometric)</span>
-            <span className="status-badge amber">AI Visualization — Not for measurement</span>
+            <span className="status-badge amber">ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG</span>
           </div>
           <div style={{ height: 300, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
             <StudioViewport
               project={project}
               materialsDb={materialsDb}
+              pbrMaterials={pbrMaterials}
               viewMode="3d"
               cameraPreset="cutaway"
               selectedEntityId={null}
@@ -576,6 +1002,7 @@ export const RenderAndCadPage: React.FC<{
             <StudioViewport
               project={project}
               materialsDb={materialsDb}
+              pbrMaterials={pbrMaterials}
               viewMode="3d"
               cameraPreset="walk"
               selectedEntityId={null}
@@ -595,7 +1022,13 @@ export const RenderAndCadPage: React.FC<{
           <p className="text-caption" style={{ marginTop: 4 }}>
             Đầy đủ các lớp <code className="mono">A-WALL</code>, <code className="mono">A-DOOR</code>, <code className="mono">A-WIND</code>, <code className="mono">A-FURN</code>, <code className="mono">A-DIM</code>. Sai số khứ hồi &lt;= 1mm.
           </p>
-          <a className="btn btn-sm btn-primary" style={{ marginTop: 12 }} href={`/api/v1/exports/${project.project_id}/dxf`} download>
+          <a
+            data-testid="export-dxf-link"
+            className="btn btn-sm btn-primary"
+            style={{ marginTop: 12 }}
+            href={`/api/v1/exports/${project.project_id}/dxf`}
+            download
+          >
             <Download size={13} /> Tải Bản Vẽ .DXF
           </a>
         </div>
@@ -605,7 +1038,13 @@ export const RenderAndCadPage: React.FC<{
           <p className="text-caption" style={{ marginTop: 4 }}>
             Tệp nhị phân chuẩn glTF 2.0 chứa khối sàn, tường, cửa và nội thất mở trong Blender / Three.js.
           </p>
-          <a className="btn btn-sm btn-primary" style={{ marginTop: 12 }} href={`/api/v1/exports/${project.project_id}/glb`} download>
+          <a
+            data-testid="export-glb-link"
+            className="btn btn-sm btn-primary"
+            style={{ marginTop: 12 }}
+            href={`/api/v1/exports/${project.project_id}/glb`}
+            download
+          >
             <Download size={13} /> Tải Mô Hình .GLB
           </a>
         </div>
@@ -656,10 +1095,10 @@ export const CostEstimationPage: React.FC<{
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <a className="btn" href={`/api/v1/exports/${project.project_id}/csv`} download>
+          <a data-testid="export-csv-btn" className="btn" href={`/api/v1/exports/${project.project_id}/csv`} download>
             <Download size={14} /> Xuất Bảng CSV
           </a>
-          <a className="btn btn-primary" href={`/api/v1/exports/${project.project_id}/xlsx`} download>
+          <a data-testid="export-xlsx-btn" className="btn btn-primary" href={`/api/v1/exports/${project.project_id}/xlsx`} download>
             <Download size={14} /> Xuất Báo Giá Excel (.xlsx)
           </a>
         </div>
@@ -678,7 +1117,7 @@ export const CostEstimationPage: React.FC<{
           <div className="text-caption" style={{ color: 'var(--accent)', fontWeight: 600 }}>
             TỔNG DỰ TOÁN (GỒM VAT 8%)
           </div>
-          <div className="mono" style={{ fontSize: 22, fontWeight: 600, color: 'var(--accent)', marginTop: 6 }}>
+          <div data-testid="boq-total-vnd" className="mono" style={{ fontSize: 22, fontWeight: 600, color: 'var(--accent)', marginTop: 6 }}>
             {formatVnd(est.total_vnd)}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -737,7 +1176,7 @@ export const CostEstimationPage: React.FC<{
 
       {/* Detailed BOQ Line Items Table (Right-aligned numbers with monospace font) */}
       <div className="surface-card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="financial-table">
+        <table className="financial-table" data-testid="boq-lines-table">
           <thead>
             <tr>
               <th>Phân Nhóm</th>

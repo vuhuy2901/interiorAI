@@ -85,6 +85,106 @@ class RoomZone(BaseModel):
     pascal_node_id: Optional[str] = None
 
 
+class MaterialSlotDefinition(BaseModel):
+    slot_id: str
+    source_material_name: str
+    editable: bool = True
+    semantic_part: Optional[str] = None
+    material_ref: Optional[str] = None
+
+
+class TextureReference(BaseModel):
+    uri: str
+    channel: Literal["base_color", "normal", "roughness", "metalness", "occlusion", "emissive", "alpha"]
+    color_space: Literal["srgb", "linear", "non_color"] = "non_color"
+    source_url: Optional[str] = None
+    license: Optional[str] = None
+
+
+class PhysicalTextureScale(BaseModel):
+    width_mm: float = 1000.0
+    height_mm: float = 1000.0
+    rotation_deg: float = 0.0
+    origin_mm: List[float] = Field(default_factory=lambda: [0.0, 0.0])
+    layout: Literal["straight", "brick", "herringbone"] = "straight"
+    grout_width_mm: float = 0.0
+    grout_color: str = "#D8D4CC"
+
+
+class PBRParameters(BaseModel):
+    base_color: str = "#FFFFFF"
+    roughness: float = Field(0.5, ge=0.0, le=1.0)
+    metalness: float = Field(0.0, ge=0.0, le=1.0)
+    opacity: float = Field(1.0, ge=0.0, le=1.0)
+    transmission: float = Field(0.0, ge=0.0, le=1.0)
+    ior: float = Field(1.5, ge=1.0, le=2.5)
+    clearcoat: float = Field(0.0, ge=0.0, le=1.0)
+    clearcoat_roughness: float = Field(0.0, ge=0.0, le=1.0)
+    sheen: float = Field(0.0, ge=0.0, le=1.0)
+    sheen_color: str = "#FFFFFF"
+    emissive: str = "#000000"
+    emissive_intensity: float = Field(0.0, ge=0.0, le=50.0)
+    normal_scale: float = Field(1.0, ge=0.0, le=4.0)
+
+
+class MaterialDefinition(BaseModel):
+    material_id: str
+    schema_version: Literal["atelier.material.v1"] = "atelier.material.v1"
+    version: int = Field(1, ge=1)
+    name: str
+    kind: Literal["fabric", "wood", "stone", "tile", "paint", "metal", "glass", "plastic", "generic"]
+    pbr: PBRParameters = Field(default_factory=PBRParameters)
+    textures: List[TextureReference] = Field(default_factory=list)
+    physical_scale: PhysicalTextureScale = Field(default_factory=PhysicalTextureScale)
+    tint: str = "#FFFFFF"
+    preserve_source_textures: bool = True
+    source_url: Optional[str] = None
+    author: Optional[str] = None
+    license: Optional[str] = None
+    license_url: Optional[str] = None
+    product_ref: Optional[str] = None
+    price_status: Literal["VERIFIED", "UNVERIFIED", "NOT_AVAILABLE"] = "NOT_AVAILABLE"
+    created_at: str = ""
+
+
+class MaterialOverride(BaseModel):
+    material_id: str
+    material_version: int = 1
+    tint: Optional[str] = None
+    pbr: Dict[str, float | str] = Field(default_factory=dict)
+    texture_scale: Optional[PhysicalTextureScale] = None
+
+
+class AssetMetadata(BaseModel):
+    asset_id: str
+    scene_object_id: Optional[str] = None
+    category: str
+    name: str
+    source_type: Literal["poly_haven", "ambientcg", "sketchfab", "user", "project_library"]
+    source_url: Optional[str] = None
+    author: Optional[str] = None
+    license: Optional[str] = None
+    license_url: Optional[str] = None
+    attribution_required: bool = False
+    source_format: str
+    normalized_glb: Optional[str] = None
+    dimensions_mm: List[float] = Field(default_factory=list)
+    origin: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    pivot: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    material_slots: List[MaterialSlotDefinition] = Field(default_factory=list)
+    material_refs: Dict[str, str] = Field(default_factory=dict)
+    texture_refs: List[str] = Field(default_factory=list)
+    asset_version: int = 1
+    geometry_hash: str
+    product_ref: Optional[str] = None
+    validation_status: Literal["VALID", "NEEDS_REVIEW", "INVALID", "BLOCKED"] = "NEEDS_REVIEW"
+    validation_issues: List[str] = Field(default_factory=list)
+    sizing_policy: Literal["FIXED_SIZE", "UNIFORM_SCALABLE", "PARAMETRIC"] = "FIXED_SIZE"
+    uniform_scale_range: List[float] = Field(default_factory=lambda: [1.0, 1.0])
+    parametric_axes: List[Literal["width", "depth", "height"]] = Field(default_factory=list)
+    created_at: str = ""
+
+
 class FurnitureInstance(BaseModel):
     id: str
     sku: str
@@ -104,6 +204,17 @@ class FurnitureInstance(BaseModel):
     pascal_node_id: Optional[str] = None
     source_url: Optional[str] = None
     vendor: Optional[str] = None
+    asset_id: Optional[str] = None
+    asset_version: Optional[int] = None
+    geometry_hash: Optional[str] = None
+    normalized_glb: Optional[str] = None
+    material_slots: List[MaterialSlotDefinition] = Field(default_factory=list)
+    material_overrides: Dict[str, MaterialOverride] = Field(default_factory=dict)
+    sizing_policy: Literal["FIXED_SIZE", "UNIFORM_SCALABLE", "PARAMETRIC"] = "FIXED_SIZE"
+    uniform_scale_range: List[float] = Field(default_factory=lambda: [1.0, 1.0])
+    original_dimensions_mm: List[float] = Field(default_factory=list)
+    parametric_module_mm: Optional[float] = None
+    parametric_axes: List[Literal["width", "depth", "height"]] = Field(default_factory=list)
 
 
 class DesignBrief(BaseModel):
@@ -171,6 +282,7 @@ class CanonicalProject(BaseModel):
     openings: List[DoorOpening] = Field(default_factory=list)
     windows: List[WindowOpening] = Field(default_factory=list)
     furniture_instances: List[FurnitureInstance] = Field(default_factory=list)
+    surface_material_overrides: Dict[str, MaterialOverride] = Field(default_factory=dict)
     design_brief: DesignBrief = Field(default_factory=DesignBrief)
     estimate_snapshot: Optional[CostEstimateSnapshot] = None
     pascal_scene_json: Dict[str, Any] = Field(default_factory=dict)
@@ -221,7 +333,7 @@ class DesignOptionCard(BaseModel):
 
 
 class SceneDiffItem(BaseModel):
-    entity_type: Literal["wall", "door", "window", "furniture", "surface_material"]
+    entity_type: Literal["wall", "door", "window", "furniture", "surface_material", "material_slot"]
     entity_id: str
     action: Literal["ADD", "UPDATE", "REMOVE"]
     before_summary: Optional[str] = None

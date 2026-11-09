@@ -1144,6 +1144,24 @@ async def approve_scene_proposal(proposal_id: str, option_id: Optional[str] = No
         conn.close()
         raise ValueError(f"Không tìm thấy dự án {prop.project_id}")
 
+    # Optimistic concurrency: a proposal is a diff against one immutable base
+    # revision. Never overwrite a newer approved scene with a stale preview.
+    if project.revision != prop.base_revision:
+        prop.status = "SUPERSEDED"
+        conn.execute(
+            "UPDATE proposals SET status = 'SUPERSEDED', payload_json = ? WHERE proposal_id = ?",
+            (prop.model_dump_json(), proposal_id),
+        )
+        conn.commit()
+        conn.close()
+        return {
+            "ok": False,
+            "status": "REVISION_CONFLICT",
+            "message": f"Đề xuất dựa trên Revision #{prop.base_revision}, nhưng dự án hiện là Revision #{project.revision}.",
+            "proposal": prop.model_dump(),
+            "project": project.model_dump(),
+        }
+
     # Apply either a specific OptionCard (A/B/C) or the proposed_canonical snapshot
     if option_id and prop.options:
         chosen = next((o for o in prop.options if o.option_id.upper() == option_id.upper()), None)

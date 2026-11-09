@@ -84,7 +84,7 @@ Write-Host "[3/5] Checking FastAPI CAD & BOQ Backend (port 8000)..." -Foreground
 $apiListening = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
 if (-not $apiListening) {
     Write-Host "  -> Starting FastAPI sidecar on http://127.0.0.1:8000 ..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$RootDir\apps\api'; python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$RootDir\apps\api'; python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
     
     $apiReady = $false
     for ($i = 0; $i -lt 15; $i++) {

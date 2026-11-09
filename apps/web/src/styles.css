@@ -416,6 +416,10 @@ body,
   flex-shrink: 0;
 }
 
+.topbar-right > * {
+  flex-shrink: 0;
+}
+
 .topbar-metric {
   display: flex;
   align-items: center;
@@ -425,6 +429,23 @@ body,
   background: var(--surface-secondary);
   border: 1px solid var(--border-subtle);
   font-size: 12px;
+}
+
+.topbar-metric-button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.topbar-metric-button:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.scene-status-pill {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-metric-label {
@@ -456,6 +477,7 @@ body,
   height: 100%;
   position: relative;
   overflow: hidden;
+  min-width: 0;
 }
 
 .viewport-stage-wrapper {
@@ -487,6 +509,7 @@ body,
   max-width: calc(100% - 24px);
   overflow-x: auto;
   scrollbar-width: none;
+  align-items: stretch;
 }
 
 .floating-viewport-bar::-webkit-scrollbar {
@@ -500,6 +523,16 @@ body,
   padding: 2px;
   border-radius: var(--radius-btn);
   border: 1px solid var(--border-subtle);
+}
+
+.camera-presets {
+  max-width: min(420px, 34vw);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.camera-presets::-webkit-scrollbar {
+  display: none;
 }
 
 .seg-btn {
@@ -531,6 +564,29 @@ body,
   height: 18px;
   background: var(--border-subtle);
   margin: 0 2px;
+}
+
+.toolbar-menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.toolbar-overflow-menu {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  z-index: 50;
+  width: 176px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-md);
+}
+
+.toolbar-overflow-menu .btn {
+  justify-content: flex-start;
+  width: 100%;
 }
 
 /* Floating Bottom-Left & Bottom-Right HUD Overlays in 3D/2D Viewport */
@@ -573,10 +629,69 @@ body,
   font-weight: 600;
 }
 
+/* Dockable right panels. The handle stays outside the panel content so
+   resizing never blocks the canvas or toolbar. */
+.dock-column {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  z-index: 22;
+}
+
+.inspector-column {
+  width: var(--inspector-width, 316px);
+  min-width: 248px;
+}
+
+.architect-column {
+  width: var(--architect-panel-width, 392px);
+  min-width: 248px;
+  z-index: 25;
+}
+
+.dock-resize-handle {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 4;
+}
+
+.dock-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 42px;
+  border-radius: 999px;
+  background: transparent;
+  transform: translateY(-50%);
+  transition: background var(--dur-hover) var(--ease-ui), height var(--dur-hover) var(--ease-ui);
+}
+
+.dock-resize-handle:hover::after,
+.dock-resize-handle:focus-visible::after,
+.is-resizing-dock .dock-resize-handle::after {
+  height: 58px;
+  background: var(--accent);
+}
+
+.dock-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* Collapsible Object & Material Inspector Dock (Section 6.3 & 11) */
 .inspector-dock {
-  width: 300px;
-  min-width: 300px;
+  width: 100%;
+  min-width: 0;
   height: 100%;
   background: var(--surface-primary);
   border-left: 1px solid var(--border-subtle);
@@ -589,8 +704,8 @@ body,
 
 /* AI Design Assistant Right Panel (Section 7) */
 .ai-assistant-dock {
-  width: 380px;
-  min-width: 380px;
+  width: 100%;
+  min-width: 0;
   height: 100%;
   background: var(--surface-primary);
   border-left: 1px solid var(--border-subtle);
@@ -925,13 +1040,28 @@ body,
    RESPONSIVE BREAKPOINTS (SECTION 14: >=1280px, 768-1279px, <768px)
    ============================================================================ */
 @media (max-width: 1279px) {
-  .inspector-dock {
-    width: 265px;
-    min-width: 265px;
+  .global-topbar {
+    padding-inline: 10px;
   }
-  .ai-assistant-dock {
-    width: 335px;
-    min-width: 335px;
+  .topbar-left {
+    flex: 1 1 auto;
+  }
+  .topbar-right {
+    max-width: 55%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar-right::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar-metric-label {
+    display: none;
+  }
+  .inspector-column {
+    min-width: 248px;
+  }
+  .architect-column {
+    min-width: 300px;
   }
 }
 
@@ -948,12 +1078,17 @@ body,
   .global-sidebar .sidebar-status-card {
     display: none;
   }
-  .inspector-dock {
+  .dock-column {
     position: absolute;
-    right: 0;
     top: 0;
     bottom: 0;
     box-shadow: var(--shadow-drawer);
+  }
+  .inspector-column {
+    right: var(--architect-offset, 0px);
+  }
+  .architect-column {
+    right: 0;
   }
 }
 
@@ -964,11 +1099,26 @@ body,
   .topbar-metric.hide-mobile {
     display: none;
   }
+  .global-topbar {
+    min-height: 54px;
+    height: auto;
+    align-items: flex-start;
+    padding-block: 8px;
+  }
+  .topbar-left {
+    flex-wrap: wrap;
+    gap: 5px 8px;
+  }
+  .scene-status-pill {
+    display: none;
+  }
+  .topbar-right {
+    max-width: 48%;
+  }
   .workspace-layout {
     flex-direction: column;
   }
-  .inspector-dock,
-  .ai-assistant-dock {
+  .dock-column {
     position: fixed;
     left: 0;
     right: 0;
@@ -983,12 +1133,29 @@ body,
     box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.16);
     z-index: 65;
   }
+  .dock-resize-handle {
+    display: none;
+  }
+  .inspector-column,
+  .architect-column {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+  .architect-column {
+    z-index: 67;
+  }
   .mobile-bottom-bar {
     display: flex !important;
   }
   .page-container {
     padding: 16px;
   }
+}
+
+body.is-resizing-dock,
+body.is-resizing-dock * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

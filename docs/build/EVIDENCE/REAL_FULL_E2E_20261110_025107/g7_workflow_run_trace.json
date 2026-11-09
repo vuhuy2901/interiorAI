@@ -1,0 +1,532 @@
+{
+  "run_id": "run_f110bb7fca",
+  "workflow_id": "wf_default_interior_pipeline",
+  "project_id": "proj_02d8cd9f",
+  "status": "COMPLETED",
+  "events": [
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 1,
+      "step_id": "step_a0a92f0f",
+      "step_run_id": "step_a0a92f0f",
+      "node_id": "n1_intake",
+      "label": "1. Nhập Mặt Bằng & Nhu Cầu",
+      "agent_id": "agent_chief_architect",
+      "tool_called": "project_intake_validator",
+      "tool_call_id": "call_07863576",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:36.882273+00:00",
+      "completed_at": "2026-11-09T19:52:36.882350+00:00",
+      "duration_ms": 0.07,
+      "depends_on": [],
+      "blocked_by": null,
+      "input": {
+        "project_id": "proj_02d8cd9f",
+        "name": "Căn hộ 2 Khu Thảo Điền E2E (20261110_025107)",
+        "rooms_count": 2
+      },
+      "output": {
+        "style": "Japandi — Sáng, ấm cúng",
+        "room_area_sqm": 40.56,
+        "rooms_count": 2,
+        "walls_count": 19
+      },
+      "output_summary": "Tiếp nhận dự án 'Căn hộ 2 Khu Thảo Điền E2E (20261110_025107)': Phong cách=Japandi — Sáng, ấm cúng, Diện tích=40.6m²",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 2,
+      "step_id": "step_25bd1cfa",
+      "step_run_id": "step_25bd1cfa",
+      "node_id": "n2_floorplan",
+      "label": "2. Phân Tích Tường & Cửa 2D",
+      "agent_id": "agent_floorplan",
+      "tool_called": "floorplan_cv_vision_engine",
+      "tool_call_id": "call_710b1fc9",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:36.882373+00:00",
+      "completed_at": "2026-11-09T19:52:36.882798+00:00",
+      "duration_ms": 0.42,
+      "depends_on": [
+        "n1_intake"
+      ],
+      "blocked_by": null,
+      "input": {
+        "source": "canonical_scene_geometry",
+        "rooms": 2,
+        "walls": 19
+      },
+      "output": {
+        "rooms_count": 2,
+        "walls_count": 19,
+        "openings_count": 2,
+        "windows_count": 1
+      },
+      "output_summary": "Hình học hiện tại: 2 phòng, 19 tường bao",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 3,
+      "step_id": "step_a977dd47",
+      "step_run_id": "step_a977dd47",
+      "node_id": "n3_scale_gate",
+      "label": "3. Xác Nhận Tỷ Lệ Chuẩn (mm)",
+      "agent_id": "agent_floorplan",
+      "tool_called": "scale_gate_evaluator",
+      "tool_call_id": "call_1ae57e20",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:36.882825+00:00",
+      "completed_at": "2026-11-09T19:52:36.882837+00:00",
+      "duration_ms": 0.01,
+      "depends_on": [
+        "n2_floorplan"
+      ],
+      "blocked_by": null,
+      "input": {
+        "scale_calibrated": true
+      },
+      "output": {
+        "gate_passed": true,
+        "real_length_mm": 5600
+      },
+      "output_summary": "Tỷ lệ đã được hiệu chuẩn: cạnh chuẩn 5600 mm",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 4,
+      "step_id": "step_50d98c04",
+      "step_run_id": "step_50d98c04",
+      "node_id": "n4_brief",
+      "label": "4. Hỏi Đáp & Chốt Design Brief",
+      "agent_id": "agent_chief_architect",
+      "tool_called": "design_brief_synthesizer",
+      "tool_call_id": "call_a51126f0",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:36.882856+00:00",
+      "completed_at": "2026-11-09T19:52:36.882870+00:00",
+      "duration_ms": 0.01,
+      "depends_on": [
+        "n3_scale_gate"
+      ],
+      "blocked_by": null,
+      "input": {
+        "style": "Japandi — Sáng, ấm cúng",
+        "budget_limit_vnd": 95000000
+      },
+      "output": {
+        "style": "Japandi — Sáng, ấm cúng",
+        "budget_limit_vnd": 95000000,
+        "color_palette": [
+          "#F5F2EB",
+          "#B8C2B4",
+          "#C8A986",
+          "#276E70"
+        ],
+        "liked_elements": [
+          "Gỗ sồi sáng",
+          "Tường điểm nhấn Xanh Sage",
+          "Vải Linen màu kem"
+        ]
+      },
+      "output_summary": "Design Brief chốt: Japandi — Sáng, ấm cúng, ngân sách tối đa 95,000,000 đ, 3 yếu tố ưu tiên",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 5,
+      "step_id": "step_714a6203",
+      "step_run_id": "step_714a6203",
+      "node_id": "n5_geometry",
+      "label": "5. Dựng Khung 3D Pascal MCP",
+      "agent_id": "agent_geometry",
+      "tool_called": "pascal_mcp_gateway_sync",
+      "tool_call_id": "call_c7eae3bc",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:36.882886+00:00",
+      "completed_at": "2026-11-09T19:52:39.673812+00:00",
+      "duration_ms": 2790.91,
+      "depends_on": [
+        "n4_brief"
+      ],
+      "blocked_by": null,
+      "input": {
+        "walls": 19,
+        "rooms": 2,
+        "openings": 2
+      },
+      "output": {
+        "pascal_sync_ok": true,
+        "walls_synced": 19,
+        "rooms_synced": 2
+      },
+      "output_summary": "Đồng bộ thành công sang Pascal MCP Server: 19 tường, 2 phòng",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 6,
+      "step_id": "step_bcbf4252",
+      "step_run_id": "step_bcbf4252",
+      "node_id": "n6_style",
+      "label": "6. Phối Sơn Tường & Gạch Sàn (7B)",
+      "agent_id": "agent_style",
+      "tool_called": "surface_material_assigner",
+      "tool_call_id": "call_a604d32e",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.673859+00:00",
+      "completed_at": "2026-11-09T19:52:39.673874+00:00",
+      "duration_ms": 0.01,
+      "depends_on": [
+        "n5_geometry"
+      ],
+      "blocked_by": null,
+      "input": {
+        "room_id": "room_zone_1"
+      },
+      "output": {
+        "floor_material_id": "mat_tile_sand_800",
+        "wall_base_material_id": "paint_dulux_japandi_ivory",
+        "surface_overrides": {
+          "floor": "mat_tile_sand_800"
+        }
+      },
+      "output_summary": "Vật liệu bề mặt: Sàn=mat_tile_sand_800, Tường=paint_dulux_japandi_ivory, Trần=Thạch cao Gyproc Vĩnh Tường",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 7,
+      "step_id": "step_c0312bbc",
+      "step_run_id": "step_c0312bbc",
+      "node_id": "n7_furniture",
+      "label": "7. Bố Trí Nội Thất Phương Án A/B",
+      "agent_id": "agent_furniture",
+      "tool_called": "furniture_spatial_arranger",
+      "tool_call_id": "call_4ee305bc",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.673885+00:00",
+      "completed_at": "2026-11-09T19:52:39.673892+00:00",
+      "duration_ms": 0,
+      "depends_on": [
+        "n6_style"
+      ],
+      "blocked_by": null,
+      "input": {
+        "furniture_count": 4
+      },
+      "output": {
+        "furniture_count": 4,
+        "items": [
+          {
+            "id": "furn_sofa_main",
+            "name": "Sofa Băng Nhỏ Gọn Nordic 2.5 Chỗ Vải Boucle Kem 1.8m",
+            "asset_id": "asset_user_67202c74a1a33377",
+            "pos_mm": [
+              800,
+              2300,
+              0
+            ]
+          },
+          {
+            "id": "furn_table_main",
+            "name": "Bàn Trà Gỗ Sồi Bo Góc Japandi 1.1m",
+            "asset_id": "asset_ph_modern_coffee_table_02_1k",
+            "pos_mm": [
+              2150,
+              2300,
+              0
+            ]
+          },
+          {
+            "id": "furn_tv_main",
+            "name": "Hệ Kệ Tivi Gỗ Sồi Tự Nhiên 1.8m",
+            "asset_id": "asset_ph_chinese_console_table_1k",
+            "pos_mm": [
+              3600,
+              2300,
+              0
+            ]
+          },
+          {
+            "id": "furn_chair_accent",
+            "name": "Ghế Thư Giãn Armchair Mây Đan",
+            "asset_id": "asset_ph_modern_arm_chair_01_1k",
+            "pos_mm": [
+              2100,
+              700,
+              0
+            ]
+          }
+        ]
+      },
+      "output_summary": "Bố trí 4 món đồ nội thất vào không gian",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 8,
+      "step_id": "step_e35411c1",
+      "step_run_id": "step_e35411c1",
+      "node_id": "n8_clearance",
+      "label": "8. Kiểm Tra Va Chạm & Lối Đi",
+      "agent_id": "agent_furniture",
+      "tool_called": "geometry_spatial_qa_analyzer",
+      "tool_call_id": "call_985f27ce",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.673902+00:00",
+      "completed_at": "2026-11-09T19:52:39.673957+00:00",
+      "duration_ms": 0.05,
+      "depends_on": [
+        "n7_furniture"
+      ],
+      "blocked_by": null,
+      "input": {
+        "project_id": "proj_02d8cd9f",
+        "furniture_count": 4
+      },
+      "output": {
+        "valid": false,
+        "collision_count": 0,
+        "boundary_violation_count": 0,
+        "door_swing_warning_count": 1,
+        "min_walkway_mm": 940,
+        "walkway_ok": true,
+        "warnings": [
+          "Cửa 'door_entrance' (900mm) khi mở có nguy cơ vướng vào 'Ghế Thư Giãn Armchair Mây Đan'."
+        ]
+      },
+      "output_summary": "Kiểm tra không gian: Va chạm=0, Lối đi hẹp nhất=940 mm (Đạt >= 800mm: True)",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 9,
+      "step_id": "step_0782b404",
+      "step_run_id": "step_0782b404",
+      "node_id": "n9_shopping",
+      "label": "9. Khớp SKU Catalog Việt Nam",
+      "agent_id": "agent_shopping",
+      "tool_called": "catalog_matcher_and_researcher",
+      "tool_call_id": "call_7d523fbb",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.673970+00:00",
+      "completed_at": "2026-11-09T19:52:39.674045+00:00",
+      "duration_ms": 0.07,
+      "depends_on": [
+        "n8_clearance"
+      ],
+      "blocked_by": null,
+      "input": {
+        "query": "sofa",
+        "category": "sofa"
+      },
+      "output": {
+        "matched_count": 1,
+        "top_match": {
+          "id": "sofa_kuka_linen_3p",
+          "name": "Sofa Băng 3 Chỗ Vải Linen Thoáng Khí Phong Cách Japandi",
+          "brand": "KUKA Home Vietnam",
+          "category": "sofa",
+          "dimensions_mm": [
+            2100,
+            880,
+            780
+          ],
+          "material": "Khung gỗ thông tự nhiên + Đệm mút D40 + Vải linen cao cấp",
+          "color": "Be Sáng (Oatmeal Cream)",
+          "vendor_vn": "KUKA Home Flagship Store",
+          "price_vnd": 14500000,
+          "price_status": "Đã xác minh",
+          "source_url": "https://kuka.vn/sofa-bang-vai-linen",
+          "checked_at": "2026-11-08"
+        }
+      },
+      "output_summary": "Khớp SKU nhà cung cấp: Sofa Băng 3 Chỗ Vải Linen Thoáng Khí Phong Cách Japandi (Đã xác minh)",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 10,
+      "step_id": "step_e12126c4",
+      "step_run_id": "step_e12126c4",
+      "node_id": "n10_cost",
+      "label": "10. Tính Dự Toán BOQ Xác Định",
+      "agent_id": "agent_cost",
+      "tool_called": "deterministic_cost_engine",
+      "tool_call_id": "call_9714488b",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.674058+00:00",
+      "completed_at": "2026-11-09T19:52:39.686128+00:00",
+      "duration_ms": 12.05,
+      "depends_on": [
+        "n9_shopping"
+      ],
+      "blocked_by": null,
+      "input": {
+        "project_id": "proj_02d8cd9f",
+        "revision": 11
+      },
+      "output": {
+        "snapshot_id": "est_97a933f088",
+        "materials_subtotal_vnd": 41956618,
+        "furniture_subtotal_vnd": 25400000,
+        "shipping_fee_vnd": 1500000,
+        "tax_vnd": 6903163,
+        "total_vnd": 93192696,
+        "within_budget": true
+      },
+      "output_summary": "Tổng dự toán BOQ: 93,192,696 VNĐ (Vật liệu: 41,956,618 đ, Nội thất: 25,400,000 đ, Vận chuyển: 1,500,000 đ, VAT: 6,903,163 đ)",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 11,
+      "step_id": "step_0d7bb07f",
+      "step_run_id": "step_0d7bb07f",
+      "node_id": "n11_approval",
+      "label": "11. Cổng Duyệt Phương Án & Giá",
+      "agent_id": "agent_chief_architect",
+      "tool_called": "human_approval_gate",
+      "tool_call_id": "call_843602ea",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.686191+00:00",
+      "completed_at": "2026-11-09T19:52:39.686205+00:00",
+      "duration_ms": 0.01,
+      "depends_on": [
+        "n10_cost"
+      ],
+      "blocked_by": null,
+      "input": {
+        "approval_state": "APPROVED",
+        "revision": 11
+      },
+      "output": {
+        "approved": true,
+        "revision": 11
+      },
+      "output_summary": "Phương án đã được phê duyệt ở Revision #11",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 12,
+      "step_id": "step_13e8b09b",
+      "step_run_id": "step_13e8b09b",
+      "node_id": "n12_render",
+      "label": "12. Kết Xuất Phối Cảnh Minh Họa",
+      "agent_id": "agent_render",
+      "tool_called": "render_agent_executor",
+      "tool_call_id": "call_c99eabc4",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:39.686219+00:00",
+      "completed_at": "2026-11-09T19:52:54.354002+00:00",
+      "duration_ms": 14667.76,
+      "depends_on": [
+        "n11_approval"
+      ],
+      "blocked_by": null,
+      "input": {
+        "project_id": "proj_02d8cd9f",
+        "revision": 11,
+        "engine": "BLENDER_CYCLES"
+      },
+      "output": {
+        "job_id": "rjob_6f183591d3",
+        "renderer": "BLENDER_CYCLES",
+        "engine": "CYCLES",
+        "render_url": "/api/v1/renders/proj_02d8cd9f_rev11_eye_level_preview_5ba1ced4_3591d3.png",
+        "out_path": "C:\\Users\\TUAN\\Downloads\\qldapm_fina\\data\\exports\\renders\\proj_02d8cd9f_rev11_eye_level_preview_5ba1ced4_3591d3.png",
+        "image_file": "C:\\Users\\TUAN\\Downloads\\qldapm_fina\\data\\exports\\renders\\proj_02d8cd9f_rev11_eye_level_preview_5ba1ced4_3591d3.png",
+        "file_size_bytes": 621267,
+        "material_hash": "5ba1ced441c4",
+        "camera_id": "eye_level",
+        "blend_file_path": "C:\\Users\\TUAN\\Downloads\\qldapm_fina\\data\\exports\\blender_jobs\\rjob_6f183591d3\\proj_02d8cd9f_rev11_eye_level.blend"
+      },
+      "output_summary": "Blender Cycles render hoàn tất: proj_02d8cd9f_rev11_eye_level_preview_5ba1ced4_3591d3.png (621,267 bytes, MAT_HASH=5ba1ced441c4)",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 13,
+      "step_id": "step_bc65e496",
+      "step_run_id": "step_bc65e496",
+      "node_id": "n13_render_qa",
+      "label": "13. Kiểm Định Chống Sai Lệch 3D",
+      "agent_id": "agent_render",
+      "tool_called": "render_qa_inspector",
+      "tool_call_id": "call_7f4c584d",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:54.354069+00:00",
+      "completed_at": "2026-11-09T19:52:54.354492+00:00",
+      "duration_ms": 0.41,
+      "depends_on": [
+        "n12_render"
+      ],
+      "blocked_by": null,
+      "input": {
+        "render_job_id": "rjob_6f183591d3"
+      },
+      "output": {
+        "qa_passed": true,
+        "render_qa_passed": true,
+        "renderer_verified": "BLENDER_CYCLES",
+        "file_size_bytes": 621267,
+        "scene_bridge_verified": true,
+        "bridge_assertions": {
+          "exact_object_counts": true,
+          "all_positions_within_2mm": true,
+          "all_dimensions_within_2mm": true,
+          "no_missing_doors_walls_furniture": true,
+          "no_extra_furniture_created": true
+        },
+        "watermark_verified": "ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG.",
+        "revision": 11,
+        "camera_id": "eye_level",
+        "material_hash": "5ba1ced441c4"
+      },
+      "output_summary": "Render QA PASS: Ảnh Cycles proj_02d8cd9f_rev11_eye_level_preview_5ba1ced4_3591d3.png khớp SceneGraph (REV #11, CAM=eye_level, MAT=5ba1ced441c4)",
+      "error": null
+    },
+    {
+      "run_id": "run_f110bb7fca",
+      "step": 14,
+      "step_id": "step_9a8295b0",
+      "step_run_id": "step_9a8295b0",
+      "node_id": "n14_export",
+      "label": "14. Xuất Hồ Sơ DXF / GLB / IFC / BOQ",
+      "agent_id": "agent_geometry",
+      "tool_called": "cad_dxf_bom_exporter",
+      "tool_call_id": "call_4bb47f0c",
+      "status": "COMPLETED",
+      "started_at": "2026-11-09T19:52:54.354533+00:00",
+      "completed_at": "2026-11-09T19:52:54.396852+00:00",
+      "duration_ms": 42.29,
+      "depends_on": [
+        "n13_render_qa"
+      ],
+      "blocked_by": null,
+      "input": {
+        "project_id": "proj_02d8cd9f",
+        "revision": 11
+      },
+      "output": {
+        "dxf_path": "data\\exports\\proj_02d8cd9f_rev11.dxf",
+        "dxf_size_bytes": 32278,
+        "dxf_bytes": 32278,
+        "glb_path": "data\\exports\\proj_02d8cd9f_rev11.glb",
+        "glb_size_bytes": 18364,
+        "glb_bytes": 18364,
+        "bom_csv_path": "data\\exports\\proj_02d8cd9f_bom_rev11.csv",
+        "bom_csv_size_bytes": 9316,
+        "bom_csv_bytes": 9316
+      },
+      "output_summary": "Xuất thành công hồ sơ AutoCAD DXF R2007 (32,278 bytes), GLB 3D (18,364 bytes) và BOM CSV (9,316 bytes)",
+      "error": null
+    }
+  ],
+  "started_at": "2026-11-09T19:52:36.882211+00:00",
+  "completed_at": "2026-11-09T19:52:54.396897+00:00"
+}

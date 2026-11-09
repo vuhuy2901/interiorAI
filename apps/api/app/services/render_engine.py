@@ -1,7 +1,8 @@
 """
-ATELIER AI — Architectural Perspective & Scene Render Engine
-Renders photorealistic architectural plans & 3D perspective previews directly from
-CanonicalProject geometry, materials, and furniture layout.
+ATELIER AI — Deterministic 2D Scene Schematic Engine
+Renders a top-down schematic preview from CanonicalProject geometry, materials,
+and furniture layout. This module is not a path tracer and must never be reported
+as photorealistic or as a camera-accurate 3D render.
 Includes required legal watermark: "ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG"
 """
 from __future__ import annotations
@@ -174,7 +175,7 @@ def render_scene_visual(
 
     # 8. Header & Project Info
     draw.rectangle([0, 0, width_px, 60], fill=(35, 40, 48))
-    draw.text((30, 18), f"ATELIER AI • KIẾN TRÚC & NỘI THẤT JAPANDI — PHỐI CẢNH 3D (REV #{project.revision})", fill=(255, 255, 255))
+    draw.text((30, 18), f"ATELIER AI • SƠ ĐỒ MINH HỌA 2D — TOP VIEW (REV #{project.revision})", fill=(255, 255, 255))
     draw.text((width_px - 320, 18), f"Dự án: {project.name[:30]}", fill=(200, 210, 225))
 
     # 9. Required Watermark Banner
@@ -195,6 +196,14 @@ def render_scene_visual(
         "camera": camera,
         "time_of_day": time_of_day,
         "seed": seed,
+        "renderer": "PILLOW_2D",
+        "render_kind": "SCHEMATIC_PREVIEW",
+        "photorealistic": False,
+        "camera_applied": False,
+        "limitations": [
+            "Tham số camera chỉ được lưu vào metadata; ảnh luôn là top view 2D.",
+            "Không có PBR, global illumination, HDRI hoặc path tracing.",
+        ],
         "watermark": "Ảnh minh họa — không dùng làm căn cứ thi công",
         "rendered_at": datetime.now(timezone.utc).isoformat(),
     }

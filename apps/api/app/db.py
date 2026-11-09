@@ -173,6 +173,10 @@ def build_default_demo_project() -> CanonicalProject:
                 pascal_asset_id="sofa",
                 source_url="https://baya.vn/products/sofa-japandi-210 (Giá minh họa)",
                 vendor="Baya / Nhà Xinh (Minh họa)",
+                asset_id="asset_ph_sofa_01_1k",
+                asset_version=1,
+                geometry_hash="15c4e0560fcdc0f8d0f09aea5d0e7748e9c36eb3a3fe69448c72235b67345e28",
+                normalized_glb="/api/v1/assets/asset_ph_sofa_01_1k/file",
             ),
             FurnitureInstance(
                 id="furn_table_main",
@@ -192,6 +196,9 @@ def build_default_demo_project() -> CanonicalProject:
                 pascal_asset_id="coffee-table",
                 source_url="https://baya.vn/products/ban-tra-oak-110 (Giá minh họa)",
                 vendor="Baya (Minh họa)",
+                asset_id="asset_ph_modern_coffee_table_02_1k",
+                asset_version=1,
+                normalized_glb="/api/v1/assets/asset_ph_modern_coffee_table_02_1k/file",
             ),
             FurnitureInstance(
                 id="furn_tv_main",
@@ -211,6 +218,9 @@ def build_default_demo_project() -> CanonicalProject:
                 pascal_asset_id="tv-stand",
                 source_url="https://nhaxinh.com/ke-tivi-japandi (Giá minh họa)",
                 vendor="Nhà Xinh (Minh họa)",
+                asset_id="asset_ph_chinese_console_table_1k",
+                asset_version=1,
+                normalized_glb="/api/v1/assets/asset_ph_chinese_console_table_1k/file",
             ),
             FurnitureInstance(
                 id="furn_chair_accent",
@@ -230,6 +240,9 @@ def build_default_demo_project() -> CanonicalProject:
                 pascal_asset_id="livingroom-chair",
                 source_url="https://baya.vn/products/armchair-may (Giá minh họa)",
                 vendor="Baya (Minh họa)",
+                asset_id="asset_ph_modern_arm_chair_01_1k",
+                asset_version=1,
+                normalized_glb="/api/v1/assets/asset_ph_modern_arm_chair_01_1k/file",
             ),
         ],
         design_brief=DesignBrief(
@@ -721,6 +734,16 @@ def save_project(project: CanonicalProject, author: str = "User", reason: str = 
             "INSERT INTO scene_revisions (project_id, revision, author, reason, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (project.project_id, project.revision, author, reason, payload, ts),
         )
+    else:
+        existing_rev = conn.execute(
+            "SELECT id FROM scene_revisions WHERE project_id = ? AND revision = ? LIMIT 1",
+            (project.project_id, project.revision),
+        ).fetchone()
+        if not existing_rev:
+            conn.execute(
+                "INSERT INTO scene_revisions (project_id, revision, author, reason, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (project.project_id, project.revision, author, reason, payload, ts),
+            )
     conn.commit()
     conn.close()
     return project
@@ -742,8 +765,22 @@ def restore_project_revision(project_id: str, target_revision: int) -> Optional[
         "SELECT payload_json FROM scene_revisions WHERE project_id = ? AND revision = ? ORDER BY id DESC LIMIT 1",
         (project_id, target_revision),
     ).fetchone()
+    max_row = conn.execute(
+        "SELECT MAX(revision) AS max_rev FROM scene_revisions WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()
+    curr_row = conn.execute(
+        "SELECT revision FROM projects WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()
     conn.close()
     if not row:
         return None
     restored = CanonicalProject.model_validate_json(row["payload_json"])
+    latest_rev = max(
+        int(max_row["max_rev"] or 1) if max_row else 1,
+        int(curr_row["revision"] or 1) if curr_row else 1,
+        restored.revision,
+    )
+    restored.revision = latest_rev
     return save_project(restored, author="Undo/Restore", reason=f"Khôi phục về phiên bản #{target_revision}", bump_revision=True)

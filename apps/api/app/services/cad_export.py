@@ -285,51 +285,25 @@ def parse_dxf_floorplan(dxf_path: Path) -> Dict[str, Any]:
     }
 
 
-def parse_raster_or_pdf_floorplan(file_name: str, confirmed_length_mm: float | None = None) -> Dict[str, Any]:
+def parse_raster_or_pdf_floorplan(file_path: str | Path, confirmed_length_mm: float | None = None) -> Dict[str, Any]:
     """
-    Handles PNG/JPG/PDF floor plan intake.
+    Handles PNG/JPG/PDF floor plan intake using real Computer Vision (FloorPlanCVEngine).
     Enforces the Mandatory Scale Gate: if `confirmed_length_mm` is not provided,
     marks `scale_calibrated = False` and triggers an interactive scale confirmation request.
+    Extracts actual wall topology, room boundaries (rectilinear/L-shaped), openings, and confidence.
     """
-    scale_ok = confirmed_length_mm is not None and confirmed_length_mm > 500.0
-    w_mm = float(confirmed_length_mm) if scale_ok else 4000.0
-    d_mm = round(w_mm * 1.25, 0)
+    from app.services.floorplan_cv import FloorPlanCVEngine
 
-    walls = [
-        WallSegment(id="wall_north", start_mm=[0.0, 0.0], end_mm=[w_mm, 0.0], thickness_mm=200.0, height_mm=2800.0),
-        WallSegment(id="wall_east", start_mm=[w_mm, 0.0], end_mm=[w_mm, d_mm], thickness_mm=200.0, height_mm=2800.0, is_accent_wall=True, face_a_material_id="paint_dulux_sage_mist"),
-        WallSegment(id="wall_south", start_mm=[w_mm, d_mm], end_mm=[0.0, d_mm], thickness_mm=200.0, height_mm=2800.0),
-        WallSegment(id="wall_west", start_mm=[0.0, d_mm], end_mm=[0.0, 0.0], thickness_mm=200.0, height_mm=2800.0),
-    ]
-    doors = [DoorOpening(id="door_main", wall_id="wall_south", wall_index=2, t=0.28, width_mm=900.0, height_mm=2100.0)]
-    windows = [WindowOpening(id="win_north", wall_id="wall_north", wall_index=0, t=0.5, width_mm=1500.0, height_mm=1400.0)]
-    room = RoomZone(
-        id="room_main",
-        name=f"Mặt bằng từ {file_name}",
-        room_type="living",
-        polygon_mm=[[0.0, 0.0], [w_mm, 0.0], [w_mm, d_mm], [0.0, d_mm]],
-    )
-    return {
-        "source_type": "raster_or_pdf",
-        "scale_calibrated": scale_ok,
-        "confidence": 0.96 if scale_ok else 0.55,
-        "requires_scale_confirmation": not scale_ok,
-        "width_mm": w_mm,
-        "depth_mm": d_mm,
-        "walls": [w.model_dump() for w in walls],
-        "openings": [d.model_dump() for d in doors],
-        "windows": [w.model_dump() for w in windows],
-        "rooms": [room.model_dump()],
-        "scale_reference": ScaleCalibration(
-            p1_px=[50.0, 50.0],
-            p2_px=[450.0, 50.0],
-            real_length_mm=w_mm,
-            mm_per_px=round(w_mm / 400.0, 4),
-            confirmed_by_user=scale_ok,
-            confidence=0.96 if scale_ok else 0.55,
-            notes="Đã xác nhận tỷ lệ 1 cạnh chuẩn" if scale_ok else "CHƯA XÁC NHẬN TỶ LỆ — Cần xác nhận 1 cạnh chuẩn (mm)",
-        ).model_dump(),
-    }
+    p = Path(file_path)
+    if p.exists() and p.is_file():
+        return FloorPlanCVEngine.process_image(p, confirmed_length_mm=confirmed_length_mm)
+
+    for search_dir in [ROOT_DIR / "data" / "uploads", ROOT_DIR / "data" / "test_samples"]:
+        candidate = search_dir / str(file_path)
+        if candidate.exists() and candidate.is_file():
+            return FloorPlanCVEngine.process_image(candidate, confirmed_length_mm=confirmed_length_mm)
+
+    return FloorPlanCVEngine.process_image(file_path, confirmed_length_mm=confirmed_length_mm)
 
 
 def ensure_sample_dxf_seed(demo_project: CanonicalProject) -> Path:

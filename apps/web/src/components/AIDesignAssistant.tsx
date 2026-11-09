@@ -4,13 +4,13 @@
  * - Agent Header with live connection & reasoning status
  * - Structured Interactive Question Cards (ask_user human-in-the-loop gate)
  * - Redesigned Proposal Cards (Title, Status, Origin Agent, Reason, Cost Delta, New Total, Affected Entities)
+ * - Inline Blender Cycles Render Output Card (G6 Conversation Output with Revision, Camera ID, Material Hash, and mandatory label)
  * - Strict Proposal Deduplication & Priority Grouping (Pending prioritized at top, Processed in collapsible archive,
  *   no re-approving already APPROVED proposals, Undo action button when applied)
  * - Auto-expanding textarea & contextual quick actions
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Sparkles,
   Send,
   CheckCircle2,
   XCircle,
@@ -19,9 +19,7 @@ import {
   ChevronRight,
   HelpCircle,
   Bot,
-  SlidersHorizontal,
   X,
-  ArrowUpRight,
 } from 'lucide-react'
 
 interface AIDesignAssistantProps {
@@ -116,6 +114,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
     return (
       <div
         key={prop.proposal_id}
+        data-testid={`proposal-card-${prop.proposal_id}`}
         className="surface-card"
         style={{
           padding: 14,
@@ -135,6 +134,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
             )}
           </div>
           <span
+            data-testid={`proposal-status-${prop.proposal_id}`}
             className={`status-badge ${
               isPending ? 'amber' : isApproved ? 'emerald' : 'neutral'
             }`}
@@ -228,6 +228,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                   </span>
                   {isPending && (
                     <button
+                      data-testid={`approve-option-${prop.proposal_id}-${opt.option_id}`}
                       className="btn btn-sm btn-primary"
                       onClick={() => onApproveProposal(prop.proposal_id, opt.option_id)}
                     >
@@ -244,6 +245,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
         {(!prop.options || prop.options.length === 0) && isPending && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button
+              data-testid={`approve-proposal-${prop.proposal_id}`}
               className="btn btn-sm btn-primary"
               style={{ flex: 1 }}
               onClick={() => onApproveProposal(prop.proposal_id)}
@@ -251,6 +253,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
               <CheckCircle2 size={13} /> Duyệt & Áp dụng
             </button>
             <button
+              data-testid={`reject-proposal-${prop.proposal_id}`}
               className="btn btn-sm"
               onClick={() => onRejectProposal(prop.proposal_id)}
             >
@@ -274,7 +277,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
   }
 
   return (
-    <aside className="ai-assistant-dock" aria-label="AI Design Assistant">
+    <aside id="architect-panel-dock" className="ai-assistant-dock" aria-label="Kiến trúc sư trưởng AI">
       {/* Assistant Header (Section 7) */}
       <div
         style={{
@@ -308,13 +311,18 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
               <span className={`status-dot ${sendingChat ? 'amber' : ''}`} />
-              <span>{sendingChat ? 'Đang suy luận & gọi Pascal MCP...' : 'Sẵn sàng • 8 Agents kết nối'}</span>
+              <span>{sendingChat ? 'Đang xử lý yêu cầu...' : 'Chờ yêu cầu mới'}</span>
             </div>
           </div>
         </div>
 
         {onCloseMobile && (
-          <button className="btn btn-icon btn-sm" onClick={onCloseMobile} aria-label="Đóng">
+          <button
+            className="btn btn-icon btn-sm"
+            onClick={onCloseMobile}
+            aria-label="Đóng bảng Kiến trúc sư trưởng AI"
+            title="Đóng trợ lý AI"
+          >
             <X size={14} />
           </button>
         )}
@@ -331,6 +339,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
         }}
       >
         <button
+          data-testid="ai-subtab-chat"
           className={`seg-btn ${subTab === 'chat' ? 'active' : ''}`}
           style={{ flex: 1 }}
           onClick={() => setSubTab('chat')}
@@ -338,6 +347,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
           Hội Thoại ({chatHistory.messages?.length || 0})
         </button>
         <button
+          data-testid="ai-subtab-proposals"
           className={`seg-btn ${subTab === 'proposals' ? 'active' : ''}`}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           onClick={() => setSubTab('proposals')}
@@ -350,6 +360,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
           )}
         </button>
         <button
+          data-testid="ai-subtab-brief"
           className={`seg-btn ${subTab === 'brief' ? 'active' : ''}`}
           style={{ flex: 1 }}
           onClick={() => setSubTab('brief')}
@@ -402,6 +413,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
               return (
                 <div
                   key={m.message_id}
+                  data-testid={`chat-message-${m.message_id}`}
                   style={{
                     alignSelf: isUser ? 'flex-end' : 'stretch',
                     maxWidth: isUser ? '88%' : '100%',
@@ -474,6 +486,28 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
 
                   {/* Interactive Proposal Card inside Chat Stream */}
                   {m.metadata?.proposal && renderProposalCard(m.metadata.proposal)}
+
+                  {/* G6 Conversation Output: Blender Cycles Rendered Image inside Chat Stream */}
+                  {m.metadata?.render_job && m.metadata.render_job.image_url && (
+                    <div
+                      className="surface-subtle"
+                      data-testid={`chat-render-card-${m.metadata.render_job.job_id}`}
+                      style={{ marginTop: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
+                    >
+                      <img
+                        src={m.metadata.render_job.image_url}
+                        alt={`Blender Cycles ${m.metadata.render_job.job_id}`}
+                        style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border-strong)' }}
+                      />
+                      <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
+                        REV #{m.metadata.render_job.revision} | CAM: {m.metadata.render_job.camera_id} | MAT_HASH:{' '}
+                        {m.metadata.render_job.material_hash?.slice(0, 12)}
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber-text)' }}>
+                        {m.metadata.render_job.mandatory_label || 'ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG.'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atelier.local/schemas/material-definition-v1.json",
+  "title": "ATELIER Renderer-Neutral Material Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["material_id", "schema_version", "version", "name", "kind", "pbr", "textures", "physical_scale", "tint", "preserve_source_textures", "price_status"],
+  "properties": {
+    "material_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
+    "schema_version": {"const": "atelier.material.v1"},
+    "version": {"type": "integer", "minimum": 1},
+    "name": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["fabric", "wood", "stone", "tile", "paint", "metal", "glass", "plastic", "generic"]},
+    "pbr": {"$ref": "#/$defs/pbr"},
+    "textures": {"type": "array", "items": {"$ref": "#/$defs/texture"}},
+    "physical_scale": {"$ref": "#/$defs/physicalScale"},
+    "tint": {"$ref": "#/$defs/color"},
+    "preserve_source_textures": {"type": "boolean"},
+    "source_url": {"type": ["string", "null"]},
+    "author": {"type": ["string", "null"]},
+    "license": {"type": ["string", "null"]},
+    "license_url": {"type": ["string", "null"]},
+    "product_ref": {"type": ["string", "null"]},
+    "price_status": {"enum": ["VERIFIED", "UNVERIFIED", "NOT_AVAILABLE"]},
+    "created_at": {"type": "string"}
+  },
+  "$defs": {
+    "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+    "unitInterval": {"type": "number", "minimum": 0, "maximum": 1},
+    "pbr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_color", "roughness", "metalness", "opacity", "transmission", "ior", "clearcoat", "clearcoat_roughness", "sheen", "sheen_color", "emissive", "emissive_intensity", "normal_scale"],
+      "properties": {
+        "base_color": {"$ref": "#/$defs/color"},
+        "roughness": {"$ref": "#/$defs/unitInterval"},
+        "metalness": {"$ref": "#/$defs/unitInterval"},
+        "opacity": {"$ref": "#/$defs/unitInterval"},
+        "transmission": {"$ref": "#/$defs/unitInterval"},
+        "ior": {"type": "number", "minimum": 1, "maximum": 2.5},
+        "clearcoat": {"$ref": "#/$defs/unitInterval"},
+        "clearcoat_roughness": {"$ref": "#/$defs/unitInterval"},
+        "sheen": {"$ref": "#/$defs/unitInterval"},
+        "sheen_color": {"$ref": "#/$defs/color"},
+        "emissive": {"$ref": "#/$defs/color"},
+        "emissive_intensity": {"type": "number", "minimum": 0, "maximum": 50},
+        "normal_scale": {"type": "number", "minimum": 0, "maximum": 4}
+      }
+    },
+    "texture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "channel", "color_space"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "channel": {"enum": ["base_color", "normal", "roughness", "metalness", "occlusion", "emissive", "alpha"]},
+        "color_space": {"enum": ["srgb", "linear", "non_color"]},
+        "source_url": {"type": ["string", "null"]},
+        "license": {"type": ["string", "null"]}
+      }
+    },
+    "physicalScale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_mm", "height_mm", "rotation_deg", "origin_mm", "layout", "grout_width_mm", "grout_color"],
+      "properties": {
+        "width_mm": {"type": "number", "exclusiveMinimum": 0},
+        "height_mm": {"type": "number", "exclusiveMinimum": 0},
+        "rotation_deg": {"type": "number"},
+        "origin_mm": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}], "minItems": 2, "maxItems": 2},
+        "layout": {"enum": ["straight", "brick", "herringbone"]},
+        "grout_width_mm": {"type": "number", "minimum": 0},
+        "grout_color": {"$ref": "#/$defs/color"}
+      }
+    }
+  }
+}

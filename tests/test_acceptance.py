@@ -7,9 +7,11 @@ Covers:
 """
 from __future__ import annotations
 import sys
+import io
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from PIL import Image, ImageDraw
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 API_DIR = ROOT_DIR / "apps" / "api"
@@ -66,11 +68,25 @@ def test_full_atelier_acceptance_suite():
         assert abs(parsed_dxf["width_mm"] - 4000.0) <= 1.0
         assert abs(parsed_dxf["depth_mm"] - 5000.0) <= 1.0
 
-        # 4. Uncalibrated Raster Upload -> Ask User Interrupt & Resume Gate
-        r_uncal = client.post(
+        # 4A. Malformed PNG must fail cleanly without creating a fake SceneGraph.
+        r_invalid = client.post(
             "/api/v1/imports",
             data={"project_id": "proj_demo_4x5m"},
             files={"file": ("unscaled_plan.png", b"\x89PNG\r\n\x1a\nfake", "image/png")},
+        )
+        assert r_invalid.status_code == 422
+        assert "không phải ảnh/PDF/DXF hợp lệ" in r_invalid.json()["detail"]
+
+        # 4B. A real but uncalibrated raster still enters the scale-confirmation gate.
+        image = Image.new("RGB", (640, 480), "white")
+        drawing = ImageDraw.Draw(image)
+        drawing.rectangle((70, 60, 570, 420), outline="black", width=14)
+        image_bytes = io.BytesIO()
+        image.save(image_bytes, format="PNG")
+        r_uncal = client.post(
+            "/api/v1/imports",
+            data={"project_id": "proj_demo_4x5m"},
+            files={"file": ("valid_unscaled_plan.png", image_bytes.getvalue(), "image/png")},
         )
         assert r_uncal.status_code == 200
         assert r_uncal.json()["parsed"]["requires_scale_confirmation"] is True

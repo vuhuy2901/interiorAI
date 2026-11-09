@@ -27,6 +27,7 @@ export const RevisionHistoryDrawer: React.FC<RevisionHistoryDrawerProps> = ({
     <div className="drawer-backdrop" onClick={onClose}>
       <aside
         className="drawer-panel"
+        data-testid="revision-history-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -46,7 +47,12 @@ export const RevisionHistoryDrawer: React.FC<RevisionHistoryDrawerProps> = ({
             <History size={16} style={{ color: 'var(--accent)' }} />
             <span>Lịch Sử Phiên Bản (Revision Snapshots)</span>
           </div>
-          <button className="btn btn-icon btn-sm" onClick={onClose} aria-label="Đóng">
+          <button
+            data-testid="close-history-drawer-btn"
+            className="btn btn-icon btn-sm"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
             <X size={15} />
           </button>
         </div>
@@ -62,6 +68,7 @@ export const RevisionHistoryDrawer: React.FC<RevisionHistoryDrawerProps> = ({
             return (
               <div
                 key={r.id || `${r.revision}-${idx}`}
+                data-testid={`revision-item-${r.revision}`}
                 className="surface-card"
                 style={{
                   padding: 14,
@@ -80,6 +87,7 @@ export const RevisionHistoryDrawer: React.FC<RevisionHistoryDrawerProps> = ({
                     </span>
                   ) : (
                     <button
+                      data-testid={`restore-revision-${r.revision}`}
                       className="btn btn-sm"
                       onClick={() => {
                         onRestoreRevision(r.revision)
