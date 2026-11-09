@@ -1,0 +1,297 @@
+{
+  "workflow_id": "wf_default_interior_pipeline",
+  "name": "Quy Trình Thiết Kế Nội Thất Đa Agent Chuẩn (14 Nodes)",
+  "version": 1,
+  "description": "Luồng phối hợp từ nhập bản vẽ 2D, hỏi đáp gia chủ, dựng 3D Pascal MCP, bố trí nội thất, phối màu sơn/gạch đến bóc tách dự toán và xuất CAD.",
+  "nodes": [
+    {
+      "id": "n1_intake",
+      "type": "input_intake",
+      "label": "1. Nhập Mặt Bằng & Nhu Cầu",
+      "agent_id": "agent_chief_architect",
+      "position": {
+        "x": 40,
+        "y": 140
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "timeout_s": 30,
+        "retry": 1
+      }
+    },
+    {
+      "id": "n2_floorplan",
+      "type": "floorplan_cv",
+      "label": "2. Phân Tích Tường & Cửa 2D",
+      "agent_id": "agent_floorplan",
+      "position": {
+        "x": 300,
+        "y": 60
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "require_scale": true
+      }
+    },
+    {
+      "id": "n3_scale_gate",
+      "type": "human_gate",
+      "label": "3. Xác Nhận Tỷ Lệ Chuẩn (mm)",
+      "agent_id": "agent_floorplan",
+      "position": {
+        "x": 300,
+        "y": 230
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "gate_type": "SCALE_CONFIRMATION"
+      }
+    },
+    {
+      "id": "n4_brief",
+      "type": "concierge_brief",
+      "label": "4. Hỏi Đáp & Chốt Design Brief",
+      "agent_id": "agent_chief_architect",
+      "position": {
+        "x": 570,
+        "y": 140
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "allow_ask_user": true
+      }
+    },
+    {
+      "id": "n5_geometry",
+      "type": "pascal_geometry",
+      "label": "5. Dựng Khung 3D Pascal MCP",
+      "agent_id": "agent_geometry",
+      "position": {
+        "x": 840,
+        "y": 60
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "mcp_server": "conn_pascal_mcp"
+      }
+    },
+    {
+      "id": "n6_style",
+      "type": "style_surface",
+      "label": "6. Phối Sơn Tường & Gạch Sàn (7B)",
+      "agent_id": "agent_style",
+      "position": {
+        "x": 840,
+        "y": 230
+      },
+      "enabled": true,
+      "status": "COMPLETED",
+      "config": {
+        "apply_accent_wall": true
+      }
+    },
+    {
+      "id": "n7_furniture",
+      "type": "furniture_layout",
+      "label": "7. Bố Trí Nội Thất Phương Án A/B",
+      "agent_id": "agent_furniture",
+      "position": {
+        "x": 1110,
+        "y": 60
+      },
+      "enabled": true,
+      "status": "RECOMPUTED",
+      "config": {
+        "min_walkway_mm": 750
+      }
+    },
+    {
+      "id": "n8_clearance",
+      "type": "collision_qa",
+      "label": "8. Kiểm Tra Va Chạm & Lối Đi",
+      "agent_id": "agent_furniture",
+      "position": {
+        "x": 1110,
+        "y": 230
+      },
+      "enabled": true,
+      "status": "RECOMPUTED",
+      "config": {
+        "check_door_swing": true
+      }
+    },
+    {
+      "id": "n9_shopping",
+      "type": "catalog_match",
+      "label": "9. Khớp SKU Catalog Việt Nam",
+      "agent_id": "agent_shopping",
+      "position": {
+        "x": 1380,
+        "y": 60
+      },
+      "enabled": true,
+      "status": "RECOMPUTED",
+      "config": {
+        "catalog": "catalog_vn.csv"
+      }
+    },
+    {
+      "id": "n10_cost",
+      "type": "deterministic_cost",
+      "label": "10. Tính Dự Toán BOQ Xác Định",
+      "agent_id": "agent_cost",
+      "position": {
+        "x": 1380,
+        "y": 230
+      },
+      "enabled": true,
+      "status": "RECOMPUTED",
+      "config": {
+        "vat_rate": 0.08
+      }
+    },
+    {
+      "id": "n11_approval",
+      "type": "human_gate",
+      "label": "11. Cổng Duyệt Phương Án & Giá",
+      "agent_id": "agent_chief_architect",
+      "position": {
+        "x": 1650,
+        "y": 140
+      },
+      "enabled": true,
+      "status": "RECOMPUTED",
+      "config": {
+        "gate_type": "PROPOSAL_APPROVAL"
+      }
+    },
+    {
+      "id": "n12_render",
+      "type": "render_gen",
+      "label": "12. Kết Xuất Phối Cảnh Minh Họa",
+      "agent_id": "agent_render",
+      "position": {
+        "x": 1920,
+        "y": 60
+      },
+      "enabled": true,
+      "status": "READY",
+      "config": {
+        "lock_camera": true
+      }
+    },
+    {
+      "id": "n13_render_qa",
+      "type": "render_qa",
+      "label": "13. Kiểm Định Chống Sai Lệch 3D",
+      "agent_id": "agent_render",
+      "position": {
+        "x": 1920,
+        "y": 230
+      },
+      "enabled": true,
+      "status": "READY",
+      "config": {
+        "strict_geometry": true
+      }
+    },
+    {
+      "id": "n14_export",
+      "type": "cad_export",
+      "label": "14. Xuất Hồ Sơ DXF / GLB / IFC / BOQ",
+      "agent_id": "agent_geometry",
+      "position": {
+        "x": 2190,
+        "y": 140
+      },
+      "enabled": true,
+      "status": "READY",
+      "config": {
+        "formats": [
+          "dxf",
+          "glb",
+          "ifc",
+          "dae",
+          "xlsx"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1-2",
+      "source": "n1_intake",
+      "target": "n2_floorplan"
+    },
+    {
+      "id": "e2-3",
+      "source": "n2_floorplan",
+      "target": "n3_scale_gate"
+    },
+    {
+      "id": "e3-4",
+      "source": "n3_scale_gate",
+      "target": "n4_brief"
+    },
+    {
+      "id": "e4-5",
+      "source": "n4_brief",
+      "target": "n5_geometry"
+    },
+    {
+      "id": "e5-6",
+      "source": "n5_geometry",
+      "target": "n6_style"
+    },
+    {
+      "id": "e5-7",
+      "source": "n5_geometry",
+      "target": "n7_furniture"
+    },
+    {
+      "id": "e7-8",
+      "source": "n7_furniture",
+      "target": "n8_clearance"
+    },
+    {
+      "id": "e8-9",
+      "source": "n8_clearance",
+      "target": "n9_shopping"
+    },
+    {
+      "id": "e6-10",
+      "source": "n6_style",
+      "target": "n10_cost"
+    },
+    {
+      "id": "e9-10",
+      "source": "n9_shopping",
+      "target": "n10_cost"
+    },
+    {
+      "id": "e10-11",
+      "source": "n10_cost",
+      "target": "n11_approval"
+    },
+    {
+      "id": "e11-12",
+      "source": "n11_approval",
+      "target": "n12_render"
+    },
+    {
+      "id": "e12-13",
+      "source": "n12_render",
+      "target": "n13_render_qa"
+    },
+    {
+      "id": "e11-14",
+      "source": "n11_approval",
+      "target": "n14_export"
+    }
+  ]
+}

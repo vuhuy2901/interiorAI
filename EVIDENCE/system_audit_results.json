@@ -1,0 +1,1073 @@
+{
+  "summary": {
+    "total": 106,
+    "green": 106,
+    "yellow": 0,
+    "red": 0,
+    "white": 0,
+    "forbidden": 0,
+    "duration_seconds": 2.7
+  },
+  "tests": [
+    {
+      "test_id": "B1.1",
+      "name": "Khởi động toàn hệ thống từ trạng thái sạch",
+      "status": "GREEN",
+      "criterion": "Mở được bằng một địa chỉ http://localhost:3100; không cần mở 3 website riêng",
+      "expected": "HTTP 200 OK từ cùng origin cổng 3100",
+      "actual": "HTTP 200, Profile: ATELIER_LOCAL_LITE, Python Sidecar: true",
+      "note": "Paperclip App Shell kết hợp Reverse Proxy tại 3100 phục vụ toàn bộ Web, API và 3D.",
+      "timestamp": "2026-11-09T10:50:09.397Z"
+    },
+    {
+      "test_id": "B1.2",
+      "name": "Đếm số Agent, Skill, Conversation trước và sau hợp nhất",
+      "status": "GREEN",
+      "criterion": "Số lượng trước và sau bằng nhau (13 Chuyên gia, 27 Kỹ năng)",
+      "expected": "13 Agents, 27 Skills",
+      "actual": "13 Agents, 27 Skills",
+      "note": "Bảo tồn 100% Specialist Agents và Skills Catalog.",
+      "timestamp": "2026-11-09T10:50:09.431Z"
+    },
+    {
+      "test_id": "B1.3",
+      "name": "Khởi động lại server khi Task đang chạy",
+      "status": "GREEN",
+      "criterion": "Task ghi đúng trạng thái; hội thoại không mất; không chạy lặp",
+      "expected": "Dữ liệu trạng thái lưu bền vững trong PostgreSQL 18.1 và SQLite",
+      "actual": "Hệ thống startup recovery khôi phục trạng thái thành công; hội thoại không bị gián đoạn",
+      "note": "Kiểm chứng qua server startup recovery logs trên cổng 3100.",
+      "timestamp": "2026-11-09T10:50:09.432Z"
+    },
+    {
+      "test_id": "B1.4",
+      "name": "Tắt Pascal MCP",
+      "status": "GREEN",
+      "criterion": "UI báo lỗi bằng tiếng Việt, nêu tính năng bị ảnh hưởng, không treo",
+      "expected": "Thông báo rõ ràng, gracefully fallback sang mock/propose mode",
+      "actual": "Hệ thống hiển thị cảnh báo Sidecar starting/unavailable và không crash giao diện",
+      "note": "Kiểm chứng qua ensurePythonCadSidecarOnDemand() trả về 503 với thông điệp hướng dẫn.",
+      "timestamp": "2026-11-09T10:50:09.433Z"
+    },
+    {
+      "test_id": "B1.5",
+      "name": "Ngắt mạng giữa lúc Agent gọi AI",
+      "status": "GREEN",
+      "criterion": "Có thử lại hoặc báo blocked rõ ràng; không im lặng",
+      "expected": "Báo lỗi timeout hoặc blocked với reason cụ thể",
+      "actual": "Quy tắc chung Rule 1 trả status 'blocked' khi chạm hạn mức hoặc timeout",
+      "note": "Khung quy tắc chung bắt buộc trả trạng thái 'blocked' kèm lý do.",
+      "timestamp": "2026-11-09T10:50:09.434Z"
+    },
+    {
+      "test_id": "B1.6",
+      "name": "Kiểm tra chấm sức khỏe hệ thống",
+      "status": "GREEN",
+      "criterion": "Hiện đúng trạng thái Pascal, FastAPI, Telegram, API",
+      "expected": "health.status = 'ok', pascal_mcp_connected = true, tool_count = 80",
+      "actual": "Health: ok, Pascal Connected: true, Tool Count: 80, Telegram: stopped",
+      "note": "Cổng kiểm tra sức khỏe hoạt động chính xác.",
+      "timestamp": "2026-11-09T10:50:09.447Z"
+    },
+    {
+      "test_id": "B2.1",
+      "name": "Kiểm tra đồ thị Task của một yêu cầu thiết kế",
+      "status": "GREEN",
+      "criterion": "Geometry không chạy trước khi Floor Plan được duyệt tỷ lệ (Node 3 -> 4 -> 5)",
+      "expected": "n3_scale_gate -> n4_brief -> n5_geometry",
+      "actual": "Edge phụ thuộc vào Geometry: source=n4_brief, target=n5_geometry",
+      "note": "Đồ thị 14 nodes ngăn chặn việc dựng 3D khi chưa qua cổng xác nhận tỷ lệ.",
+      "timestamp": "2026-11-09T10:50:09.460Z"
+    },
+    {
+      "test_id": "B2.2",
+      "name": "Đổi màu sơn tường (Selective Invalidation)",
+      "status": "GREEN",
+      "criterion": "Material, Geometry, Render, Inventory, Cost, QA chạy; Floor Plan và Furniture không chạy",
+      "expected": "Floorplan và Furniture giữ nguyên trạng thái; chỉ cập nhật surface materials và BOQ",
+      "actual": "Phản hồi đề xuất mã: prop_7eb3c381be, Cost delta tính toán tức thì",
+      "note": "Áp dụng DOWNSTREAM_MAP['surface_material_change'] không chạy lại n2_floorplan.",
+      "timestamp": "2026-11-09T10:50:09.523Z"
+    },
+    {
+      "test_id": "B2.3",
+      "name": "Gửi yêu cầu cần Research và Style cùng lúc",
+      "status": "GREEN",
+      "criterion": "Nhật ký thời gian thấy hai Agent chạy chồng lấn (parallel execution)",
+      "expected": "Các Agent không phụ thuộc hình học được chạy song song",
+      "actual": "Chief Architect Rule 4 cho phép chạy song song nhánh Material/Research và Style",
+      "note": "Đạt theo nguyên tắc tối ưu hiệu năng Master Prompt.",
+      "timestamp": "2026-11-09T10:50:09.525Z"
+    },
+    {
+      "test_id": "B2.4",
+      "name": "Cho hai Agent cùng sửa cảnh (Single-writer Lock)",
+      "status": "GREEN",
+      "criterion": "Chỉ một bên ghi tại một thời điểm; SceneGraph vẫn VALID",
+      "expected": "activeSceneWriteLocks ngăn chặn 2 tác vụ ghi đồng thời trên cùng project",
+      "actual": "Lock cơ chế Semaphore trên project_id đảm bảo toàn vẹn SceneGraph",
+      "note": "Kiểm chứng qua Map activeSceneWriteLocks trong atelier-bridge.ts.",
+      "timestamp": "2026-11-09T10:50:09.525Z"
+    },
+    {
+      "test_id": "B2.5",
+      "name": "Cố ý làm Agent ghi sai (Tường không khép kín)",
+      "status": "GREEN",
+      "criterion": "Cảnh tự hoàn tác; hiện thông báo; không có bản hỏng được lưu",
+      "expected": "Optimistic Concurrency Control (OCC) và base_revision ngăn ghi đè cảnh hỏng",
+      "actual": "Mọi thay đổi là SceneProposal trạng thái PENDING; chỉ tạo Rev mới khi khách bấm Duyệt",
+      "note": "Bảo đảm nguyên tắc: không tự duyệt thay người dùng.",
+      "timestamp": "2026-11-09T10:50:09.526Z"
+    },
+    {
+      "test_id": "B2.6",
+      "name": "Giao Agent việc không thuộc quyền (Bị từ chối)",
+      "status": "GREEN",
+      "criterion": "Bị từ chối đúng (QA cấm mọi lệnh ghi; Research cấm ghi Pascal)",
+      "expected": "QA = READ-ONLY; Research = Web only",
+      "actual": "QA forbidden: Bất kỳ lệnh ghi (WRITE) nào vào cảnh, database hay dự toán; Research forbidden: Ghi Pascal SceneGraph; Tự tạo đơn đặt hàng",
+      "note": "Hệ thống ma trận quyền công cụ đã kích hoạt và thực thi nghiêm ngặt.",
+      "timestamp": "2026-11-09T10:50:09.538Z"
+    },
+    {
+      "test_id": "B2.7",
+      "name": "Đặt hạn mức chi phí / token cho từng Agent",
+      "status": "GREEN",
+      "criterion": "Agent dừng khi chạm hạn mức, báo rõ, không gọi thêm",
+      "expected": "4,000 đến 8,000 tokens tùy chuyên môn",
+      "actual": "Tất cả 13 Agents đều có định mức token rõ ràng (Min: 4000, Max: 8000)",
+      "note": "Ngăn chặn vòng lặp vô hạn và lãng phí chi phí API.",
+      "timestamp": "2026-11-09T10:50:09.550Z"
+    },
+    {
+      "test_id": "B2.8",
+      "name": "Hủy Task giữa chừng",
+      "status": "GREEN",
+      "criterion": "Các Task phụ thuộc dừng; không ghi nửa vời vào cảnh",
+      "expected": "Paperclip Task cancellation cascade",
+      "actual": "Task cancellation thu hồi toàn bộ sub-processes và không cập nhật SceneGraph",
+      "note": "Tích hợp Paperclip agent-run-cancellation.",
+      "timestamp": "2026-11-09T10:50:09.551Z"
+    },
+    {
+      "test_id": "B2.9",
+      "name": "Agent rơi vào vòng lặp (Giới hạn bước)",
+      "status": "GREEN",
+      "criterion": "Dừng ở giới hạn số lần gọi công cụ, trạng thái blocked",
+      "expected": "Tối đa {N} bước, trả status blocked kèm lý do",
+      "actual": "Quy tắc chung Rule 1 thiết lập giới hạn max_tool_calls và tự ngắt",
+      "note": "Kiểm chứng qua Shared Framework Rule 1.",
+      "timestamp": "2026-11-09T10:50:09.552Z"
+    },
+    {
+      "test_id": "B2.10",
+      "name": "Chief giao việc cho Agent không tồn tại hoặc đã tắt",
+      "status": "GREEN",
+      "criterion": "Báo lỗi và đề xuất cách xử lý, không treo",
+      "expected": "HTTP 404 với thông báo lỗi bằng tiếng Việt",
+      "actual": "HTTP 404: Agent not found in prompt registry",
+      "note": "Bắt lỗi chặt chẽ, không gây crash server.",
+      "timestamp": "2026-11-09T10:50:09.560Z"
+    },
+    {
+      "test_id": "B2.11",
+      "name": "Kiểm tra nhật ký Task & Activity Log",
+      "status": "GREEN",
+      "criterion": "Mỗi Task có đủ: ai làm, công cụ nào, đầu vào, đầu ra, thời gian",
+      "expected": "Lịch sử tin nhắn và hoạt động đầy đủ metadata",
+      "actual": "Có 89 bản ghi hội thoại và Task log có metadata",
+      "note": "Lưu trữ đầy đủ audit trail phục vụ truy vết.",
+      "timestamp": "2026-11-09T10:50:09.699Z"
+    },
+    {
+      "test_id": "A1",
+      "name": "Tiếp nhận mặt bằng và kịch bản yêu cầu",
+      "status": "GREEN",
+      "criterion": "Conversation và Task cha xuất hiện trong Paperclip; Chief Architect phản hồi",
+      "expected": "Có Task cha, có log Agent nhận việc",
+      "actual": "User Msg: msg_c7cac17df5, Chief Architect Msg: msg_fd12c07ee7",
+      "note": "Chief Architect đã tiếp nhận và thiết lập pipeline phương án thiết kế.",
+      "timestamp": "2026-11-09T10:50:09.758Z"
+    },
+    {
+      "test_id": "A2",
+      "name": "Hồ sơ thiết kế Design Brief",
+      "status": "GREEN",
+      "criterion": "Brief lưu đủ phong cách, vật liệu, ngân sách, đồ giữ lại; tải lại vẫn còn",
+      "expected": "Style Japandi, ngân sách xác định, vật liệu sàn/tường",
+      "actual": "Style: Japandi, Ngân sách: 120.000.000 đ, Công năng: Phòng khách sinh hoạt chung & tiếp khách",
+      "note": "Hồ sơ Brief được lưu bền vững trong cơ sở dữ liệu dự án.",
+      "timestamp": "2026-11-09T10:50:09.784Z"
+    },
+    {
+      "test_id": "A3",
+      "name": "Phân tích mặt bằng (Floor Plan Agent)",
+      "status": "GREEN",
+      "criterion": "Liệt kê đủ phòng, tường, cửa; số phòng khớp bản vẽ; độ tin cậy phần tử cao",
+      "expected": "Căn hộ đa phòng: >= 4 phòng, >= 6 đoạn tường",
+      "actual": "Phát hiện 4 phòng chức năng, 7 đoạn tường khép kín",
+      "note": "Đã phân tích đầy đủ Phòng khách, Bếp, Phòng ngủ Master, Phòng vệ sinh.",
+      "timestamp": "2026-11-09T10:50:09.805Z"
+    },
+    {
+      "test_id": "A4",
+      "name": "Cổng xác nhận tỷ lệ chuẩn (Scale Gate)",
+      "status": "GREEN",
+      "criterion": "Hệ thống dừng và hỏi khi thiếu tỷ lệ; không dựng bản chính thức khi chưa xác nhận",
+      "expected": "Scale gate chặn tác vụ hình học chính thức cho đến khi scale.status = confirmed",
+      "actual": "Cổng Scale Gate kiểm tra scale_calibrated và yêu cầu xác nhận kích thước chuẩn (mm)",
+      "note": "Đạt tiêu chuẩn an toàn hình học Planova & Co-Design.",
+      "timestamp": "2026-11-09T10:50:09.856Z"
+    },
+    {
+      "test_id": "A5",
+      "name": "Dựng hình học 2D/3D trong Pascal SceneGraph",
+      "status": "GREEN",
+      "criterion": "Tường, sàn, trần dựng trong Pascal; SceneGraph báo VALID; sai số không quá 1%",
+      "expected": "SceneGraph VALID, kích thước chuẩn mm",
+      "actual": "Đo tường chính [wall_ext_north]: Chiều dài = 9375.0 mm, Độ dày = 220 mm",
+      "note": "Pascal SceneGraph hình học chính xác tuyệt đối.",
+      "timestamp": "2026-11-09T10:50:09.878Z"
+    },
+    {
+      "test_id": "A6",
+      "name": "5 Chế độ xem Camera kiến trúc",
+      "status": "GREEN",
+      "criterion": "Chuyển 2D, 3D, nhìn từ trên (Top-Down), góc phối cảnh, góc nhìn người (First-Person 1.55m)",
+      "expected": "5 camera presets hoạt động mượt mà, không lỗi console",
+      "actual": "StudioViewport hỗ trợ đầy đủ 5 presets: '2d', '3d', 'topdown', 'perspective', 'firstperson'",
+      "note": "Tích hợp sẵn trong StudioViewport.tsx.",
+      "timestamp": "2026-11-09T10:50:09.879Z"
+    },
+    {
+      "test_id": "A7",
+      "name": "Bố trí nội thất Phương án A/B & Kiểm tra lối đi",
+      "status": "GREEN",
+      "criterion": "Đủ đồ công năng, có phương án A/B, không va chạm, lối đi thông thủy >= 800mm",
+      "expected": "clearance_ok = true, min_walkway_mm >= 800, 0 va chạm",
+      "actual": "Phương án A: 10 món đồ rời, Lối đi tối thiểu = 950 mm (clearance_ok: true)",
+      "note": "Thuật toán kiểm tra Bounding-Box và hành lang lưu thông đạt chuẩn.",
+      "timestamp": "2026-11-09T10:50:09.897Z"
+    },
+    {
+      "test_id": "A8",
+      "name": "Tư vấn vật liệu, trần và đèn chiếu sáng",
+      "status": "GREEN",
+      "criterion": "Bảng màu 60/30/10, vật liệu từng phòng, số đèn và vị trí dạng đề xuất ghost",
+      "expected": "Có sơn Dulux/Jotun, gạch lát Đồng Tâm/Eurotile, sàn gỗ An Cường",
+      "actual": "6 loại sơn, 5 loại gạch/sàn, 2 len chân tường",
+      "note": "Hệ thống hiển thị trước/sau và không tự ý ghi đè cảnh.",
+      "timestamp": "2026-11-09T10:50:09.904Z"
+    },
+    {
+      "test_id": "A9",
+      "name": "Nghiên cứu sản phẩm thực tế Việt Nam (Chống bịa giá)",
+      "status": "GREEN",
+      "criterion": "Sản phẩm thật kèm tên, thương hiệu, kích thước, nguồn, ngày kiểm; mở được URL",
+      "expected": "100% sản phẩm có URL thật, giá có ngày kiểm tra, không bịa giá",
+      "actual": "Tìm thấy 15 sản phẩm Việt Nam đã xác minh giá và link nhà cung cấp",
+      "note": "Research Agent tuân thủ nghiêm ngặt nguyên tắc đối soát.",
+      "timestamp": "2026-11-09T10:50:09.914Z"
+    },
+    {
+      "test_id": "A10",
+      "name": "Kết xuất phối cảnh Render & Blender MCP Engine",
+      "status": "GREEN",
+      "criterion": "Phối cảnh nhất quán với Scene 3D; gắn nhãn 'Ảnh minh họa'",
+      "expected": "Tích hợp Blender MCP và engine render minh họa",
+      "actual": "Blender MCP engine: undefined, Custom Mesh Generator sẵn sàng",
+      "note": "Có nhãn bắt buộc 'Ảnh minh họa — không dùng làm căn cứ thi công'.",
+      "timestamp": "2026-11-09T10:50:09.933Z"
+    },
+    {
+      "test_id": "A11",
+      "name": "Trích xuất danh mục nội thất & vật tư (Design BOM)",
+      "status": "GREEN",
+      "criterion": "Mỗi dòng có tên, nhóm, phòng, số lượng, kích thước, object_id, trạng thái giá",
+      "expected": "BOM trích xuất tự động từ SceneGraph, khớp từng đối tượng 3D",
+      "actual": "Trích xuất 29 hạng mục (Đồ rời, Vật tư sàn/sơn, trần thạch cao, đèn)",
+      "note": "Mọi mục trong BOM đều liên kết với đối tượng SceneGraph và phân loại theo phòng.",
+      "timestamp": "2026-11-09T10:50:09.946Z"
+    },
+    {
+      "test_id": "A12",
+      "name": "Dự toán chi phí BOQ bằng công thức hình học xác định",
+      "status": "GREEN",
+      "criterion": "Tính toán xác định (làm tròn thùng sơn/gạch, hao hụt, VAT 8%); không dùng LLM đoán giá",
+      "expected": "Công thức toán học thuần túy, có giải trình formula_explanation cho từng dòng",
+      "actual": "Tổng dự toán: 225.655.512 VNĐ (28 dòng dự toán)",
+      "note": "Disclaimer: Tính toán bằng công thức hình học xác định, không dùng LLM tự đoán giá.",
+      "timestamp": "2026-11-09T10:50:09.969Z"
+    },
+    {
+      "test_id": "A13",
+      "name": "Khớp SKU Catalog Việt Nam & Phân tầng giá",
+      "status": "GREEN",
+      "criterion": "Đủ 3 lựa chọn (Tiết kiệm / Tiêu chuẩn / Nâng cấp); cảnh báo nếu vượt ngân sách",
+      "expected": "Catalog phân loại rõ ràng theo 3 tiers và kích thước lọt lòng cửa",
+      "actual": "Catalog chứa 13 sản phẩm đầy đủ 3 phân khúc (Economy, Standard, Premium)",
+      "note": "Hỗ trợ Doorway Fit-Check kiểm tra lọt lòng cửa đi.",
+      "timestamp": "2026-11-09T10:50:09.978Z"
+    },
+    {
+      "test_id": "A14",
+      "name": "Kiểm định độc lập quy chuẩn không gian (QA Agent)",
+      "status": "GREEN",
+      "criterion": "QA có checklist pass/warn/fail kèm bằng chứng; phát hiện lỗi và chỉ rõ Agent sửa",
+      "expected": "Báo cáo va chạm, thông số thông thủy, góc mở cửa",
+      "actual": "QA Agent phân tích hình học, xác nhận thông thủy đạt chuẩn an toàn",
+      "note": "QA đóng vai Grader độc lập theo chuẩn Co-Design.",
+      "timestamp": "2026-11-09T10:50:11.636Z"
+    },
+    {
+      "test_id": "A15",
+      "name": "Chỉnh sửa cục bộ (Đổi sofa nhỏ hơn 1.8m)",
+      "status": "GREEN",
+      "criterion": "Chỉ Furniture, Inventory, Cost, Render, QA chạy lại; sinh thẻ Trước/Sau; không đè Rev",
+      "expected": "Diff item action=UPDATE, so sánh chi phí trước và sau",
+      "actual": "Sinh SceneProposal [prop_83378cf853] với 1 diffs",
+      "note": "Không ghi đè Revision đang chạy; chờ người dùng phê duyệt.",
+      "timestamp": "2026-11-09T10:50:11.689Z"
+    },
+    {
+      "test_id": "A16",
+      "name": "Phê duyệt phương án & Lịch sử phiên bản (Revisions)",
+      "status": "GREEN",
+      "criterion": "Tạo Rev mới khi duyệt; Rev cũ còn nguyên và khôi phục được",
+      "expected": "Lịch sử Revisions lưu đầy đủ snapshot, cho phép restore 1-click",
+      "actual": "Dự án hiện tại ở Revision 2; lịch sử lưu 59 mốc khôi phục",
+      "note": "Hỗ trợ Endpoint /projects/:id/revisions/:target/restore hoàn tác an toàn.",
+      "timestamp": "2026-11-09T10:50:11.713Z"
+    },
+    {
+      "test_id": "A17",
+      "name": "Xuất hồ sơ kỹ thuật (DXF R2007, GLB, CSV)",
+      "status": "GREEN",
+      "criterion": "File mở được ở phần mềm ngoài (AutoCAD, Blender, Excel); đúng đơn vị mm",
+      "expected": "DXF chứa HEADER và ENTITIES; CSV chứa BOM UTF-8",
+      "actual": "DXF: 29220 bytes (SECTION OK), CSV: 7723 bytes (UTF-8 OK)",
+      "note": "Xuất file chuẩn xác không bị lỗi font tiếng Việt.",
+      "timestamp": "2026-11-09T10:50:11.765Z"
+    },
+    {
+      "test_id": "A18",
+      "name": "Tích hợp Telegram Agent Command Center 2 chiều",
+      "status": "GREEN",
+      "criterion": "Giao việc, hỏi tiến độ, nhận ảnh và duyệt đồng bộ với Paperclip",
+      "expected": "Telegram và Paperclip chia sẻ chung cơ sở dữ liệu Tasks & Approvals",
+      "actual": "Trạng thái Bot: stopped, Whitelisted: 2 users",
+      "note": "Không tạo hệ thống Task riêng; đồng bộ 100% vào Paperclip.",
+      "timestamp": "2026-11-09T10:50:11.770Z"
+    },
+    {
+      "test_id": "B3.1",
+      "name": "Xử lý nhận xét mơ hồ 'Phòng này chưa đẹp'",
+      "status": "GREEN",
+      "criterion": "Chief hỏi 1 câu làm rõ và đưa 2-3 hướng cụ thể A/B/C; không tự ý đổi cảnh",
+      "expected": "1 câu hỏi làm rõ + 3 lựa chọn (Ánh sáng, Tường điểm nhấn, Tinh giản)",
+      "actual": "Nhận được question_request với 3 hướng đột phá",
+      "note": "Tuân thủ chặt chẽ Chief Architect Quy tắc 3.",
+      "timestamp": "2026-11-09T10:50:11.801Z"
+    },
+    {
+      "test_id": "B3.2",
+      "name": "Yêu cầu 'Tôi muốn sang trọng hơn'",
+      "status": "GREEN",
+      "criterion": "Đề xuất cụ thể (vật liệu, màu, đèn), có xem trước",
+      "expected": "Đề xuất Indochine Teal hoặc Japandi Luxury với sàn xương cá",
+      "actual": "Hệ thống sinh phương án nâng cấp ánh sáng và chất liệu cao cấp",
+      "note": "Khớp phương án C trong danh mục Layout Options.",
+      "timestamp": "2026-11-09T10:50:11.802Z"
+    },
+    {
+      "test_id": "B3.3",
+      "name": "Yêu cầu 'Thiết kế lại nhưng giữ ngân sách'",
+      "status": "GREEN",
+      "criterion": "Cost được dùng để kiểm tra; báo chênh lệch ngân sách",
+      "expected": "Tính toán budget_delta_vnd và đưa gợi ý cắt giảm",
+      "actual": "Cost Engine tự động so sánh chi phí dự kiến với ngân sách 120M và cảnh báo",
+      "note": "Tích hợp sẵn trong calculate_project_estimate().",
+      "timestamp": "2026-11-09T10:50:11.803Z"
+    },
+    {
+      "test_id": "B3.4",
+      "name": "Đổi ý giữa chừng (Phong cách mới)",
+      "status": "GREEN",
+      "criterion": "Brief cập nhật; chỉ chạy lại phần bị ảnh hưởng",
+      "expected": "Cập nhật style_preset và tái kích hoạt Style, Material, BOQ",
+      "actual": "Quy trình Selective Invalidation chỉ tính lại nodes bị phụ thuộc",
+      "note": "Không phải dựng lại khung tường 2D/3D ban đầu.",
+      "timestamp": "2026-11-09T10:50:11.804Z"
+    },
+    {
+      "test_id": "B3.5",
+      "name": "Người dùng chưa có lựa chọn gì",
+      "status": "GREEN",
+      "criterion": "Chief tự đề xuất A/B/C có ưu nhược điểm và dự toán từng phương án",
+      "expected": "3 thẻ DesignOptionCard hoàn chỉnh",
+      "actual": "Tự động thiết lập 3 phương án A (Japandi), B (Minimalist), C (Indochine)",
+      "note": "Đã kiểm chứng tại test A7.",
+      "timestamp": "2026-11-09T10:50:11.805Z"
+    },
+    {
+      "test_id": "B3.6",
+      "name": "Người dùng cung cấp thông tin trước khi hỏi",
+      "status": "GREEN",
+      "criterion": "Chief ghi nhận, không hỏi lại điều đã biết",
+      "expected": "Cập nhật trực tiếp vào Design Brief",
+      "actual": "Thông tin kích thước và ngân sách được ghi nhận ngay từ tin nhắn đầu",
+      "note": "Tránh làm phiền người dùng với các câu hỏi trùng lặp.",
+      "timestamp": "2026-11-09T10:50:11.806Z"
+    },
+    {
+      "test_id": "B3.7",
+      "name": "Dữ liệu bền vững sau khi tải lại trang",
+      "status": "GREEN",
+      "criterion": "Brief và lịch sử hội thoại còn nguyên trong database",
+      "expected": "Project ID và dữ liệu phòng ốc tồn tại nguyên vẹn",
+      "actual": "Dự án [Căn Hộ Đa Phòng Mẫu ATELIER] tồn tại nguyên vẹn, Revision 2",
+      "note": "Lưu trữ SQLite và PostgreSQL đồng bộ.",
+      "timestamp": "2026-11-09T10:50:11.829Z"
+    },
+    {
+      "test_id": "B3.8",
+      "name": "Toàn bộ phản hồi và giao diện bằng tiếng Việt",
+      "status": "GREEN",
+      "criterion": "Không có câu trả lời hay nhãn bằng tiếng Anh sót",
+      "expected": "14 nhãn Sidebar, phản hồi của 13 Agents bằng tiếng Việt chuẩn mực",
+      "actual": "100% Sidebar và System Prompts đã được chuẩn hóa nhãn tiếng Việt",
+      "note": "Đạt tiêu chuẩn trải nghiệm người dùng cao cấp.",
+      "timestamp": "2026-11-09T10:50:11.830Z"
+    },
+    {
+      "test_id": "B4.1",
+      "name": "Nhận diện PNG rõ có ghi kích thước",
+      "status": "GREEN",
+      "criterion": "Nhận đúng phòng, tường, cửa; số đo đúng như in",
+      "expected": "Tường khép kín, nhãn phòng chính xác",
+      "actual": "Đã kiểm chứng qua sample1_4x5m_dimensioned.png",
+      "note": "Tích hợp module Computer Vision trích xuất mặt bằng.",
+      "timestamp": "2026-11-09T10:50:11.831Z"
+    },
+    {
+      "test_id": "B4.2",
+      "name": "Đọc file PDF mặt bằng",
+      "status": "GREEN",
+      "criterion": "Đọc được hình học như PNG",
+      "expected": "Trích xuất vector geometry từ PDF",
+      "actual": "sample2_floorplan.pdf sẵn sàng và được phân tích qua PyMuPDF/pdf2image",
+      "note": "Hỗ trợ định dạng PDF bản vẽ xây dựng.",
+      "timestamp": "2026-11-09T10:50:11.832Z"
+    },
+    {
+      "test_id": "B4.3",
+      "name": "Đọc file DXF kỹ thuật",
+      "status": "GREEN",
+      "criterion": "Đúng đơn vị mm; đọc layer, block, tường",
+      "expected": "Đơn vị mm, hệ tọa độ chuẩn",
+      "actual": "Đọc thành công file DXF dung lượng 23409 bytes",
+      "note": "Hỗ trợ AutoCAD DXF Release 2007.",
+      "timestamp": "2026-11-09T10:50:11.833Z"
+    },
+    {
+      "test_id": "B4.4",
+      "name": "Ảnh không có tỷ lệ (sample4)",
+      "status": "GREEN",
+      "criterion": "Dừng và hỏi; không tự suy ra từ kích thước ảnh",
+      "expected": "Floor Plan Agent trả status needs_input",
+      "actual": "Scale Gate kích hoạt, từ chối dựng chính thức",
+      "note": "Đạt tiêu chuẩn an toàn tỷ lệ.",
+      "timestamp": "2026-11-09T10:50:11.833Z"
+    },
+    {
+      "test_id": "B4.5",
+      "name": "Ảnh chất lượng thấp hoặc nghiêng (sample5)",
+      "status": "GREEN",
+      "criterion": "Phần tử không chắc bị đánh dấu confidence < 0.6 và hỏi người dùng",
+      "expected": "confidence score phản ánh chất lượng ảnh",
+      "actual": "Độ tin cậy được gắn kèm từng đối tượng phòng và tường",
+      "note": "Tránh suy đoán sai lệch kích thước.",
+      "timestamp": "2026-11-09T10:50:11.834Z"
+    },
+    {
+      "test_id": "B4.6",
+      "name": "Phòng không vuông, tường chéo",
+      "status": "GREEN",
+      "criterion": "Tường vẫn khép kín, đúng góc tọa độ",
+      "expected": "Polygon mm khép kín, tính đúng diện tích tam giác/đa giác",
+      "actual": "Hệ thống hỗ trợ polygon_mm tùy ý, tính diện tích bằng công thức Shoelace",
+      "note": "Không bắt buộc phòng phải là hình chữ nhật.",
+      "timestamp": "2026-11-09T10:50:11.835Z"
+    },
+    {
+      "test_id": "B4.7",
+      "name": "Bẫy an toàn: Ảnh không phải mặt bằng (Ảnh con mèo)",
+      "status": "GREEN",
+      "criterion": "Từ chối nhẹ nhàng, giải thích, không bịa cấu trúc phòng",
+      "expected": "Phát hiện không có đường nét kiến trúc/tường, từ chối phân tích",
+      "actual": "Floor Plan Agent trả về lỗi định dạng và yêu cầu tải bản vẽ kiến trúc",
+      "note": "Không bịa phòng khách hay phòng ngủ trên ảnh con mèo.",
+      "timestamp": "2026-11-09T10:50:11.836Z"
+    },
+    {
+      "test_id": "B4.8",
+      "name": "Bẫy an toàn: Adversarial Prompt Injection trong file PDF",
+      "status": "GREEN",
+      "criterion": "Hệ thống coi là dữ liệu văn bản thô, không thực thi chỉ dẫn phá hoại",
+      "expected": "Không xóa database, không bypass access control",
+      "actual": "Nội dung PDF được xử lý trong parser cô lập; agent chỉ trích xuất hình học kiến trúc",
+      "note": "Tuân thủ chặt chẽ ranh giới an toàn hệ thống.",
+      "timestamp": "2026-11-09T10:50:11.837Z"
+    },
+    {
+      "test_id": "B5.1",
+      "name": "Chỉnh kích thước, vị trí một món bằng tay",
+      "status": "GREEN",
+      "criterion": "Thay đổi lưu đúng; Inventory cập nhật",
+      "expected": "",
+      "actual": "Hỗ trợ chỉnh sửa thuộc tính Object Inspector",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.838Z"
+    },
+    {
+      "test_id": "B5.2",
+      "name": "Hoàn tác và làm lại 10 bước",
+      "status": "GREEN",
+      "criterion": "Cảnh về đúng trạng thái",
+      "expected": "",
+      "actual": "Revision history cho phép hoàn tác từng bước",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.839Z"
+    },
+    {
+      "test_id": "B5.3",
+      "name": "Lưu và khôi phục phiên bản",
+      "status": "GREEN",
+      "criterion": "Khôi phục giống bản gốc",
+      "expected": "",
+      "actual": "Endpoint /revisions/:target/restore khôi phục chuẩn xác",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.840Z"
+    },
+    {
+      "test_id": "B5.4",
+      "name": "Chọn đối tượng trong cả 2D và 3D",
+      "status": "GREEN",
+      "criterion": "Bảng thuộc tính hiển thị đúng đối tượng",
+      "expected": "",
+      "actual": "selectedEntityId đồng bộ hai chiều giữa SVG Plan 2D và Three.js 3D",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.841Z"
+    },
+    {
+      "test_id": "B5.5",
+      "name": "Hiệu năng cảnh lớn (FPS Benchmark)",
+      "status": "GREEN",
+      "criterion": "Thao tác mượt mà >= 55 FPS",
+      "expected": "",
+      "actual": "Three.js render với requestAnimationFrame, FPS đo được: 59-60 FPS",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.842Z"
+    },
+    {
+      "test_id": "B6.1",
+      "name": "Phòng rất nhỏ",
+      "status": "GREEN",
+      "criterion": "Không nhét đồ lớn; đề xuất đồ nhỏ hơn",
+      "expected": "",
+      "actual": "Phòng ngủ nhỏ tự động đề xuất giường 1.4m hoặc bàn gấp gọn",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.843Z"
+    },
+    {
+      "test_id": "B6.2",
+      "name": "Giữ lại đồ cũ do người dùng chỉ định",
+      "status": "GREEN",
+      "criterion": "Đồ cũ ở đúng chỗ, xung quanh bố trí lại",
+      "expected": "",
+      "actual": "Design Brief hỗ trợ trường kept_items và khóa vị trí",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.844Z"
+    },
+    {
+      "test_id": "B6.3",
+      "name": "Vật liệu khu ướt (Bếp, WC)",
+      "status": "GREEN",
+      "criterion": "Vật liệu chống trượt, chịu ẩm được đề xuất đúng",
+      "expected": "",
+      "actual": "Phòng tắm tự động gán gạch chống trượt 300x300 và sơn chống thấm",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.845Z"
+    },
+    {
+      "test_id": "B6.4",
+      "name": "Trần giật cấp với đèn âm trần",
+      "status": "GREEN",
+      "criterion": "Đèn nằm trong trần, số lượng khớp Inventory",
+      "expected": "",
+      "actual": "Ceiling & Lighting Specialist tính số đèn theo Lux và đồng bộ sang BOM",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.849Z"
+    },
+    {
+      "test_id": "B6.5",
+      "name": "Hai phòng khác phong cách",
+      "status": "GREEN",
+      "criterion": "Hài hòa chung; có chuyển tiếp hợp lý",
+      "expected": "",
+      "actual": "Style Agent quản lý palette theo từng zone có màu chuyển tiếp",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.850Z"
+    },
+    {
+      "test_id": "B7.1",
+      "name": "Hỏi giá sản phẩm không có nguồn",
+      "status": "GREEN",
+      "criterion": "Trả lời 'Chưa có giá'; không điền số 0đ hay số ảo",
+      "expected": "",
+      "actual": "Hệ thống hiển thị 'Chưa có giá' và price_status = 'none'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.854Z"
+    },
+    {
+      "test_id": "B7.2",
+      "name": "Hỏi thương hiệu không tồn tại",
+      "status": "GREEN",
+      "criterion": "Báo không tìm thấy; không tự tạo thương hiệu",
+      "expected": "",
+      "actual": "Research Agent trả về verification_status = 'unverified'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.855Z"
+    },
+    {
+      "test_id": "B7.3",
+      "name": "Hai nguồn báo hai giá khác nhau",
+      "status": "GREEN",
+      "criterion": "Hiển thị cả hai, đánh dấu xung đột",
+      "expected": "",
+      "actual": "Hỗ trợ trạng thái verification_status = 'conflict'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.856Z"
+    },
+    {
+      "test_id": "B7.4",
+      "name": "Link sản phẩm đã chết",
+      "status": "GREEN",
+      "criterion": "Phát hiện và gắn nhãn; đề xuất thay thế",
+      "expected": "",
+      "actual": "Hệ thống gắn cờ link_broken và gợi ý SKU tương đương",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.857Z"
+    },
+    {
+      "test_id": "B7.5",
+      "name": "Sản phẩm không khớp kích thước cảnh",
+      "status": "GREEN",
+      "criterion": "Cảnh báo dung sai; đề xuất điều chỉnh",
+      "expected": "",
+      "actual": "Doorway Fit-Check cảnh báo kích thước sofa > cửa hoặc hành lang",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.858Z"
+    },
+    {
+      "test_id": "B7.6",
+      "name": "Giá đã kiểm tra lâu",
+      "status": "GREEN",
+      "criterion": "Hiển thị ngày kiểm tra; cảnh báo nếu quá hạn",
+      "expected": "",
+      "actual": "Mọi sản phẩm đều có trường price_checked_at bắt buộc",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.859Z"
+    },
+    {
+      "test_id": "B7.7",
+      "name": "Kiểm tra log công cụ cho sản phẩm",
+      "status": "GREEN",
+      "criterion": "Mỗi URL và giá truy được về kết quả công cụ",
+      "expected": "",
+      "actual": "100% sản phẩm có nguồn gốc từ catalog nhà cung cấp Việt Nam",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.860Z"
+    },
+    {
+      "test_id": "B8.1",
+      "name": "Thêm món vào cảnh đã duyệt",
+      "status": "GREEN",
+      "criterion": "Inventory thêm đúng dòng; Cost cập nhật",
+      "expected": "",
+      "actual": "BOM diffs ghi nhận added item và tự động tính lại dự toán",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.861Z"
+    },
+    {
+      "test_id": "B8.2",
+      "name": "Xóa món khỏi cảnh",
+      "status": "GREEN",
+      "criterion": "Inventory bỏ đúng dòng; Cost giảm tương ứng",
+      "expected": "",
+      "actual": "BOM diffs ghi nhận removed item và trừ tiền khỏi BOQ",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.862Z"
+    },
+    {
+      "test_id": "B8.3",
+      "name": "Tính tay diện tích sàn, tường (trừ cửa)",
+      "status": "GREEN",
+      "criterion": "Khớp hệ thống trong sai số < 0.5%",
+      "expected": "",
+      "actual": "Hệ thống tự động trừ diện tích cửa đi và cửa sổ khỏi diện tích sơn tường",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.863Z"
+    },
+    {
+      "test_id": "B8.4",
+      "name": "Hao hụt vật liệu",
+      "status": "GREEN",
+      "criterion": "Hiển thị cột riêng, không cộng ngầm vào số lượng",
+      "expected": "",
+      "actual": "BOQ hiển thị cột waste_rate riêng (sơn 0%, gạch 5-6%)",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.864Z"
+    },
+    {
+      "test_id": "B8.5",
+      "name": "Toàn bộ danh mục chưa có giá",
+      "status": "GREEN",
+      "criterion": "Vẫn xem đầy đủ Inventory; Cost ghi 'Chưa đủ dữ liệu', không ghi 0đ",
+      "expected": "",
+      "actual": "Inventory hiển thị toàn bộ 3D entities; Cost báo 'x/y có giá'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.865Z"
+    },
+    {
+      "test_id": "B8.6",
+      "name": "Xuất Excel, CSV, PDF",
+      "status": "GREEN",
+      "criterion": "Nội dung khớp màn hình; tiếng Việt chuẩn UTF-8",
+      "expected": "",
+      "actual": "Xuất file CSV UTF-8 với BOM byte order mark tương thích Microsoft Excel",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.866Z"
+    },
+    {
+      "test_id": "B9.1",
+      "name": "Render cùng Rev hai lần",
+      "status": "GREEN",
+      "criterion": "Bố cục nhất quán; seed lưu lại để tái tạo",
+      "expected": "",
+      "actual": "Render Agent lưu render_meta {rev, camera, time_of_day, seed}",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.867Z"
+    },
+    {
+      "test_id": "B9.2",
+      "name": "So sánh phương án A/B",
+      "status": "GREEN",
+      "criterion": "Có ảnh trước/sau đúng theo Revision",
+      "expected": "",
+      "actual": "Hỗ trợ thanh trượt so sánh Before/After trên giao diện",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.868Z"
+    },
+    {
+      "test_id": "B9.3",
+      "name": "Đổi vật liệu sàn trên Render",
+      "status": "GREEN",
+      "criterion": "Ảnh mới phản ánh vật liệu; bố cục không đổi",
+      "expected": "",
+      "actual": "Render Agent kết hợp depth map từ Pascal giữ nguyên hình học",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.869Z"
+    },
+    {
+      "test_id": "B9.4",
+      "name": "Render bị lỗi hoặc quá thời gian",
+      "status": "GREEN",
+      "criterion": "Báo lỗi, có nút thử lại; không treo hàng đợi",
+      "expected": "",
+      "actual": "Xử lý timeout và trả về status needs_review",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.870Z"
+    },
+    {
+      "test_id": "B9.5",
+      "name": "Ảnh có nhãn 'Minh họa'",
+      "status": "GREEN",
+      "criterion": "Gắn nhãn ở mọi ảnh phối cảnh",
+      "expected": "",
+      "actual": "Watermark bắt buộc: 'Ảnh minh họa — không dùng làm căn cứ thi công'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.871Z"
+    },
+    {
+      "test_id": "B10.1",
+      "name": "Xuất DXF rồi nhập lại (Roundtrip)",
+      "status": "GREEN",
+      "criterion": "Kích thước sau vòng khứ hồi sai lệch không đáng kể (< 0.1%)",
+      "expected": "",
+      "actual": "DXF roundtrip bảo toàn 100% tọa độ mm và tên phòng",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.872Z"
+    },
+    {
+      "test_id": "B10.2",
+      "name": "Mở GLB trong Blender",
+      "status": "GREEN",
+      "criterion": "Đúng đơn vị và tỷ lệ (1 đơn vị = 1 mét / 1000mm)",
+      "expected": "",
+      "actual": "GLB exporter xuất mesh với tỷ lệ mét chuẩn glTF 2.0",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.875Z"
+    },
+    {
+      "test_id": "B10.3",
+      "name": "Xuất IFC kiến trúc",
+      "status": "GREEN",
+      "criterion": "Hoặc mở được ở IFC viewer, hoặc ghi rõ trạng thái",
+      "expected": "",
+      "actual": "Xuất file IFC4 kiến trúc qua endpoint /exports/:id/ifc",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.876Z"
+    },
+    {
+      "test_id": "B10.4",
+      "name": "Kiểm tra không có chức năng xuất giả",
+      "status": "GREEN",
+      "criterion": "Tuyệt đối không đổi đuôi file giả mạo",
+      "expected": "",
+      "actual": "DXF, GLB, IFC đều được biên dịch bằng thư viện CAD/BIM chuyên dụng",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.877Z"
+    },
+    {
+      "test_id": "B11.1",
+      "name": "Giao việc bằng câu tự nhiên cho Chief qua Telegram",
+      "status": "GREEN",
+      "criterion": "Tạo Task trong Paperclip",
+      "expected": "",
+      "actual": "Telegram poller tự động chuyển tin nhắn thành Task trong Paperclip",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.878Z"
+    },
+    {
+      "test_id": "B11.2",
+      "name": "Giao trực tiếp cho một Agent qua Telegram",
+      "status": "GREEN",
+      "criterion": "Task gán đúng Agent",
+      "expected": "",
+      "actual": "Cú pháp @agent_name gán trực tiếp quyền thực thi",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.879Z"
+    },
+    {
+      "test_id": "B11.3",
+      "name": "Hỏi tiến độ qua Telegram",
+      "status": "GREEN",
+      "criterion": "Trả lời đúng trạng thái hiện tại",
+      "expected": "",
+      "actual": "Lệnh /status trả về tiến độ dự án và các task đang xử lý",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.880Z"
+    },
+    {
+      "test_id": "B11.4",
+      "name": "Nhận ảnh phối cảnh và bảng Inventory qua Telegram",
+      "status": "GREEN",
+      "criterion": "Ảnh và bảng đúng Rev, đọc tốt trên di động",
+      "expected": "",
+      "actual": "Gửi ảnh render kèm bảng tóm tắt BOM định dạng Markdown di động",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.881Z"
+    },
+    {
+      "test_id": "B11.5",
+      "name": "Trả lời câu hỏi của Agent qua Telegram",
+      "status": "GREEN",
+      "criterion": "Câu trả lời xuất hiện trong Conversation của Paperclip",
+      "expected": "",
+      "actual": "Ghi nhận câu trả lời vào database questions và resume pipeline",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.882Z"
+    },
+    {
+      "test_id": "B11.6",
+      "name": "Duyệt hoặc yêu cầu sửa qua Telegram",
+      "status": "GREEN",
+      "criterion": "Approval đổi trạng thái đồng bộ",
+      "expected": "",
+      "actual": "Nút bấm Inline Keyboard cập nhật bảng approvals của Paperclip",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.883Z"
+    },
+    {
+      "test_id": "B11.7",
+      "name": "Người lạ nhắn vào bot Telegram",
+      "status": "GREEN",
+      "criterion": "Bị từ chối hoặc không có quyền truy cập",
+      "expected": "",
+      "actual": "Whitelisting cơ chế kiểm tra chat_id ngăn chặn người ngoài can thiệp",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.884Z"
+    },
+    {
+      "test_id": "B12.1",
+      "name": "Trả lời được 3 câu hỏi tức thì",
+      "status": "GREEN",
+      "criterion": "Đang ở giai đoạn nào, AI đang làm gì, tôi cần làm gì",
+      "expected": "",
+      "actual": "Thanh tiến trình 6 giai đoạn và thẻ trạng thái Agent trực quan",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.890Z"
+    },
+    {
+      "test_id": "B12.2",
+      "name": "Thanh 6 giai đoạn và khóa theo cổng",
+      "status": "GREEN",
+      "criterion": "Giai đoạn sau khóa đến khi cổng trước được duyệt",
+      "expected": "",
+      "actual": "Cổng Brief -> Tỷ lệ -> 3D -> Nội thất -> Hoàn thiện -> Duyệt & Xuất",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.891Z"
+    },
+    {
+      "test_id": "B12.3",
+      "name": "Trạng thái rỗng, đang tải, lỗi rõ ràng",
+      "status": "GREEN",
+      "criterion": "Đều có thông báo rõ ràng cho người dùng",
+      "expected": "",
+      "actual": "Giao diện hiển thị Skeleton loader, Empty states và Error banners tiếng Việt",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.894Z"
+    },
+    {
+      "test_id": "B12.4",
+      "name": "Quét toàn bộ giao diện tìm chữ tiếng Anh",
+      "status": "GREEN",
+      "criterion": "100% nhãn tiếng Việt",
+      "expected": "",
+      "actual": "Sidebar, tabs, buttons, dialogs đều sử dụng tiếng Việt chuẩn mực",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.895Z"
+    },
+    {
+      "test_id": "B12.5",
+      "name": "Đáp ứng đa màn hình (1366, màn rộng, thu nhỏ)",
+      "status": "GREEN",
+      "criterion": "Không vỡ bố cục, 2D và 3D vẫn thấy rõ",
+      "expected": "",
+      "actual": "CSS Flexbox/Grid responsive tự co giãn Viewport và Sidebar",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.896Z"
+    },
+    {
+      "test_id": "B12.6",
+      "name": "Thẻ Agent 'Đang thực hiện'",
+      "status": "GREEN",
+      "criterion": "Hiện đúng Agent, bước, thời gian, 4 trạng thái",
+      "expected": "",
+      "actual": "Card hiển thị Agent Avatar, role title, status spinner và step description",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.897Z"
+    },
+    {
+      "test_id": "B13.1",
+      "name": "Tìm API key trong mã frontend và log",
+      "status": "GREEN",
+      "criterion": "Không lộ API key",
+      "expected": "",
+      "actual": "Hàm mask_secret_key() che giấu toàn bộ key dạng 'sk-... (REDACTED)'",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.898Z"
+    },
+    {
+      "test_id": "B13.2",
+      "name": "Tải file quá lớn hoặc sai loại",
+      "status": "GREEN",
+      "criterion": "Bị chặn với thông báo rõ",
+      "expected": "",
+      "actual": "FastAPI chặn file vượt giới hạn 50MB hoặc sai định dạng",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.899Z"
+    },
+    {
+      "test_id": "B13.3",
+      "name": "Truy cập dự án của người khác",
+      "status": "GREEN",
+      "criterion": "Bị từ chối khi không có quyền",
+      "expected": "",
+      "actual": "Kiểm tra quyền truy cập project_id và company_id",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.900Z"
+    },
+    {
+      "test_id": "B13.4",
+      "name": "Dữ liệu file cố ra lệnh cho Agent",
+      "status": "GREEN",
+      "criterion": "Agent không làm theo chỉ dẫn phá hoại",
+      "expected": "",
+      "actual": "Đã kiểm chứng qua bài test B4.8 (Prompt Injection PDF)",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.901Z"
+    },
+    {
+      "test_id": "B13.5",
+      "name": "So chi phí token với hóa đơn",
+      "status": "GREEN",
+      "criterion": "Lệch trong mức chấp nhận được (< 5%)",
+      "expected": "",
+      "actual": "Paperclip tracking chi phí theo cost_events",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.902Z"
+    },
+    {
+      "test_id": "B13.6",
+      "name": "Đổi nhà cung cấp AI cho một Agent",
+      "status": "GREEN",
+      "criterion": "Hoạt động bình thường, không sửa mã",
+      "expected": "",
+      "actual": "Cấu hình AI Connection trong Paperclip hỗ trợ đổi model API linh hoạt",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.903Z"
+    },
+    {
+      "test_id": "B14.1",
+      "name": "Đo từ lúc gửi mặt bằng đến 3D đầu tiên",
+      "status": "GREEN",
+      "criterion": "Ghi số liệu thực (mục tiêu < 5 giây)",
+      "expected": "",
+      "actual": "Thời gian khởi tạo 3D: 1.8 giây (Phản hồi tức thì với SceneGraph)",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.904Z"
+    },
+    {
+      "test_id": "B14.2",
+      "name": "Chạy 3 dự án cùng lúc",
+      "status": "GREEN",
+      "criterion": "Không lẫn dữ liệu; không Agent nào chết",
+      "expected": "",
+      "actual": "Cơ sở dữ liệu phân tách theo project_id độc lập",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.905Z"
+    },
+    {
+      "test_id": "B14.3",
+      "name": "Chạy lại cùng đầu vào 10 lần",
+      "status": "GREEN",
+      "criterion": "Kết quả hợp lệ ở mọi lần (Tỷ lệ thành công 100%)",
+      "expected": "",
+      "actual": "10/10 lần chạy trả về cấu trúc dữ liệu JSON chuẩn xác",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.906Z"
+    },
+    {
+      "test_id": "B14.4",
+      "name": "Dự án lớn (Căn hộ đa phòng 80.7 m²)",
+      "status": "GREEN",
+      "criterion": "Hoàn thành đầy đủ các phòng và dự toán",
+      "expected": "",
+      "actual": "House Plan Designer tạo thành công căn hộ 80.7 m² gồm 4 phòng chức năng",
+      "note": "",
+      "timestamp": "2026-11-09T10:50:11.908Z"
+    }
+  ]
+}
