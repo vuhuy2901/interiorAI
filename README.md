@@ -21,9 +21,6 @@
   - [`apps/api/app/services/orchestrator.py`](apps/api/app/services/orchestrator.py) — Kiến Trúc Sư Trưởng (Conversational Concierge), tạm dừng/tiếp tục `ask_user`, sinh Phương án A/B/C và Selective Dependency Invalidation.
   - [`apps/api/app/services/mcp_gateway.py`](apps/api/app/services/mcp_gateway.py) — Cầu nối Python ↔ Node.js `@pascal-app/mcp` với khóa đồng bộ và kiểm soát quyền gọi công cụ của từng Agent.
   - [`apps/api/app/services/cad_export.py`](apps/api/app/services/cad_export.py) — Xuất/nhập DXF R2007 (`1:1 mm`), xuất nhị phân 3D `.glb`, SketchUp COLLADA `.dae`, `.ifc` (IFC4), `.csv`, `.xlsx`.
-- [`apps/web/`](apps/web/) — Ứng dụng Frontend React 19 + TypeScript + Vite + Three.js + `@xyflow/react`:
-  - [`apps/web/src/App.tsx`](apps/web/src/App.tsx) — Đầy đủ 11 phân hệ Sitemap.
-  - [`apps/web/src/components/StudioViewport.tsx`](apps/web/src/components/StudioViewport.tsx) — Trình xem song song Bản vẽ 2D CAD SVG (kéo thả nội thất, chuỗi kích thước mm) & Không gian 3D WebGL (Cutaway, Orbit, Top, Walkthrough 1.55m).
 - [`packages/pascal-adapter/`](packages/pascal-adapter/) — Gói tích hợp trực tiếp `@pascal-app/mcp@1.0.7` và `@pascal-app/core@1.0.7`.
 - [`packages/cad/`](packages/cad/) — Plugin cầu nối máy trạm:
   - [`packages/cad/sketchup_extension/atelier_ai_bridge.rb`](packages/cad/sketchup_extension/atelier_ai_bridge.rb) (SketchUp Ruby Extension)
@@ -46,8 +43,14 @@
 
 ### Cách 1: Khởi chạy tự động bằng PowerShell
 ```powershell
-.\start-atelier.ps1
+.\scripts\start-paperclip.ps1
 ```
+
+Script kiểm tra đúng Paperclip hiện có, tái sử dụng PostgreSQL nhúng và chỉ mở
+`http://localhost:3100` sau khi `/api/health` sẵn sàng. Khi mở workspace bằng
+VS Code, task trong `.vscode/tasks.json` chạy cùng entrypoint này (lần đầu VS
+Code có thể yêu cầu cho phép Automatic Tasks). `start-atelier.ps1` được giữ làm
+wrapper tương thích và không còn tự khởi động backend standalone.
 
 ### Cách 2: Khởi chạy từng dịch vụ
 1. **Backend FastAPI (`http://127.0.0.1:8000`)**:
@@ -55,12 +58,6 @@
    cd apps\api
    python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
-2. **Frontend Vite React Studio (`http://127.0.0.1:5173`)**:
-   ```powershell
-   cd apps\web
-   npm run dev
-   ```
-
 ---
 
 ## 4. Chạy Kiểm Thử Chấp Nhận (Acceptance & E2E Tests)

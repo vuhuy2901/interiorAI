@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  ATELIER AI 2.0 (Paperclip-First / Unified) Compatibility Wrapper
-  Redirects to the unified startup script start-atelier.ps1.
+  Paperclip compatibility wrapper.
+  Redirects to the single workspace startup entrypoint.
 #>
 
 param(
@@ -11,4 +11,7 @@ param(
 )
 
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-& "$RootDir\start-atelier.ps1" -NoBrowser:$NoBrowser
+if ($Port -ne 3100) {
+    throw "Paperclip workspace startup is fixed to port 3100."
+}
+& "$RootDir\scripts\start-paperclip.ps1" -NoBrowser:$NoBrowser
