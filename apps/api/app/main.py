@@ -14,6 +14,7 @@ Exposes REST & SSE endpoints for:
 from __future__ import annotations
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -84,6 +85,7 @@ from app.services.house_plan_designer import (
 )
 from app.services.research_agent import search_real_products, VERIFIED_VIETNAM_PRODUCTS
 from app.services.inventory_bom import generate_project_inventory_bom, export_inventory_bom_csv
+from app.services import ide_bridge_service
 from app.services.blender_mcp import (
     build_and_verify_blender_scene,
     cancel_render_job,
@@ -439,6 +441,14 @@ class ChatMessagePayload(BaseModel):
     project_id: str = "proj_demo_4x5m"
     message: str
     selected_entity_id: Optional[str] = None
+    to_ide: Optional[bool] = False
+
+
+class ResolveBridgeTaskPayload(BaseModel):
+    assistant_message: str
+    glb_path: Optional[str] = None
+    render_urls: Optional[List[str]] = None
+    proposal_diff: Optional[Dict[str, Any]] = None
 
 
 @app.get("/api/v1/chat/history")
@@ -478,12 +488,66 @@ def api_get_chat_history(project_id: str = "proj_demo_4x5m"):
 @app.post("/api/v1/projects/{project_id}/chat/messages")
 async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[str] = None):
     pid = project_id or body.project_id
+    
+    # Check if request routes to Antigravity IDE Reverse Bridge (Zero API Cost)
+    if ide_bridge_service.is_ide_bridge_enabled():
+        lower_txt = body.message.lower()
+        is_bridge_request = (
+            body.to_ide or
+            os.getenv("IDE_BRIDGE_MODE", "1") == "all" or
+            any(k in lower_txt for k in ["giao cho", "dựng", "asset builder", "chuyển về ide", "nhờ ide", "blender", "tạo model", "dựng tủ", "dựng bàn", "dựng ghế", "dựng phòng"])
+        )
+        if is_bridge_request:
+            task = ide_bridge_service.enqueue_task(
+                project_id=pid,
+                user_text=body.message,
+                selected_entity_id=body.selected_entity_id,
+            )
+            return {
+                "bridge_task_id": task["task_id"],
+                "status": "PENDING_IDE",
+                "message": "🏛️ Yêu cầu đã được chuyển tới Antigravity IDE (Zero API Cost). Đang chờ phản hồi...",
+                "task": task,
+            }
+
     res = await process_user_chat_message(
         project_id=pid,
         user_text=body.message,
         selected_entity_id=body.selected_entity_id,
     )
     return res
+
+
+@app.get("/api/v1/bridge/tasks")
+def api_list_bridge_tasks(status: Optional[str] = "PENDING", limit: int = 50):
+    return ide_bridge_service.list_tasks(status=status, limit=limit)
+
+
+@app.get("/api/v1/bridge/tasks/{task_id}")
+def api_get_bridge_task(task_id: str):
+    task = ide_bridge_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bridge task")
+    return task
+
+
+@app.post("/api/v1/bridge/tasks/{task_id}/resolve")
+def api_resolve_bridge_task(task_id: str, body: ResolveBridgeTaskPayload):
+    try:
+        return ide_bridge_service.resolve_task(
+            task_id=task_id,
+            assistant_message=body.assistant_message,
+            glb_path=body.glb_path,
+            render_urls=body.render_urls,
+            proposal_diff=body.proposal_diff,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/v1/bridge/status")
+def api_get_bridge_status():
+    return ide_bridge_service.get_bridge_status()
 
 
 class AnswerQuestionPayload(BaseModel):
