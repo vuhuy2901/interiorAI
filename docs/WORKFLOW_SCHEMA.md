@@ -46,3 +46,34 @@ Every node in the **AI Control Center** (React Flow canvas) persists its configu
 ## 4. Run States & Concurrency Rules
 - **Run States**: `IDLE`, `RUNNING`, `WAITING_FOR_INPUT` (`ask_user` blocking question), `WAITING_FOR_APPROVAL` (scene diff pending user decision), `PAUSED` (checkpointed), `COMPLETED`, `FAILED`, `CANCELLED`.
 - **Single-Scene Lock**: Only one heavy AI or MCP mutation job mutates a project's Pascal scene at a time. Proposals record `base_revision`; applying a proposal verifies `project.revision == proposal.base_revision` before committing.
+
+## 5. Paperclip agent delegation workflow
+
+Paperclip materializes the Atelier workflow as one root task owned by Chief
+Architect and canonical child tasks with blocker relations. A downstream task
+remains `todo` but is not runnable until every upstream blocker is `done`.
+This uses Paperclip's event-driven issue dispatch; no polling worker is added.
+
+```mermaid
+flowchart TD
+    ChiefIntake["Chief: Intake & Brief"] --> FloorPlan["Floor Plan"]
+    FloorPlan --> Geometry["Geometry & BIM"]
+    Geometry --> Furniture["Furniture"]
+    Geometry --> Style["Style & Materials"]
+    Furniture --> Lighting["Lighting & Visualization"]
+    Style --> Lighting
+    Furniture --> Research["Product Research"]
+    Style --> Research
+    Geometry --> QA["QA & Validation"]
+    Furniture --> QA
+    Style --> QA
+    Lighting --> QA
+    Research --> Cost["Cost & BOM"]
+    QA --> Cost
+    Cost --> ChiefReview["Chief: Final Review & Approval"]
+```
+
+Handoff is allowlisted by these edges. An agent may hand off only a task assigned
+to itself, and only to an agent reachable by a direct outgoing edge. The live
+graph and task state are available at `GET /api/atelier/workflow`; controlled
+handoff uses `POST /api/atelier/workflow/handoff`.

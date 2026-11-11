@@ -26,17 +26,23 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.db import (
+    audit_legacy_scenes,
     build_default_demo_project,
+    create_atelier_room,
     get_conn,
+    get_native_project_workspace,
     get_project,
     get_project_revisions,
     init_db,
+    initialize_native_project_link,
+    link_scene_to_native_project,
     list_projects,
     now_iso,
     restore_project_revision,
     save_project,
 )
 from app.models.contracts import (
+    AtelierProjectWorkspace,
     CanonicalProject,
     DesignBrief,
     FurnitureInstance,
@@ -196,6 +202,76 @@ class CreateProjectPayload(BaseModel):
     style: str = "Japandi"
     budget_limit_vnd: float = 120000000.0
     scale_calibrated: bool = False
+
+
+class InitializeNativeProjectPayload(BaseModel):
+    native_project_id: str
+    company_id: str
+    project_name: str
+    brief: str = ""
+    conversation_issue_id: Optional[str] = None
+
+
+class CreateAtelierRoomPayload(BaseModel):
+    name: str
+    room_type: str = "other"
+
+
+class LinkLegacyScenePayload(BaseModel):
+    room_id: Optional[str] = None
+    provenance: str = "legacy"
+    is_fixture: bool = False
+
+
+@app.post("/api/v1/native-projects/initialize", response_model=AtelierProjectWorkspace)
+def api_initialize_native_project(body: InitializeNativeProjectPayload):
+    try:
+        return initialize_native_project_link(
+            native_project_id=body.native_project_id,
+            company_id=body.company_id,
+            project_name=body.project_name,
+            brief=body.brief,
+            conversation_issue_id=body.conversation_issue_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/v1/native-projects/{native_project_id}/workspace", response_model=AtelierProjectWorkspace)
+def api_get_native_project_workspace(native_project_id: str):
+    workspace = get_native_project_workspace(native_project_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="ATELIER workspace chưa được khởi tạo")
+    return workspace
+
+
+@app.post("/api/v1/native-projects/{native_project_id}/rooms")
+def api_create_atelier_room(native_project_id: str, body: CreateAtelierRoomPayload):
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="Tên phòng không được để trống")
+    try:
+        return create_atelier_room(native_project_id, body.name, body.room_type)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/v1/native-projects/{native_project_id}/scenes/{scene_id}/link")
+def api_link_legacy_scene(native_project_id: str, scene_id: str, body: LinkLegacyScenePayload):
+    try:
+        return link_scene_to_native_project(
+            native_project_id=native_project_id,
+            scene_id=scene_id,
+            room_id=body.room_id,
+            provenance=body.provenance,
+            is_fixture=body.is_fixture,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/v1/legacy-scenes/audit")
+def api_audit_legacy_scenes():
+    return audit_legacy_scenes()
 
 
 @app.get("/api/v1/projects")
@@ -548,6 +624,11 @@ def api_resolve_bridge_task(task_id: str, body: ResolveBridgeTaskPayload):
 @app.get("/api/v1/bridge/status")
 def api_get_bridge_status():
     return ide_bridge_service.get_bridge_status()
+
+
+@app.post("/api/v1/bridge/paperclip-enqueue")
+async def api_paperclip_enqueue_bridge_task(payload: Dict[str, Any]):
+    return await ide_bridge_service.enqueue_paperclip_turn_async(payload)
 
 
 class AnswerQuestionPayload(BaseModel):
@@ -1754,3 +1835,7 @@ def api_get_rendered_image(filename: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Không tìm thấy ảnh kết xuất")
     return FileResponse(path=str(file_path), filename=filename, media_type="image/png")
+    create_atelier_room,
+    get_native_project_workspace,
+    initialize_native_project_link,
+    link_scene_to_native_project,

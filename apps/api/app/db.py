@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.models.contracts import (
+    AtelierProjectWorkspace,
+    AtelierRoomRecord,
+    AtelierSceneRecord,
     CanonicalProject,
     DesignBrief,
     DoorOpening,
@@ -37,6 +40,7 @@ def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
@@ -257,6 +261,259 @@ def build_default_demo_project() -> CanonicalProject:
             approved_decisions=[
                 "Xác nhận kích thước phòng chuẩn 4000×5000mm",
                 "Chọn sàn gỗ sồi sáng An Cường kết hợp tường nhấn Xanh Sage (Dulux 50GY 53/083)",
+            ],
+        ),
+        approval_state="APPROVED",
+        created_at=ts,
+        updated_at=ts,
+    )
+    proj.estimate_snapshot = calculate_project_estimate(proj)
+    return proj
+
+
+def build_japandi_master_bedroom_project() -> CanonicalProject:
+    ts = now_iso()
+    proj = CanonicalProject(
+        project_id="proj_bedroom_japandi_4x4m",
+        name="Phòng Ngủ Master Japandi (4.19m × 4.04m)",
+        description="Dự án thiết kế nội thất phòng ngủ Japandi 4190×4040mm: giường 1800×2000mm bọc nỉ linen greige giữa vách ốp nan sồi, 2 tab treo, bàn phấn 900mm, tủ áo kịch trần cánh kính khói/mây đan, vách TV sơn be nhạt điểm xám sage, sàn Oak Natural, đèn ray 3000K.",
+        revision=1,
+        units="mm",
+        display_unit="m",
+        scale_calibrated=True,
+        scale_reference=ScaleCalibration(
+            p1_px=[0.0, 0.0],
+            p2_px=[419.0, 0.0],
+            distance_mm=4190.0,
+            unit="mm",
+            status="confirmed",
+        ),
+        rooms=[
+            RoomZone(
+                id="room_master_bedroom",
+                name="Phòng Ngủ Master",
+                room_type="bedroom",
+                polygon_mm=[[0.0, 0.0], [4190.0, 0.0], [4190.0, 4040.0], [0.0, 4040.0]],
+                floor_material_id="floor_oak_natural_800x120",
+                ceiling_material_id="paint_dulux_ceiling_white",
+                ceiling_height_mm=2800.0,
+            )
+        ],
+        walls=[
+            WallSegment(
+                id="wall_north_headboard",
+                start_mm=[0.0, 0.0],
+                end_mm=[4190.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2800.0,
+                is_bearing=True,
+                face_a_material_id="veneer_oak_natural_slats",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=True,
+            ),
+            WallSegment(
+                id="wall_east_window",
+                start_mm=[4190.0, 0.0],
+                end_mm=[4190.0, 4040.0],
+                thickness_mm=200.0,
+                height_mm=2800.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_south_entry",
+                start_mm=[4190.0, 4040.0],
+                end_mm=[0.0, 4040.0],
+                thickness_mm=200.0,
+                height_mm=2800.0,
+                is_bearing=True,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_west_tv",
+                start_mm=[0.0, 4040.0],
+                end_mm=[0.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2800.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_sage_accent",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=True,
+            ),
+        ],
+        openings=[
+            DoorOpening(
+                id="door_entry",
+                wall_id="wall_south_entry",
+                wall_index=2,
+                t=0.15,
+                width_mm=900.0,
+                height_mm=2100.0,
+                sill_height_mm=0.0,
+                door_type="hinged",
+                swing_direction="inward",
+                hinges_side="left",
+                room_id="room_master_bedroom",
+            )
+        ],
+        windows=[
+            WindowOpening(
+                id="win_east",
+                wall_id="wall_east_window",
+                wall_index=1,
+                t=0.5,
+                width_mm=1600.0,
+                height_mm=1400.0,
+                sill_height_mm=900.0,
+                window_type="sliding",
+                room_id="room_master_bedroom",
+            )
+        ],
+        furniture_instances=[
+            FurnitureInstance(
+                id="bed_japandi_master",
+                sku="BED-JAP-LINEN-180",
+                name="Giường Ngủ Japandi Vải Linen Greige 1.8x2.0m",
+                category="bed",
+                room_id="room_master_bedroom",
+                x_mm=2095.0,
+                y_mm=1100.0,
+                z_mm=0.0,
+                width_mm=1800.0,
+                depth_mm=2000.0,
+                height_mm=950.0,
+                rotation_deg=0.0,
+                color_hex="#D5CBBF",
+                price_vnd=28500000.0,
+                pascal_asset_id="bed-double",
+                vendor="Nhà Xinh / Atelier Custom (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="nightstand_left",
+                sku="TAB-OAK-40-L",
+                name="Tab Đầu Giường Treo Tường (Trái)",
+                category="nightstand",
+                room_id="room_master_bedroom",
+                x_mm=950.0,
+                y_mm=250.0,
+                z_mm=450.0,
+                width_mm=400.0,
+                depth_mm=350.0,
+                height_mm=200.0,
+                rotation_deg=0.0,
+                color_hex="#C8A986",
+                price_vnd=2400000.0,
+                pascal_asset_id="nightstand",
+                vendor="An Cường Wood (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="nightstand_right",
+                sku="TAB-OAK-40-R",
+                name="Tab Đầu Giường Treo Tường (Phải)",
+                category="nightstand",
+                room_id="room_master_bedroom",
+                x_mm=3240.0,
+                y_mm=250.0,
+                z_mm=450.0,
+                width_mm=400.0,
+                depth_mm=350.0,
+                height_mm=200.0,
+                rotation_deg=0.0,
+                color_hex="#C8A986",
+                price_vnd=2400000.0,
+                pascal_asset_id="nightstand",
+                vendor="An Cường Wood (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="vanity_desk",
+                sku="DESK-VANITY-OAK-90",
+                name="Bàn Phấn & Làm Việc Gỗ Sồi 900mm",
+                category="desk",
+                room_id="room_master_bedroom",
+                x_mm=3800.0,
+                y_mm=1600.0,
+                z_mm=0.0,
+                width_mm=900.0,
+                depth_mm=500.0,
+                height_mm=750.0,
+                rotation_deg=90.0,
+                color_hex="#C8A986",
+                price_vnd=6800000.0,
+                pascal_asset_id="desk",
+                vendor="Atelier Millwork (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="wardrobe_full_height",
+                sku="WARDROBE-JAP-FLUTED-320",
+                name="Hệ Tủ Áo Kịch Trần Cánh Kính Khói & Mây Đan 3.2m",
+                category="wardrobe",
+                room_id="room_master_bedroom",
+                x_mm=2300.0,
+                y_mm=3740.0,
+                z_mm=0.0,
+                width_mm=3200.0,
+                depth_mm=600.0,
+                height_mm=2800.0,
+                rotation_deg=180.0,
+                color_hex="#F0EBE1",
+                price_vnd=34500000.0,
+                pascal_asset_id="wardrobe",
+                vendor="Atelier Joinery Suite (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="tv_console_floating",
+                sku="TV-CONSOLE-WALL-180",
+                name="Kệ TV Treo Thấp Gỗ Sồi Bo Góc 1.8m",
+                category="tv_cabinet",
+                room_id="room_master_bedroom",
+                x_mm=200.0,
+                y_mm=2020.0,
+                z_mm=350.0,
+                width_mm=1800.0,
+                depth_mm=350.0,
+                height_mm=250.0,
+                rotation_deg=270.0,
+                color_hex="#C8A986",
+                price_vnd=5200000.0,
+                pascal_asset_id="tv_console",
+                vendor="Atelier Millwork (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="rug_oatmeal_flatweave",
+                sku="RUG-OATMEAL-200X240",
+                name="Thảm Dệt Phẳng Oatmeal 2.0x2.4m",
+                category="rug",
+                room_id="room_master_bedroom",
+                x_mm=2095.0,
+                y_mm=1600.0,
+                z_mm=0.0,
+                width_mm=2000.0,
+                depth_mm=2400.0,
+                height_mm=15.0,
+                rotation_deg=0.0,
+                color_hex="#E8E2D5",
+                price_vnd=4800000.0,
+                pascal_asset_id="rug",
+                vendor="Hanoia / Nhà Xinh (Minh họa)",
+            ),
+        ],
+        brief=DesignBrief(
+            style="Japandi",
+            room_function="Phòng ngủ Master gia chủ",
+            color_palette=["#F5F2EB", "#C8A986", "#B8C2B4", "#17191C"],
+            liked_elements=["Gỗ sồi sáng", "Vải linen greige", "Nan gỗ dọc thưa", "Đèn ray 3000K", "Cánh kính khói"],
+            disliked_elements=["Đèn chùm rườm rà", "Ánh sáng trắng lạnh", "Tủ cao nặng nề chân tường"],
+            budget_limit_vnd=120000000.0,
+            occupants="Vợ chồng gia chủ",
+            must_have_constraints=["Lối đi thông thủy >= 800mm", "Tổng chi phí hoàn thiện <= 120 triệu VNĐ", "Giữ nguyên tường và kỹ thuật hiện hữu"],
+            approved_decisions=[
+                "Xác nhận kích thước phòng ngủ 4190×4040mm",
+                "Giường 1.8x2.0m đặt giữa vách đầu giường ốp nan sồi",
+                "Tủ áo kịch trần chạy dọc tường cuối phòng, bàn phấn 900mm bên phải",
             ],
         ),
         approval_state="APPROVED",
@@ -620,6 +877,46 @@ def init_db() -> None:
             payload_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS native_project_links (
+            native_project_id TEXT PRIMARY KEY,
+            company_id TEXT NOT NULL,
+            project_name TEXT NOT NULL,
+            brief TEXT NOT NULL DEFAULT '',
+            conversation_issue_id TEXT,
+            initialization_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (initialization_status IN ('pending', 'ready', 'failed')),
+            initialization_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS atelier_rooms (
+            room_id TEXT PRIMARY KEY,
+            native_project_id TEXT NOT NULL REFERENCES native_project_links(native_project_id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            room_type TEXT NOT NULL DEFAULT 'other',
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS atelier_scene_links (
+            scene_id TEXT PRIMARY KEY REFERENCES projects(project_id) ON DELETE RESTRICT,
+            native_project_id TEXT NOT NULL REFERENCES native_project_links(native_project_id) ON DELETE CASCADE,
+            room_id TEXT REFERENCES atelier_rooms(room_id) ON DELETE SET NULL,
+            provenance TEXT NOT NULL DEFAULT 'unknown'
+                CHECK (provenance IN ('native', 'legacy', 'fixture', 'unknown')),
+            is_fixture INTEGER NOT NULL DEFAULT 0,
+            archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS atelier_rooms_project_idx
+            ON atelier_rooms(native_project_id, position, created_at);
+        CREATE INDEX IF NOT EXISTS atelier_scene_links_project_idx
+            ON atelier_scene_links(native_project_id, room_id, archived);
         """
     )
 
@@ -669,6 +966,53 @@ def init_db() -> None:
             ),
         )
 
+    # Seed Japandi Master Bedroom Project if missing
+    row_bedroom = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_bedroom_japandi_4x4m",)).fetchone()
+    if not row_bedroom:
+        bedroom_proj = build_japandi_master_bedroom_project()
+        b_payload = bedroom_proj.model_dump_json()
+        cur.execute(
+            "INSERT INTO projects (project_id, name, revision, payload_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (bedroom_proj.project_id, bedroom_proj.name, bedroom_proj.revision, b_payload, bedroom_proj.updated_at),
+        )
+        cur.execute(
+            "INSERT INTO scene_revisions (project_id, revision, author, reason, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (bedroom_proj.project_id, 1, "System Seed", "Khởi tạo dự án Phòng Ngủ Master Japandi 4.19×4.04m theo mặt bằng thực tế", b_payload, bedroom_proj.updated_at),
+        )
+        b_welcome_meta = {
+            "agent_id": "agent_chief_architect",
+            "highlights": [
+                "Phòng ngủ Master 4.19m × 4.04m (16.9 m²), trần cao 2.8m, tỷ lệ đã xác nhận.",
+                "Giường 1.8x2.0m bọc nỉ linen greige, 2 tab treo, bàn phấn 900mm bên phải.",
+                "Tủ áo kịch trần cánh kính khói/mây đan chạy dọc tường cuối phòng.",
+                f"Tổng dự toán hoàn thiện: {bedroom_proj.estimate_snapshot.total_vnd:,.0f} VNĐ (Trong ngân sách 75-120 triệu VNĐ).",
+            ],
+            "suggested_prompts": [
+                "Kiểm tra lối đi xung quanh giường ngủ 1.8x2.0m có đạt chuẩn thông thủy >= 800mm không?",
+                "Tư vấn chi tiết hệ chiếu sáng 3 lớp (Ambient, Task, Accent) và đèn ray 3000K",
+                "Xem phối cảnh góc nhìn mắt người (Eye-level) hướng về vách đầu giường ốp nan sồi",
+                "Xuất bảng bóc tách khối lượng BOQ chi tiết sang Excel/CSV",
+            ],
+        }
+        cur.execute(
+            "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "msg_welcome_bedroom_01",
+                bedroom_proj.project_id,
+                "assistant",
+                "Kiến Trúc Sư Trưởng (Chief Architect)",
+                (
+                    "Xin chào! Tôi là **Kiến Trúc Sư Trưởng AI** phụ trách dự án **Phòng Ngủ Master Japandi (4.19m × 4.04m)**. "
+                    "Mặt bằng 16.9 m² của bạn đã được thiết lập chuẩn xác từng milimet với giường ngủ 1.8x2.0m đặt giữa vách đầu giường ốp nan sồi, "
+                    "hệ tủ áo kịch trần cánh kính khói chạy dọc tường cuối phòng, bàn trang điểm 900mm và vách TV điểm nhấn xám sage.\n\n"
+                    f"Toàn bộ khối lượng và dự toán vật tư đã được bóc tách với tổng kinh phí **{bedroom_proj.estimate_snapshot.total_vnd:,.0f} VNĐ** "
+                    "(nằm trọn vẹn trong khoảng ngân sách dự kiến 75 - 120 triệu VNĐ)."
+                ),
+                json.dumps(b_welcome_meta, ensure_ascii=False),
+                now_iso(),
+            ),
+        )
+
     # Seed Connections
     for c in DEFAULT_CONNECTIONS:
         exists = cur.execute("SELECT connection_id FROM connections WHERE connection_id = ?", (c["connection_id"],)).fetchone()
@@ -703,6 +1047,284 @@ def init_db() -> None:
 
     conn.commit()
     conn.close()
+
+
+def initialize_native_project_link(
+    native_project_id: str,
+    company_id: str,
+    project_name: str,
+    brief: str = "",
+    conversation_issue_id: Optional[str] = None,
+) -> AtelierProjectWorkspace:
+    """Idempotently initialize ATELIER metadata for a Native Paperclip Project."""
+    ts = now_iso()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT company_id FROM native_project_links WHERE native_project_id = ?",
+            (native_project_id,),
+        ).fetchone()
+        if existing and existing["company_id"] != company_id:
+            raise ValueError("Native project link belongs to another company")
+        conn.execute(
+            """
+            INSERT INTO native_project_links (
+                native_project_id, company_id, project_name, brief,
+                conversation_issue_id, initialization_status, initialization_error,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'ready', NULL, ?, ?)
+            ON CONFLICT(native_project_id) DO UPDATE SET
+                project_name = excluded.project_name,
+                brief = CASE WHEN excluded.brief <> '' THEN excluded.brief ELSE native_project_links.brief END,
+                conversation_issue_id = COALESCE(excluded.conversation_issue_id, native_project_links.conversation_issue_id),
+                initialization_status = 'ready',
+                initialization_error = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (native_project_id, company_id, project_name, brief, conversation_issue_id, ts, ts),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    workspace = get_native_project_workspace(native_project_id)
+    if workspace is None:
+        raise RuntimeError("Native project metadata was not persisted")
+    return workspace
+
+
+def mark_native_project_initialization_failed(native_project_id: str, error: str) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            """UPDATE native_project_links
+               SET initialization_status = 'failed', initialization_error = ?, updated_at = ?
+               WHERE native_project_id = ?""",
+            (error[:2000], now_iso(), native_project_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_native_project_workspace(native_project_id: str) -> Optional[AtelierProjectWorkspace]:
+    conn = get_conn()
+    try:
+        link = conn.execute(
+            "SELECT * FROM native_project_links WHERE native_project_id = ?",
+            (native_project_id,),
+        ).fetchone()
+        if not link:
+            return None
+        room_rows = conn.execute(
+            """SELECT * FROM atelier_rooms WHERE native_project_id = ?
+               ORDER BY position ASC, created_at ASC""",
+            (native_project_id,),
+        ).fetchall()
+        scene_rows = conn.execute(
+            """
+            SELECT p.project_id AS scene_id, p.name, p.revision AS latest_revision,
+                   p.updated_at, l.native_project_id, l.room_id, l.provenance,
+                   l.is_fixture, l.archived, COUNT(r.id) AS revision_count
+            FROM atelier_scene_links l
+            JOIN projects p ON p.project_id = l.scene_id
+            LEFT JOIN scene_revisions r ON r.project_id = p.project_id
+            WHERE l.native_project_id = ?
+            GROUP BY p.project_id, p.name, p.revision, p.updated_at, l.native_project_id,
+                     l.room_id, l.provenance, l.is_fixture, l.archived
+            ORDER BY l.archived ASC, p.updated_at DESC, p.name ASC
+            """,
+            (native_project_id,),
+        ).fetchall()
+        rooms = [AtelierRoomRecord(**dict(row)) for row in room_rows]
+        scenes = [AtelierSceneRecord(
+            scene_id=row["scene_id"],
+            native_project_id=row["native_project_id"],
+            room_id=row["room_id"],
+            name=row["name"],
+            provenance=row["provenance"],
+            is_fixture=bool(row["is_fixture"]),
+            archived=bool(row["archived"]),
+            latest_revision=int(row["latest_revision"] or 0),
+            revision_count=int(row["revision_count"] or 0),
+            updated_at=row["updated_at"],
+        ) for row in scene_rows]
+        return AtelierProjectWorkspace(
+            native_project_id=link["native_project_id"],
+            company_id=link["company_id"],
+            project_name=link["project_name"],
+            brief=link["brief"],
+            conversation_issue_id=link["conversation_issue_id"],
+            initialization_status=link["initialization_status"],
+            initialization_error=link["initialization_error"],
+            rooms=rooms,
+            scenes=scenes,
+        )
+    finally:
+        conn.close()
+
+
+def create_atelier_room(native_project_id: str, name: str, room_type: str = "other") -> AtelierRoomRecord:
+    ts = now_iso()
+    room_id = f"room_{uuid4_hex()}"
+    conn = get_conn()
+    try:
+        link = conn.execute(
+            "SELECT native_project_id FROM native_project_links WHERE native_project_id = ?",
+            (native_project_id,),
+        ).fetchone()
+        if not link:
+            raise ValueError("Native project link not found")
+        position_row = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM atelier_rooms WHERE native_project_id = ?",
+            (native_project_id,),
+        ).fetchone()
+        position = int(position_row["next_position"])
+        conn.execute(
+            """INSERT INTO atelier_rooms
+               (room_id, native_project_id, name, room_type, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (room_id, native_project_id, name.strip(), room_type.strip() or "other", position, ts, ts),
+        )
+        conn.commit()
+        return AtelierRoomRecord(
+            room_id=room_id,
+            native_project_id=native_project_id,
+            name=name.strip(),
+            room_type=room_type.strip() or "other",
+            position=position,
+            created_at=ts,
+            updated_at=ts,
+        )
+    finally:
+        conn.close()
+
+
+def uuid4_hex() -> str:
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+def link_scene_to_native_project(
+    native_project_id: str,
+    scene_id: str,
+    room_id: Optional[str] = None,
+    provenance: str = "legacy",
+    is_fixture: bool = False,
+) -> AtelierSceneRecord:
+    if provenance not in {"native", "legacy", "fixture", "unknown"}:
+        raise ValueError("Invalid scene provenance")
+    ts = now_iso()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        link = conn.execute(
+            "SELECT native_project_id FROM native_project_links WHERE native_project_id = ?",
+            (native_project_id,),
+        ).fetchone()
+        scene = conn.execute(
+            "SELECT project_id FROM projects WHERE project_id = ?",
+            (scene_id,),
+        ).fetchone()
+        if not link:
+            raise ValueError("Native project link not found")
+        if not scene:
+            raise ValueError("Legacy scene not found")
+        if room_id:
+            room = conn.execute(
+                "SELECT native_project_id FROM atelier_rooms WHERE room_id = ?",
+                (room_id,),
+            ).fetchone()
+            if not room or room["native_project_id"] != native_project_id:
+                raise ValueError("Room does not belong to the target project")
+        conn.execute(
+            """
+            INSERT INTO atelier_scene_links
+                (scene_id, native_project_id, room_id, provenance, is_fixture, archived, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            ON CONFLICT(scene_id) DO UPDATE SET
+                native_project_id = excluded.native_project_id,
+                room_id = excluded.room_id,
+                provenance = excluded.provenance,
+                is_fixture = excluded.is_fixture,
+                updated_at = excluded.updated_at
+            """,
+            (scene_id, native_project_id, room_id, provenance, int(is_fixture), ts, ts),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    workspace = get_native_project_workspace(native_project_id)
+    if not workspace:
+        raise RuntimeError("Target workspace disappeared")
+    result = next((item for item in workspace.scenes if item.scene_id == scene_id), None)
+    if not result:
+        raise RuntimeError("Scene link was not persisted")
+    return result
+
+
+def audit_legacy_scenes() -> Dict[str, Any]:
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT p.project_id AS scene_id, p.name, p.revision, p.updated_at,
+                   l.native_project_id, l.room_id, l.provenance, l.is_fixture,
+                   COUNT(r.id) AS revision_count
+            FROM projects p
+            LEFT JOIN atelier_scene_links l ON l.scene_id = p.project_id
+            LEFT JOIN scene_revisions r ON r.project_id = p.project_id
+            GROUP BY p.project_id, p.name, p.revision, p.updated_at,
+                     l.native_project_id, l.room_id, l.provenance, l.is_fixture
+            ORDER BY p.updated_at DESC, p.name ASC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+    names: Dict[str, List[str]] = {}
+    scenes: List[Dict[str, Any]] = []
+    fixture_count = 0
+    unknown_ids: List[str] = []
+    for row in rows:
+        lowered = row["name"].strip().casefold()
+        names.setdefault(lowered, []).append(row["scene_id"])
+        inferred_fixture = bool(row["is_fixture"]) or any(
+            marker in f"{row['scene_id']} {lowered}" for marker in ("fixture", "regression", "e2e", "test")
+        )
+        provenance = row["provenance"] or ("fixture" if inferred_fixture else "unknown")
+        if inferred_fixture:
+            fixture_count += 1
+        if provenance == "unknown":
+            unknown_ids.append(row["scene_id"])
+        scenes.append({
+            "scene_id": row["scene_id"],
+            "name": row["name"],
+            "native_project_id": row["native_project_id"],
+            "room_id": row["room_id"],
+            "provenance": provenance,
+            "is_fixture": inferred_fixture,
+            "latest_revision": int(row["revision"] or 0),
+            "revision_count": int(row["revision_count"] or 0),
+            "updated_at": row["updated_at"],
+        })
+    duplicate_groups = [ids for ids in names.values() if len(ids) > 1]
+    linked = sum(1 for item in scenes if item["native_project_id"])
+    return {
+        "generated_at": now_iso(),
+        "total_scenes": len(scenes),
+        "linked_scenes": linked,
+        "unassigned_scenes": len(scenes) - linked,
+        "fixture_scenes": fixture_count,
+        "duplicate_name_groups": duplicate_groups,
+        "unknown_provenance_scene_ids": unknown_ids,
+        "scenes": scenes,
+    }
 
 
 def list_projects() -> List[CanonicalProject]:

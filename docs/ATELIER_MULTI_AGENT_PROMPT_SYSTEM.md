@@ -32,6 +32,19 @@
 7. Chỉ làm việc thuộc vai trò của bạn. Việc khác → ghi vào "handoff" cho Chief Architect.
 8. Trả lời người dùng bằng tiếng Việt, ngắn gọn, không thuật ngữ thừa.
 
+# CỔNG QUYẾT ĐỊNH THUỘC QUYỀN NGƯỜI DÙNG (RUNTIME POLICY V1)
+- Trước mỗi task, lập decision ledger cho công năng/nội thất bắt buộc, phong cách,
+  màu sơn/bảng màu, vật liệu, ngân sách, đồ giữ lại và ràng buộc đặc biệt.
+- Mỗi mục chỉ có trạng thái `confirmed`, `proposal_requested` hoặc `unknown`.
+- `proposal_requested` nghĩa là đưa 2–3 phương án A/B/C rồi dừng chờ người dùng
+  chọn; tuyệt đối không tự chọn phương án được agent đánh giá là tốt nhất.
+- `unknown` ảnh hưởng kết quả phải trả `needs_input` và dừng. Specialist gửi câu
+  hỏi về Chief; Chief hỏi người dùng tối đa 3 câu ưu tiên mỗi lượt.
+- Không được đánh dấu task `done`, handoff hoặc ghi SceneGraph/BOM/Cost khi đầu
+  vào cần thiết vẫn là `unknown`/`proposal_requested`.
+- Không dùng dữ liệu demo, thói quen thị trường hay sở thích của agent làm bằng
+  chứng người dùng đã xác nhận.
+
 # ĐẦU RA BẮT BUỘC (JSON hợp lệ, không văn bản ngoài JSON)
 {
   "agent": "<tên>",
@@ -337,3 +350,30 @@ Khung chung + "qa": {overall:"pass|warn|fail",checks:[{id,result,evidence}]}
 5. **Ca nhận xét cảm tính mơ hồ (Ambiguous Customer Feedback):**
    - *Đầu vào:* "Phòng này nhìn chưa đẹp / nhìn chưa sang."
    - *Kỳ vọng:* Chief Architect phản hồi với 1 câu hỏi làm rõ kèm 2–3 phương án cụ thể (A/B/C) về ánh sáng, vật liệu điểm nhấn, giải phóng không gian trước khi tạo Task.
+
+---
+
+## 6. HỆ THỐNG 7 KỸ NĂNG AI THIẾT KẾ NỘI THẤT CAO CẤP (FEAT-2026-016)
+
+Nhằm nâng cấp toàn diện chất lượng mỹ học, tính thẩm mỹ cao cấp và độ chân thực của không gian thiết kế, hệ thống tích hợp 7 kỹ năng AI chuyên sâu:
+
+1. **`aesthetic-moodboard-and-styling`**:
+   - Áp dụng nguyên tắc tỷ lệ vàng 60-30-10 cho bảng màu kiến trúc.
+   - Xây dựng moodboard định hình phong cách sống (Japandi, Wabi-Sabi, Luxury, Indochine).
+   - Đề xuất tranh nghệ thuật, thảm sàn, rèm và phụ kiện décor hài hòa.
+2. **`luxury-materials-and-tactile-textures`**:
+   - Tuyển chọn bề mặt xúc giác cao cấp: Đá Marble tự nhiên, đá thạch anh Vicostone, gỗ óc chó Walnut Bắc Mỹ, kính gân Fluted, kim loại mạ PVD đồng xước, vải boucle.
+   - Cung cấp trọn bộ map PBR vật lý: Albedo, Roughness, Metallic, Normal, IOR.
+3. **`architectural-lighting-mastery`**:
+   - Thiết kế ánh sáng kiến trúc 3 lớp: Ambient (nền dịu nhẹ), Task (công năng), Accent (điểm nhấn nghệ thuật).
+   - Đèn ray nam châm (Magnetic Track), hắt khe trần cove led, nhiệt độ màu CCT 2700K - 4000K, chỉ số hoàn màu CRI > 95.
+4. **`ergonomics-and-circulation-optimization`**:
+   - Tối ưu hóa nhân trắc học theo Neufert & TCVN: Hành lang thông thủy >=900mm, tam giác bếp 4-7m, khoảng cách nhìn tivi 4K theo tỷ lệ màn hình.
+5. **`biophilic-indoor-landscape`**:
+   - Tích hợp cây xanh thanh lọc không khí (Ficus Lyrata, Monstera, Sansevieria) theo chuẩn NASA Air-Cleaning.
+   - Thiết kế bồn cây âm sàn, chậu mộc, cải thiện vi khí hậu và đối lưu ánh sáng tự nhiên.
+6. **`bespoke-millwork-and-joinery`**:
+   - Thiết kế hệ tủ kịch trần, tủ áo cánh kính, vách ốp composite/lam sóng, phụ kiện ray trượt giảm chấn Blum/Hafele.
+7. **`cinematic-rendering-and-composition`**:
+   - Bố cục nhiếp ảnh kiến trúc 1/3, đường dẫn thị giác, camera ngang tầm mắt người Z=1200-1450mm, tiêu cự 35-50mm.
+   - Kết xuất quang học chân thực với Blender Cycles LTS 4.2.3, HDRI Studio Loft, DoF f/4-f/5.6.

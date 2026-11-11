@@ -397,6 +397,53 @@ TEST_CASES_SPEC = [
 ]
 
 
+# Danh mục 7 Kỹ Năng AI Thiết Kế Nội Thất Chuyên Sâu (FEAT-2026-016)
+ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
+    "aesthetic-moodboard-and-styling": {
+        "slug": "aesthetic-moodboard-and-styling",
+        "name_vi": "Phối Màu 60-30-10 & Moodboard Phong Cách Sống",
+        "primary_agents": ["agent_style", "agent_concierge"],
+        "description": "Định hình concept thẩm mỹ, bảng màu kiến trúc chuẩn tỷ lệ vàng 60-30-10, phụ kiện decor & nghệ thuật bài trí.",
+    },
+    "luxury-materials-and-tactile-textures": {
+        "slug": "luxury-materials-and-tactile-textures",
+        "name_vi": "Vật Liệu Cao Cấp & Bề Mặt Xúc Giác PBR",
+        "primary_agents": ["agent_style"],
+        "description": "Tuyển chọn đá marble, gỗ óc chó tự nhiên, kính fluted, kim loại PVD, vải bouclé/linen và map PBR chân thực.",
+    },
+    "architectural-lighting-mastery": {
+        "slug": "architectural-lighting-mastery",
+        "name_vi": "Chiếu Sáng Kiến Trúc 3 Lớp (Ambient, Task, Accent)",
+        "primary_agents": ["agent_ceiling_lighting"],
+        "description": "Thiết kế chiếu sáng 3 lớp, kịch bản chiếu sáng thông minh, đèn ray nam châm, hắt cove led, CRI > 95.",
+    },
+    "ergonomics-and-circulation-optimization": {
+        "slug": "ergonomics-and-circulation-optimization",
+        "name_vi": "Công Thái Học Nhân Trắc & Tối Ưu Luồng Giao Thông",
+        "primary_agents": ["agent_furniture", "agent_qa", "agent_concierge"],
+        "description": "Tối ưu hóa nhân trắc học theo Neufert & TCVN, khoảng hở thông thủy >=900mm, tam giác bếp, khoảng cách nhìn tivi 4K.",
+    },
+    "biophilic-indoor-landscape": {
+        "slug": "biophilic-indoor-landscape",
+        "name_vi": "Kiến Trúc Xanh Nội Thất & Cảnh Quan Trong Nhà",
+        "primary_agents": ["agent_style", "agent_furniture"],
+        "description": "Tích hợp cây xanh phong thủy thanh lọc không khí trong nhà (NASA air-cleaning), vi khí hậu & đối lưu tự nhiên.",
+    },
+    "bespoke-millwork-and-joinery": {
+        "slug": "bespoke-millwork-and-joinery",
+        "name_vi": "Thiết Kế Đồ Mộc May Đo Liền Tường",
+        "primary_agents": ["agent_geometry", "agent_furniture"],
+        "description": "Quy chuẩn hệ tủ kịch trần, tủ áo cánh kính, vách nan sóng tivi, phụ kiện ray giảm chấn Blum/Hafele.",
+    },
+    "cinematic-rendering-and-composition": {
+        "slug": "cinematic-rendering-and-composition",
+        "name_vi": "Bố Cục Điện Ảnh & Render Chân Thực Blender Cycles",
+        "primary_agents": ["agent_ceiling_lighting"],
+        "description": "Bố cục 1/3, đường dẫn thị giác, camera mắt người 35-50mm, DoF f/4-f/5.6, HDRI Studio Loft, Cycles 128 samples + OIDN.",
+    },
+}
+
+
 def build_agent_system_prompt(agent_key: str, max_tool_calls: int = 10) -> str:
     """
     Compiles the authoritative, production-ready system prompt for a specialist agent

@@ -292,6 +292,52 @@ class CanonicalProject(BaseModel):
     updated_at: str = ""
 
 
+class AtelierRoomRecord(BaseModel):
+    room_id: str
+    native_project_id: str
+    name: str
+    room_type: str = "other"
+    position: int = 0
+    created_at: str
+    updated_at: str
+
+
+class AtelierSceneRecord(BaseModel):
+    scene_id: str
+    native_project_id: str
+    room_id: Optional[str] = None
+    name: str
+    provenance: Literal["native", "legacy", "fixture", "unknown"] = "unknown"
+    is_fixture: bool = False
+    archived: bool = False
+    latest_revision: int = 0
+    revision_count: int = 0
+    updated_at: str
+
+
+class AtelierProjectWorkspace(BaseModel):
+    native_project_id: str
+    company_id: str
+    project_name: str
+    brief: str = ""
+    conversation_issue_id: Optional[str] = None
+    initialization_status: Literal["pending", "ready", "failed"] = "pending"
+    initialization_error: Optional[str] = None
+    rooms: List[AtelierRoomRecord] = Field(default_factory=list)
+    scenes: List[AtelierSceneRecord] = Field(default_factory=list)
+
+
+class LegacySceneAudit(BaseModel):
+    generated_at: str
+    total_scenes: int
+    linked_scenes: int
+    unassigned_scenes: int
+    fixture_scenes: int
+    duplicate_name_groups: List[List[str]] = Field(default_factory=list)
+    unknown_provenance_scene_ids: List[str] = Field(default_factory=list)
+    scenes: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class QuestionChoice(BaseModel):
     id: str
     label: str

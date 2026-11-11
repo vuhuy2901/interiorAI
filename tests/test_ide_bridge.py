@@ -82,3 +82,44 @@ def test_bridge_status_reports_zero_cost():
     assert status["token_cost_usd"] == 0.0
     assert status["bridge_type"] == "antigravity_reverse_bridge"
     assert status["total_tasks"] >= 1
+
+
+def test_paperclip_enqueue_and_metadata():
+    res = ide_bridge_service.enqueue_paperclip_turn({
+        "run_id": "run_test_123",
+        "company_id": "b2e1c8a5-c3c9-412c-99cb-63180c4015dc",
+        "agent_id": "802d1324-f1a7-45d8-8963-d31684328127",
+        "agent_name": "Chief Architect (Kiến Trúc Sư Trưởng)",
+        "issue_id": "ATL-1",
+        "comment_id": "comment_test_456",
+        "wake_prompt": "Kiểm tra kết nối từ Paperclip UI về IDE",
+    })
+    assert res["ok"] is True
+    assert res["task_id"].startswith("task_")
+    assert "$0.00 API Cost" in res["immediate_reply"]
+    task = ide_bridge_service.get_task(res["task_id"])
+    assert task is not None
+    assert task["attachments"]["paperclip"]["agent_id"] == "802d1324-f1a7-45d8-8963-d31684328127"
+    assert res["mode"] == "fast_path"
+    assert res["queued_for_ide"] is False
+    assert task["status"] == "RESOLVED"
+
+
+def test_paperclip_deep_ide_task_routes_to_pending_queue():
+    res = ide_bridge_service.enqueue_paperclip_turn({
+        "run_id": "run_test_deep_789",
+        "company_id": "b2e1c8a5-c3c9-412c-99cb-63180c4015dc",
+        "agent_id": "c8afb863-0402-4fa1-8f31-5f3826628dbb",
+        "agent_name": "Geometry & BIM Specialist",
+        "issue_id": "ATL-15",
+        "comment_id": "comment_deep_789",
+        "wake_prompt": "Dựng tủ quần áo 2000x600x2400 mm bằng Blender và chụp 6 góc render",
+    })
+    assert res["ok"] is True
+    assert res["mode"] == "deep_ide_queue"
+    assert res["queued_for_ide"] is True
+    assert "$0.00 API Cost" in res["immediate_reply"]
+    task = ide_bridge_service.get_task(res["task_id"])
+    assert task is not None
+    assert task["status"] == "PENDING"
+    ide_bridge_service.resolve_task(res["task_id"], "Đã hoàn tất test dựng tủ Blender")
