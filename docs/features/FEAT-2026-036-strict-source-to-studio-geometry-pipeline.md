@@ -3,7 +3,7 @@
 | Trường | Giá trị |
 |---|---|
 | Trạng thái | IMPLEMENTING |
-| Phiên bản hợp đồng | 1.1 |
+| Phiên bản hợp đồng | 1.2 |
 | Owner | Codex |
 | Người chấp thuận | User request 2026-11-13 |
 | Ngày tạo | 2026-11-13 |
@@ -189,6 +189,15 @@ revision 5 passes M1-M6.
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
 | CR-001 | 2026-11-13T19:40:00+07:00 | Tạm dừng M2-M7 system hardening; thực hiện một presentation revision cho đúng project phòng trẻ em hiện tại, cho phép sai số bố cục 100-200 mm và chọn số hợp lý khi nguồn mâu thuẫn. Ưu tiên semantic furniture, materials, lighting, decor và ba render; không thêm validator/refactor. | Người dùng đổi mục tiêu từ hồ sơ kỹ thuật sang ảnh trình bày và yêu cầu không dừng hỏi số đo. | M1 vẫn giữ nguyên. Revision cũ được bảo toàn. Phạm vi pass này chỉ gồm scene data/revision và render outputs; không thay UI, workflow hay project identity. | User request 2026-11-13 | 1.1 |
+| CR-002 | 2026-11-14T00:12:00+07:00 | Sửa chất lượng hiển thị/render của project hiện có `proj_bedroom_japandi_4x4m` từ mặt bằng 4190×4040: thay fallback khối hộp cho giường đôi, tap, thảm và kệ TV bằng hình học tham số có chức năng trong Studio, Pascal và Blender; dùng lại project/revision hiện có rồi tạo render kiểm tra. | Kiểm tra trực tiếp cho thấy API 8000 đang tắt, Pascal/Studio không có builder cho các category trên và Blender rơi về một khối hộp, nên Agent nhận đúng bố cục vẫn tạo hình xấu. | Không tạo project/task mới, không đổi bố cục hoặc UI. Chỉ mở rộng semantic fallback, test các category, khởi động lại API qua entrypoint hợp lệ và tạo render mới gắn đúng project/revision. Không tuyên bố ảnh thi công. | User request 2026-11-14 | 1.2 |
+
+### Phạm vi đóng băng CR-002
+
+- Giữ nguyên project `proj_bedroom_japandi_4x4m`, kích thước phòng, tọa độ và revision đã lưu.
+- Bổ sung hình học nhận diện được cho `bed`, `nightstand`, `rug`, `tv_cabinet`; giữ `desk` và `wardrobe` hiện có.
+- Mỗi renderer phải tạo nhiều bộ phận chức năng thay vì một khối đặc cho các category trên.
+- Chạy test tập trung, kiểm tra Blender/Cycles thật, sau đó tạo ít nhất một ảnh góc nghiêng mới trong Render Gallery.
+- Không thêm nội thất không có trong scene, không thay bảng màu, không ghi đè revision cũ và không dùng ảnh AI làm bằng chứng Scene 3D.
 
 ## 12. Implementation log
 
