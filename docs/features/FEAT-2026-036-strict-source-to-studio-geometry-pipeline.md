@@ -3,7 +3,7 @@
 | Trường | Giá trị |
 |---|---|
 | Trạng thái | IMPLEMENTING |
-| Phiên bản hợp đồng | 1.0 |
+| Phiên bản hợp đồng | 1.1 |
 | Owner | Codex |
 | Người chấp thuận | User request 2026-11-13 |
 | Ngày tạo | 2026-11-13 |
@@ -188,7 +188,7 @@ revision 5 passes M1-M6.
 
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| CR-001 | 2026-11-13T19:40:00+07:00 | Tạm dừng M2-M7 system hardening; thực hiện một presentation revision cho đúng project phòng trẻ em hiện tại, cho phép sai số bố cục 100-200 mm và chọn số hợp lý khi nguồn mâu thuẫn. Ưu tiên semantic furniture, materials, lighting, decor và ba render; không thêm validator/refactor. | Người dùng đổi mục tiêu từ hồ sơ kỹ thuật sang ảnh trình bày và yêu cầu không dừng hỏi số đo. | M1 vẫn giữ nguyên. Revision cũ được bảo toàn. Phạm vi pass này chỉ gồm scene data/revision và render outputs; không thay UI, workflow hay project identity. | User request 2026-11-13 | 1.1 |
 
 ## 12. Implementation log
 
