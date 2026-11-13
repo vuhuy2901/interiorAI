@@ -3,7 +3,7 @@
 | Trường | Giá trị |
 |---|---|
 | Trạng thái | IMPLEMENTING |
-| Phiên bản hợp đồng | 1.4 |
+| Phiên bản hợp đồng | 1.5 |
 | Owner | Codex |
 | Người chấp thuận | User request 2026-11-13 |
 | Ngày tạo | 2026-11-13 |
@@ -192,6 +192,7 @@ revision 5 passes M1-M6.
 | CR-002 | 2026-11-14T00:12:00+07:00 | Sửa chất lượng hiển thị/render của project hiện có `proj_bedroom_japandi_4x4m` từ mặt bằng 4190×4040: thay fallback khối hộp cho giường đôi, tap, thảm và kệ TV bằng hình học tham số có chức năng trong Studio, Pascal và Blender; dùng lại project/revision hiện có rồi tạo render kiểm tra. | Kiểm tra trực tiếp cho thấy API 8000 đang tắt, Pascal/Studio không có builder cho các category trên và Blender rơi về một khối hộp, nên Agent nhận đúng bố cục vẫn tạo hình xấu. | Không tạo project/task mới, không đổi bố cục hoặc UI. Chỉ mở rộng semantic fallback, test các category, khởi động lại API qua entrypoint hợp lệ và tạo render mới gắn đúng project/revision. Không tuyên bố ảnh thi công. | User request 2026-11-14 | 1.2 |
 | CR-003 | 2026-11-14T00:18:00+07:00 | Sau render Cycles đầu tiên, sửa preset trình bày chung: giữ HDRI để chiếu sáng nhưng dùng nền trung tính cho tia camera, đưa camera `corner` gần scene hơn và nhận biết floor material ID có `oak/wood` là sàn gỗ khi registry thiếu alias. | Render job `rjob_de364b69f8` PASS kỹ thuật nhưng quan sát ảnh cho thấy phòng chiếm khung quá nhỏ, nền studio lộ phía sau mô hình và `floor_oak_natural_800x120` rơi về texture gạch 600×600. | Chỉ đổi camera/environment/fallback texture ở render manifest; không đổi project, revision, tọa độ, vật thể hoặc material hash. Render lại bằng seed mới và chỉ nghiệm thu sau kiểm tra ảnh. | Visual inspection 2026-11-14 | 1.3 |
 | CR-004 | 2026-11-14T00:28:00+07:00 | Đối chiếu trực tiếp ảnh `thiet-ke-phong-ngu-15m2-1001.jpg` và tạo revision mới cho chính `proj_bedroom_japandi_4x4m`: chuyển cửa sang tường trái, sửa tap 700, bàn phấn 900×500 ở góc trên phải, tủ 2790×600 dưới trái và khôi phục cụm bàn làm việc–giá sách–két dưới phải cùng hai ghế thể hiện trên ảnh. | Revision 2 không chỉ render xấu mà còn chứa dữ liệu khác nguồn: cửa tường dưới, bàn phấn xoay/đặt sai, tap 400, kệ TV thay cho cụm bàn dưới phải và thiếu ghế. Chỉnh renderer không thể sửa bố cục sai. | Bảo toàn revision 2; script áp dụng có provenance ảnh nguồn và chỉ tạo revision 3. Cho phép sai số trình bày khoảng 100–200 mm theo yêu cầu hiện tại, không coi là kích thước thi công. Render Cycles từ revision mới và kiểm tra trực quan. | User supplied source image and follow-up 2026-11-14 | 1.4 |
+| CR-005 | 2026-11-14T00:36:00+07:00 | Tách vật liệu trình bày cho semantic bed/wardrobe trong Blender: nệm và gối trắng ấm, chăn sage, khung bọc greige và cánh tủ gỗ sáng; không thay canonical geometry. | Render revision 3 `rjob_e0a2fa8e2f` đúng bố cục nhưng mọi bộ phận của giường/tủ dùng chung một material nên ảnh vẫn phẳng và giống mô hình kỹ thuật. | Chỉ thay material assignment trong Blender fallback, giữ nguyên object bounds, material hash, revision và scene verification. Render seed mới để so sánh trực quan. | Visual inspection 2026-11-14 | 1.5 |
 
 ### Phạm vi đóng băng CR-002
 
