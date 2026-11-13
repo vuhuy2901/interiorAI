@@ -3,7 +3,7 @@
 | Trường | Giá trị |
 |---|---|
 | Trạng thái | IMPLEMENTING |
-| Phiên bản hợp đồng | 1.2 |
+| Phiên bản hợp đồng | 1.3 |
 | Owner | Codex |
 | Người chấp thuận | User request 2026-11-13 |
 | Ngày tạo | 2026-11-13 |
@@ -190,6 +190,7 @@ revision 5 passes M1-M6.
 |---|---|---|---|---|---|---|
 | CR-001 | 2026-11-13T19:40:00+07:00 | Tạm dừng M2-M7 system hardening; thực hiện một presentation revision cho đúng project phòng trẻ em hiện tại, cho phép sai số bố cục 100-200 mm và chọn số hợp lý khi nguồn mâu thuẫn. Ưu tiên semantic furniture, materials, lighting, decor và ba render; không thêm validator/refactor. | Người dùng đổi mục tiêu từ hồ sơ kỹ thuật sang ảnh trình bày và yêu cầu không dừng hỏi số đo. | M1 vẫn giữ nguyên. Revision cũ được bảo toàn. Phạm vi pass này chỉ gồm scene data/revision và render outputs; không thay UI, workflow hay project identity. | User request 2026-11-13 | 1.1 |
 | CR-002 | 2026-11-14T00:12:00+07:00 | Sửa chất lượng hiển thị/render của project hiện có `proj_bedroom_japandi_4x4m` từ mặt bằng 4190×4040: thay fallback khối hộp cho giường đôi, tap, thảm và kệ TV bằng hình học tham số có chức năng trong Studio, Pascal và Blender; dùng lại project/revision hiện có rồi tạo render kiểm tra. | Kiểm tra trực tiếp cho thấy API 8000 đang tắt, Pascal/Studio không có builder cho các category trên và Blender rơi về một khối hộp, nên Agent nhận đúng bố cục vẫn tạo hình xấu. | Không tạo project/task mới, không đổi bố cục hoặc UI. Chỉ mở rộng semantic fallback, test các category, khởi động lại API qua entrypoint hợp lệ và tạo render mới gắn đúng project/revision. Không tuyên bố ảnh thi công. | User request 2026-11-14 | 1.2 |
+| CR-003 | 2026-11-14T00:18:00+07:00 | Sau render Cycles đầu tiên, sửa preset trình bày chung: giữ HDRI để chiếu sáng nhưng dùng nền trung tính cho tia camera, đưa camera `corner` gần scene hơn và nhận biết floor material ID có `oak/wood` là sàn gỗ khi registry thiếu alias. | Render job `rjob_de364b69f8` PASS kỹ thuật nhưng quan sát ảnh cho thấy phòng chiếm khung quá nhỏ, nền studio lộ phía sau mô hình và `floor_oak_natural_800x120` rơi về texture gạch 600×600. | Chỉ đổi camera/environment/fallback texture ở render manifest; không đổi project, revision, tọa độ, vật thể hoặc material hash. Render lại bằng seed mới và chỉ nghiệm thu sau kiểm tra ảnh. | Visual inspection 2026-11-14 | 1.3 |
 
 ### Phạm vi đóng băng CR-002
 
