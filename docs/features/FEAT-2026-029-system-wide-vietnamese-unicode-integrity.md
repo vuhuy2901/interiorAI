@@ -2,8 +2,8 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | CLOSED |
-| Phiên bản hợp đồng | 1.0 |
+| Trạng thái | IMPLEMENTING |
+| Phiên bản hợp đồng | 1.1 |
 | Owner | Codex + TUAN |
 | Người chấp thuận | TUAN (P0 request, 2026-11-13) |
 | Ngày tạo | 2026-11-13 |
@@ -138,7 +138,7 @@ Rollback point và cách rollback:
 
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
-| - | - | - | - | - | - | - |
+| CR-001 | 2026-11-13T19:55:00+07:00 | Reopen để phục hồi comment mới “Concept phòng ngủ Japandi v1” và truy nguồn agent vừa gửi payload ANSI/mất dấu. | Một comment mới tiếp tục chứa U+FFFD và dấu hỏi sau khi v1.0 đã đóng. | Chỉ sửa đúng comment mới, thêm chặn UTF-8 tại đường ghi comment liên quan và xác minh API; không đổi CSS/font hay dữ liệu scene. | User report 2026-11-13 | 1.1 |
 
 ## 12. Implementation log
 
