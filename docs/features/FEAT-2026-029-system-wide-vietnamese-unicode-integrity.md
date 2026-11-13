@@ -2,8 +2,8 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | IMPLEMENTING |
-| Phiên bản hợp đồng | 1.1 |
+| Trạng thái | FROZEN |
+| Phiên bản hợp đồng | 1.2 |
 | Owner | Codex + TUAN |
 | Người chấp thuận | TUAN (P0 request, 2026-11-13) |
 | Ngày tạo | 2026-11-13 |
@@ -139,6 +139,22 @@ Rollback point và cách rollback:
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
 | CR-001 | 2026-11-13T19:55:00+07:00 | Reopen để phục hồi comment mới “Concept phòng ngủ Japandi v1” và truy nguồn agent vừa gửi payload ANSI/mất dấu. | Một comment mới tiếp tục chứa U+FFFD và dấu hỏi sau khi v1.0 đã đóng. | Chỉ sửa đúng comment mới, thêm chặn UTF-8 tại đường ghi comment liên quan và xác minh API; không đổi CSS/font hay dữ liệu scene. | User report 2026-11-13 | 1.1 |
+| CR-002 | 2026-11-13T20:08:00+07:00 | Mở rộng phục hồi sang comment “Cập nhật brief phòng ngủ” và interaction `001e7db0-9e57-45a8-a24e-f6539d2bf222`; chặn U+FFFD ở cả API tạo comment và interaction do Agent gọi. | Cùng hai execution đã làm hỏng comment còn làm hỏng câu hỏi có cấu trúc; chỉ sửa comment sẽ để thẻ Questions tiếp tục lỗi. | Thêm script phục hồi có backup/transaction, helper kiểm tra payload đệ quy, route guard và test tập trung. Không đổi dữ liệu scene, workflow hay nội dung quyết định của người dùng. | Evidence database 2026-11-13 | 1.2 |
+
+### Phạm vi đóng băng cho v1.2
+
+- Phục hồi đúng hai comment `2082b920-9d79-407d-b003-ff5b69d66baf`, `096762fc-327f-456c-a484-94a922c13700` và interaction `001e7db0-9e57-45a8-a24e-f6539d2bf222`.
+- Từ chối payload do Agent gửi nếu bất kỳ trường văn bản nào chứa Unicode replacement character `U+FFFD`; board/user payload giữ nguyên hành vi hiện tại.
+- Áp dụng guard tại POST comment và POST interaction trước khi ghi dữ liệu.
+- Không cố đoán và tự sửa mọi dấu hỏi `?`, vì đó có thể là dấu câu hợp lệ; phục hồi chỉ dùng nội dung đã xác định trong chính run và lựa chọn đã lưu.
+- Rollback dữ liệu bằng bản backup JSON tạo trước update; rollback code bằng revision triển khai v1.2.
+
+### Verification plan v1.2
+
+- Test helper nhận diện U+FFFD trong chuỗi, mảng và object lồng nhau; không chặn tiếng Việt UTF-8 hợp lệ hay dấu hỏi hợp lệ.
+- Test route xác nhận Agent nhận HTTP 422 và không ghi comment/interaction bị hỏng.
+- Query database/API xác nhận ba bản ghi phục hồi không còn U+FFFD, giữ nguyên ID, run ID, trạng thái và câu trả lời.
+- Gửi một comment tiếng Việt hợp lệ qua đường Agent trong test để xác nhận không tạo regression.
 
 ## 12. Implementation log
 
