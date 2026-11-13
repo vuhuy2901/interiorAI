@@ -1718,6 +1718,7 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
 def enqueue_render_job(
     project_id: str,
     *,
+    idempotency_key: Optional[str] = None,
     mode: Literal["preview", "final"] = "preview",
     camera: str = "eye_level",
     time_of_day: str = "day",
@@ -1754,6 +1755,7 @@ def enqueue_render_job(
             job_id = f"rjob_{uuid.uuid4().hex[:10]}"
             cached_copy = dict(cached)
             cached_copy["job_id"] = job_id
+            cached_copy["idempotency_key"] = idempotency_key
             cached_copy["cache_hit"] = True
             cached_copy["cached_from_job_id"] = cached["job_id"]
             cached_copy["download_url"] = f"/api/v1/render-jobs/{job_id}/download"
@@ -1764,6 +1766,7 @@ def enqueue_render_job(
     job_doc: Dict[str, Any] = {
         "ok": False,
         "job_id": job_id,
+        "idempotency_key": idempotency_key,
         "project_id": project_id,
         "revision": project.revision,
         "mode": resolved_mode,

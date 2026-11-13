@@ -93,3 +93,28 @@ def test_initialization_is_idempotent_and_legacy_audit_is_non_destructive(isolat
             "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             "Sai company",
         )
+
+
+def test_fixture_projects_can_be_excluded_without_deleting_data(isolated_atelier_db):
+    store = isolated_atelier_db
+    baseline = store.get_project("proj_demo_4x5m")
+    assert baseline is not None
+
+    fixture = baseline.model_copy(deep=True)
+    fixture.project_id = "proj_e2e_filter_test"
+    fixture.name = "Căn hộ 2 Khu Thảo Điền E2E (verification)"
+    store.save_project(fixture, author="Test", reason="Fixture classification", bump_revision=False)
+
+    acceptance = baseline.model_copy(deep=True)
+    acceptance.project_id = "proj_acceptance_filter_test"
+    acceptance.name = "Căn Hộ Japandi — Real Acceptance"
+    store.save_project(acceptance, author="Test", reason="Fixture classification", bump_revision=False)
+
+    all_ids = {project.project_id for project in store.list_projects(include_fixtures=True)}
+    visible_ids = {project.project_id for project in store.list_projects(include_fixtures=False)}
+
+    assert {fixture.project_id, acceptance.project_id}.issubset(all_ids)
+    assert fixture.project_id not in visible_ids
+    assert acceptance.project_id not in visible_ids
+    assert "proj_demo_4x5m" in visible_ids
+    assert store.get_project(fixture.project_id) is not None

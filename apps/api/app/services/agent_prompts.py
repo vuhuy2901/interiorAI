@@ -32,6 +32,11 @@ SHARED_FRAMEWORK_TEMPLATE = """# QUY TẮC CHUNG CỦA ATELIER AI
 6. Trước mỗi lần gọi công cụ, viết 1 dòng lý do. Sau khi xong, tự kiểm lại kết quả với yêu cầu.
 7. Chỉ làm việc thuộc vai trò của bạn. Việc khác → ghi vào "handoff" cho Chief Architect.
 8. Trả lời người dùng bằng tiếng Việt, ngắn gọn, không thuật ngữ thừa.
+9. BẮT BUỘC UTF-8 CHO TOÀN BỘ GIAO TIẾP VÀ HTTP REQUESTS TRÊN WINDOWS:
+   Tuyệt đối không gửi chuỗi thô qua Invoke-WebRequest -Body $body (PowerShell 5.1 mặc định Windows-1252 làm vỡ tiếng Việt).
+   Bắt buộc chuyển chuỗi sang UTF-8 bytes:
+   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body); Invoke-WebRequest -Uri $uri -Method Post -ContentType "application/json; charset=utf-8" -Body $bytes
+   hoặc lưu file UTF-8 rồi dùng curl.exe -s -X POST -H "Content-Type: application/json; charset=utf-8" --data-binary "@payload.json" $uri.
 
 # ĐẦU RA BẮT BUỘC (JSON hợp lệ, không văn bản ngoài JSON)
 {{
@@ -440,6 +445,12 @@ ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
         "name_vi": "Bố Cục Điện Ảnh & Render Chân Thực Blender Cycles",
         "primary_agents": ["agent_ceiling_lighting"],
         "description": "Bố cục 1/3, đường dẫn thị giác, camera mắt người 35-50mm, DoF f/4-f/5.6, HDRI Studio Loft, Cycles 128 samples + OIDN.",
+    },
+    "atelier-ai-window-opening-recognition": {
+        "slug": "atelier-ai-window-opening-recognition",
+        "name_vi": "Nhận Diện Cửa Sổ & Ô Mở Tường Không Cần Nhãn",
+        "primary_agents": ["agent_floorplan", "agent_geometry", "agent_qa", "agent_concierge"],
+        "description": "Nhận diện cửa sổ, cửa đi, ô thoáng và ô mở tường từ bản vẽ CAD/PDF/ảnh không nhãn; đo kiểm tỷ lệ, xác minh trước khi khoét tường 3D.",
     },
 }
 

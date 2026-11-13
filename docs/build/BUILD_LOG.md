@@ -1,5 +1,21 @@
 # ATELIER AI Render Upgrade — Build Log
 
+## 2026-11-12 — Workflow Builder visual layout rebuild
+
+Overall result: **PASS**.
+
+- Rebuilt the workflow canvas around ELK layered `RIGHT` layout with
+  `ORTHOGONAL` routing and custom bend-point edges.
+- Added professional node cards, edge labels, collapsible library/inspector,
+  draft editing, undo/redo, validation, test run, save and publish controls.
+- Added separate Pipeline Workflow and read-only Paperclip Task Lifecycle views.
+- Preserved existing workflow runs: both projects remain pinned to workflow v1.
+- UI typecheck/build passed; focused layout test passed 1/1; workflow builder and
+  orchestration tests passed 6/6.
+- Evidence: `docs/build/EVIDENCE/WORKFLOW_VISUAL_REDESIGN_20261112_1215/`.
+- Environment warning only: Node 22.19.0 is below the repository's requested
+  Node >=24.11.0.
+
 ## 2026-11-10 — G0 audit + G1 vertical slice
 
 Implemented:
@@ -137,3 +153,14 @@ Overall results: **G3 PASS, G4 PASS, G5 PASS, G6 PASS, G7 PASS, G8 PASS**. Zero 
 - Playwright E2E Suite: **24 PASS | 1 BLOCKED | 0 FAIL** (exit code 0).
 - Evidence Directory: `docs/build/EVIDENCE/REAL_FULL_E2E_20261110_025107/`.
 - Pytest Suite (`test_g4_g5_g6_g7_cycles.py`, `test_asset_pipeline.py`, `test_g2_material_system.py`, `test_g3_smart_fit.py`, `test_g7_workflow_trace.py`, `test_acceptance.py`): **15/15 PASSED (100%)**.
+## 2026-11-13 - Chat slug, Studio project cleanup, frontend loading and AI material governance
+
+- Fixed Vietnamese agent URL transliteration and retained legacy bookmark resolution.
+- Filtered 24 fixture/test scenes from the Studio selector without deleting data; 3 user projects remain visible.
+- Fixed the `project_id` loading bug and moved Atelier catalog/asset fetches behind route-aware lazy loading.
+- Removed the manual Material Catalog navigation/route and the remaining paint, floor and PBR preset pickers from Object Inspector.
+- Added a direct `Mở AI Copilot` path; AI creates proposals and user approval remains the persist gate.
+- Audited workflow runs: version 1 mappings pass governance checks, but no run currently proves the published version 3 DAG.
+- Verification: shared slug tests 3/3 PASS, project pytest 3/3 PASS, UI typecheck PASS, production build PASS, browser smoke PASS.
+- Evidence: `docs/build/EVIDENCE/CHAT_PROJECT_WORKFLOW_AUDIT_20261112/`.
+

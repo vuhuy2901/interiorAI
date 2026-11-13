@@ -45,6 +45,24 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def get_project_workflow_id(project_id: str) -> Optional[str]:
+    """Resolve the published workflow for a project without embedding a node graph."""
+    conn = get_conn()
+    try:
+        binding = conn.execute(
+            "SELECT workflow_id FROM project_workflow_bindings WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        if binding:
+            return binding["workflow_id"]
+        latest = conn.execute(
+            "SELECT workflow_id FROM workflows ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+        return latest["workflow_id"] if latest else None
+    finally:
+        conn.close()
+
+
 def build_default_demo_project() -> CanonicalProject:
     ts = now_iso()
     proj = CanonicalProject(
@@ -527,6 +545,7 @@ def build_japandi_master_bedroom_project() -> CanonicalProject:
 DEFAULT_AGENTS: List[Dict[str, Any]] = [
     {
         "agent_id": "agent_chief_architect",
+        "paperclip_agent_key": "agent_concierge",
         "name": "Kiến Trúc Sư Trưởng (Chief Architect / Design Concierge)",
         "role": "orchestrator_concierge",
         "connection_id": "conn_deterministic_concierge",
@@ -657,6 +676,19 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
         "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
         "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
     },
+    {
+        "agent_id": "agent_qa",
+        "name": "Agent QA & Xác Minh Phối Cảnh (Independent QA)",
+        "role": "render_qa",
+        "connection_id": "conn_deterministic_concierge",
+        "fallback_connection_id": "conn_deterministic_concierge",
+        "enabled": True,
+        "version": "1.0.0",
+        "confidence_threshold": 0.99,
+        "system_prompt": "Kiểm tra độc lập artifact scene và ảnh render; chỉ phát QA report PASS/FAIL, không tạo ảnh và không tự phê duyệt.",
+        "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
+        "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
+    },
 ]
 
 
@@ -773,7 +805,7 @@ DEFAULT_WORKFLOW: Dict[str, Any] = {
         {"id": "n10_cost", "type": "deterministic_cost", "label": "10. Tính Dự Toán BOQ Xác Định", "agent_id": "agent_cost", "position": {"x": 1380, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"vat_rate": 0.08}},
         {"id": "n11_approval", "type": "human_gate", "label": "11. Cổng Duyệt Phương Án & Giá", "agent_id": "agent_chief_architect", "position": {"x": 1650, "y": 140}, "enabled": True, "status": "COMPLETED", "config": {"gate_type": "PROPOSAL_APPROVAL"}},
         {"id": "n12_render", "type": "render_gen", "label": "12. Kết Xuất Phối Cảnh Minh Họa", "agent_id": "agent_render", "position": {"x": 1920, "y": 60}, "enabled": True, "status": "READY", "config": {"lock_camera": True}},
-        {"id": "n13_render_qa", "type": "render_qa", "label": "13. Kiểm Định Chống Sai Lệch 3D", "agent_id": "agent_render", "position": {"x": 1920, "y": 230}, "enabled": True, "status": "READY", "config": {"strict_geometry": True}},
+        {"id": "n13_render_qa", "type": "render_qa", "label": "13. Kiểm Định Chống Sai Lệch 3D", "agent_id": "agent_qa", "position": {"x": 1920, "y": 230}, "enabled": True, "status": "READY", "config": {"strict_geometry": True}},
         {"id": "n14_export", "type": "cad_export", "label": "14. Xuất Hồ Sơ DXF / GLB / IFC / BOQ", "agent_id": "agent_geometry", "position": {"x": 2190, "y": 140}, "enabled": True, "status": "READY", "config": {"formats": ["dxf", "glb", "ifc", "dae", "xlsx"]}},
     ],
     "edges": [
@@ -869,6 +901,12 @@ def init_db() -> None:
             updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS project_workflow_bindings (
+            project_id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL REFERENCES workflows(workflow_id),
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS workflow_runs (
             run_id TEXT PRIMARY KEY,
             workflow_id TEXT NOT NULL,
@@ -877,6 +915,109 @@ def init_db() -> None:
             payload_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS workflow_native_tasks (
+            task_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            local_agent_id TEXT NOT NULL,
+            native_agent_id TEXT,
+            status TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS workflow_native_tasks_run_idx
+            ON workflow_native_tasks(run_id, node_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS workflow_chat_events (
+            event_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            conversation_id TEXT,
+            run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            native_task_id TEXT,
+            agent_id TEXT,
+            execution_run_id TEXT,
+            event_type TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(run_id, sequence)
+        );
+        CREATE INDEX IF NOT EXISTS workflow_chat_events_project_idx
+            ON workflow_chat_events(project_id, sequence, created_at);
+        CREATE INDEX IF NOT EXISTS workflow_chat_events_run_idx
+            ON workflow_chat_events(run_id, sequence);
+
+        CREATE TABLE IF NOT EXISTS workflow_input_events (
+            event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_record_id TEXT NOT NULL,
+            source_timestamp TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            processing_status TEXT NOT NULL,
+            error TEXT,
+            processed_at TEXT NOT NULL,
+            UNIQUE(run_id, source_type, source_record_id)
+        );
+        CREATE INDEX IF NOT EXISTS workflow_input_events_run_idx
+            ON workflow_input_events(run_id, source_timestamp);
+
+        CREATE TABLE IF NOT EXISTS workflow_decisions (
+            decision_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            decision_key TEXT NOT NULL,
+            interaction_id TEXT,
+            question_id TEXT,
+            answer_value_json TEXT NOT NULL,
+            answer_source TEXT NOT NULL,
+            user_id TEXT,
+            answered_at TEXT NOT NULL,
+            validated_at TEXT,
+            status TEXT NOT NULL,
+            source_message_id TEXT,
+            source_event_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(run_id, decision_key, revision),
+            UNIQUE(run_id, source_event_id, decision_key)
+        );
+        CREATE INDEX IF NOT EXISTS workflow_decisions_latest_idx
+            ON workflow_decisions(run_id, decision_key, revision DESC);
+
+        CREATE TABLE IF NOT EXISTS workflow_wait_conditions (
+            run_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            required_keys_json TEXT NOT NULL,
+            missing_keys_json TEXT NOT NULL,
+            source_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(run_id, node_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS workflow_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            artifact_type TEXT NOT NULL,
+            schema_version TEXT NOT NULL,
+            source_revision INTEGER NOT NULL,
+            validation_status TEXT NOT NULL,
+            storage_ref TEXT NOT NULL,
+            checksum_sha256 TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS workflow_artifacts_run_idx
+            ON workflow_artifacts(run_id, node_id, created_at);
 
         CREATE TABLE IF NOT EXISTS native_project_links (
             native_project_id TEXT PRIMARY KEY,
@@ -1024,12 +1165,22 @@ def init_db() -> None:
 
     # Seed Agents
     for a in DEFAULT_AGENTS:
-        exists = cur.execute("SELECT agent_id FROM agents WHERE agent_id = ?", (a["agent_id"],)).fetchone()
+        agent_payload = dict(a)
+        agent_payload.setdefault("paperclip_agent_key", a["agent_id"])
+        exists = cur.execute("SELECT agent_id, payload_json FROM agents WHERE agent_id = ?", (a["agent_id"],)).fetchone()
         if not exists:
             cur.execute(
                 "INSERT INTO agents (agent_id, name, role, payload_json, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (a["agent_id"], a["name"], a["role"], json.dumps(a, ensure_ascii=False), now_iso()),
+                (a["agent_id"], a["name"], a["role"], json.dumps(agent_payload, ensure_ascii=False), now_iso()),
             )
+        else:
+            current_payload = json.loads(exists["payload_json"]) if "payload_json" in exists.keys() else {}
+            if current_payload.get("paperclip_agent_key") != agent_payload["paperclip_agent_key"]:
+                current_payload["paperclip_agent_key"] = agent_payload["paperclip_agent_key"]
+                cur.execute(
+                    "UPDATE agents SET payload_json = ?, updated_at = ? WHERE agent_id = ?",
+                    (json.dumps(current_payload, ensure_ascii=False), now_iso(), a["agent_id"]),
+                )
 
     # Seed Workflow
     wf_exists = cur.execute("SELECT workflow_id FROM workflows WHERE workflow_id = ?", (DEFAULT_WORKFLOW["workflow_id"],)).fetchone()
@@ -1044,6 +1195,24 @@ def init_db() -> None:
                 now_iso(),
             ),
         )
+    else:
+        # One-time safe registry migration: preserve the user-drawn graph and all
+        # edges, but replace the old self-review assignment with the independent QA agent.
+        existing_wf = cur.execute("SELECT payload_json, version FROM workflows WHERE workflow_id = ?", (DEFAULT_WORKFLOW["workflow_id"],)).fetchone()
+        workflow_payload = json.loads(existing_wf["payload_json"])
+        qa_node = next((node for node in workflow_payload.get("nodes", []) if node.get("id") == "n13_render_qa"), None)
+        if qa_node and qa_node.get("agent_id") == "agent_render":
+            qa_node["agent_id"] = "agent_qa"
+            workflow_payload["version"] = int(existing_wf["version"]) + 1
+            cur.execute(
+                "UPDATE workflows SET version = ?, payload_json = ?, updated_at = ? WHERE workflow_id = ?",
+                (workflow_payload["version"], json.dumps(workflow_payload, ensure_ascii=False), now_iso(), DEFAULT_WORKFLOW["workflow_id"]),
+            )
+
+    cur.execute(
+        "INSERT OR IGNORE INTO project_workflow_bindings (project_id, workflow_id, updated_at) VALUES (?, ?, ?)",
+        ("proj_demo_4x5m", DEFAULT_WORKFLOW["workflow_id"], now_iso()),
+    )
 
     conn.commit()
     conn.close()
@@ -1294,9 +1463,7 @@ def audit_legacy_scenes() -> Dict[str, Any]:
     for row in rows:
         lowered = row["name"].strip().casefold()
         names.setdefault(lowered, []).append(row["scene_id"])
-        inferred_fixture = bool(row["is_fixture"]) or any(
-            marker in f"{row['scene_id']} {lowered}" for marker in ("fixture", "regression", "e2e", "test")
-        )
+        inferred_fixture = is_fixture_scene(row["scene_id"], row["name"], bool(row["is_fixture"]))
         provenance = row["provenance"] or ("fixture" if inferred_fixture else "unknown")
         if inferred_fixture:
             fixture_count += 1
@@ -1327,11 +1494,39 @@ def audit_legacy_scenes() -> Dict[str, Any]:
     }
 
 
-def list_projects() -> List[CanonicalProject]:
+def is_fixture_scene(scene_id: str, name: str, explicit_fixture: bool = False) -> bool:
+    if explicit_fixture:
+        return True
+    haystack = f"{scene_id} {name}".casefold()
+    return any(marker in haystack for marker in (
+        "fixture",
+        "regression",
+        " e2e",
+        "test proj",
+        "acceptance",
+        "nghiệm thu",
+        "material demo",
+        "proj_g2_",
+        "proj_g7_",
+    ))
+
+
+def list_projects(include_fixtures: bool = True) -> List[CanonicalProject]:
     conn = get_conn()
-    rows = conn.execute("SELECT payload_json FROM projects ORDER BY updated_at DESC").fetchall()
+    rows = conn.execute(
+        """
+        SELECT p.project_id, p.name, p.payload_json, COALESCE(l.is_fixture, 0) AS is_fixture
+        FROM projects p
+        LEFT JOIN atelier_scene_links l ON l.scene_id = p.project_id
+        ORDER BY p.updated_at DESC
+        """
+    ).fetchall()
     conn.close()
-    return [CanonicalProject.model_validate_json(r["payload_json"]) for r in rows]
+    return [
+        CanonicalProject.model_validate_json(row["payload_json"])
+        for row in rows
+        if include_fixtures or not is_fixture_scene(row["project_id"], row["name"], bool(row["is_fixture"]))
+    ]
 
 
 def get_project(project_id: str) -> Optional[CanonicalProject]:

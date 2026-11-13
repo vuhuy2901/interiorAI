@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -31,6 +31,7 @@ from app.db import (
     create_atelier_room,
     get_conn,
     get_native_project_workspace,
+    get_project_workflow_id,
     get_project,
     get_project_revisions,
     init_db,
@@ -57,6 +58,8 @@ from app.models.contracts import (
     PhysicalTextureScale,
     SceneDiffItem,
     SceneProposal,
+    QuestionChoice,
+    QuestionRequest,
 )
 from app.services.render_engine import render_scene_visual
 from app.services.cad_export import (
@@ -125,7 +128,9 @@ from app.services.material_system import (
     save_material,
 )
 from app.services.smart_fit import assess_fit, generate_placement_options, plan_resize
-from app.services.agent_orchestrator_engine import execute_real_workflow_run
+from app.services.agent_orchestrator_engine import execute_real_workflow_run, sync_native_workflow_run
+from app.services.workflow_input_sync import list_run_decisions, reconcile_workflow_inputs
+from app.services.workflow_runtime import validate_workflow_snapshot
 from app.services.orchestrator import (
     answer_question_and_resume,
     approve_scene_proposal,
@@ -138,6 +143,30 @@ from app.services.orchestrator import (
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 UPLOADS_DIR = ROOT_DIR / "data" / "uploads"
+
+
+async def _workflow_input_reconciler(stop_event: asyncio.Event) -> None:
+    """Bounded, no-LLM reconciliation for runs waiting on humans/agents."""
+    interval_seconds = max(2.0, float(os.getenv("ATELIER_INPUT_RECONCILE_SECONDS", "10")))
+    while not stop_event.is_set():
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT run_id FROM workflow_runs WHERE status IN ('WAITING_FOR_INPUT', 'WAITING_FOR_AGENT') ORDER BY updated_at ASC LIMIT 20"
+        ).fetchall()
+        conn.close()
+        for row in rows:
+            if stop_event.is_set():
+                break
+            try:
+                await asyncio.to_thread(lambda run_id=row["run_id"]: asyncio.run(sync_native_workflow_run(run_id)))
+            except (OSError, RuntimeError, ValueError):
+                # Durable event/task state remains in SQLite/Paperclip and will
+                # be retried on the next bounded pass.
+                continue
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass
 
 
 def mask_secret_key(raw: str) -> str:
@@ -158,7 +187,16 @@ async def lifespan(app: FastAPI):
         if res.get("ok") and res.get("sceneJson"):
             demo.pascal_scene_json = res["sceneJson"]
             save_project(demo, author="Pascal MCP Bootstrap", reason="Đồng bộ khởi tạo Pascal SceneGraph", bump_revision=False)
-    yield
+    stop_event = asyncio.Event()
+    reconciler_task: Optional[asyncio.Task[Any]] = None
+    if os.getenv("ATELIER_INPUT_RECONCILER_ENABLED", "1").strip().lower() not in {"0", "false", "no"}:
+        reconciler_task = asyncio.create_task(_workflow_input_reconciler(stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if reconciler_task:
+            await reconciler_task
 
 
 app = FastAPI(
@@ -174,6 +212,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def ensure_utf8_charset_middleware(request: Request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if "application/json" in ct and "charset" not in ct:
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
 
 
 # ==============================================================================
@@ -275,8 +322,8 @@ def api_audit_legacy_scenes():
 
 
 @app.get("/api/v1/projects")
-def api_list_projects():
-    return [p.model_dump() for p in list_projects()]
+def api_list_projects(include_fixtures: bool = True):
+    return [p.model_dump() for p in list_projects(include_fixtures=include_fixtures)]
 
 
 @app.post("/api/v1/projects")
@@ -516,6 +563,8 @@ async def api_import_floorplan(
 class ChatMessagePayload(BaseModel):
     project_id: str = "proj_demo_4x5m"
     message: str
+    workflow_id: Optional[str] = None
+    native_tasks: bool = False
     selected_entity_id: Optional[str] = None
     to_ide: Optional[bool] = False
 
@@ -528,6 +577,7 @@ class ResolveBridgeTaskPayload(BaseModel):
 
 
 @app.get("/api/v1/chat/history")
+@app.get("/api/v1/projects/{project_id}/chat/history")
 def api_get_chat_history(project_id: str = "proj_demo_4x5m"):
     conn = get_conn()
     rows = conn.execute(
@@ -551,6 +601,15 @@ def api_get_chat_history(project_id: str = "proj_demo_4x5m"):
             d["metadata"] = json.loads(d.pop("metadata_json", "{}"))
         except Exception:
             d["metadata"] = {}
+        # Hide pre-contract lifecycle projections that had no durable event
+        # receipt. They remain in storage for audit/rollback, but must not be
+        # rendered as real agent acknowledgements or completion evidence.
+        if (
+            d["metadata"].get("workflow_run_id")
+            and d["metadata"].get("event_type")
+            and not d["metadata"].get("event_id")
+        ):
+            continue
         messages.append(d)
 
     return {
@@ -558,6 +617,23 @@ def api_get_chat_history(project_id: str = "proj_demo_4x5m"):
         "pending_questions": [json.loads(r["payload_json"]) for r in q_rows],
         "proposals": [json.loads(r["payload_json"]) for r in p_rows],
     }
+
+
+@app.get("/api/v1/projects/{project_id}/workflow-events")
+def api_get_project_workflow_events(
+    project_id: str,
+    after_sequence: int = 0,
+    run_id: Optional[str] = None,
+    limit: int = 200,
+):
+    from app.services.multi_agent_chat_sync import list_project_events
+
+    return list_project_events(
+        project_id,
+        after_sequence=after_sequence,
+        run_id=run_id,
+        limit=limit,
+    )
 
 
 @app.post("/api/v1/chat/messages")
@@ -568,11 +644,10 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
     # Check if request routes to Antigravity IDE Reverse Bridge (Zero API Cost)
     if ide_bridge_service.is_ide_bridge_enabled():
         lower_txt = body.message.lower()
-        is_bridge_request = (
-            body.to_ide or
-            os.getenv("IDE_BRIDGE_MODE", "1") == "all" or
-            any(k in lower_txt for k in ["giao cho", "dựng", "asset builder", "chuyển về ide", "nhờ ide", "blender", "tạo model", "dựng tủ", "dựng bàn", "dựng ghế", "dựng phòng"])
-        )
+        # A Studio design request must enter the workflow DAG. IDE bridge work is
+        # allowed only when the caller explicitly requests it; environment defaults
+        # and keywords must never silently bypass the run/audit trail.
+        is_bridge_request = bool(body.to_ide)
         if is_bridge_request:
             task = ide_bridge_service.enqueue_task(
                 project_id=pid,
@@ -586,12 +661,100 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
                 "task": task,
             }
 
-    res = await process_user_chat_message(
-        project_id=pid,
-        user_text=body.message,
-        selected_entity_id=body.selected_entity_id,
+    project = get_project(pid)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án Studio cho tin nhắn này")
+    user_message_id = f"msg_{uuid.uuid4().hex[:10]}"
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_message_id, pid, "user", "Gia chủ / Người thiết kế", body.message,
+         json.dumps({"selected_entity_id": body.selected_entity_id, "workflow_required": True}, ensure_ascii=False), now_iso()),
     )
-    return res
+    conn.commit()
+    conn.close()
+    try:
+        selected_workflow_id = body.workflow_id or get_project_workflow_id(pid)
+        if not selected_workflow_id:
+            raise HTTPException(status_code=409, detail="Project chưa được gắn workflow đã publish")
+        run = await execute_real_workflow_run(
+            selected_workflow_id, pid, user_message_id=user_message_id, user_text=body.message,
+            native_tasks=body.native_tasks,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    legacy_metadata: Dict[str, Any] = {}
+    if not body.native_tasks:
+        # Preserve the existing Questions/Approval response contract for the
+        # legacy UI. Native mode deliberately skips this local handler so a
+        # Chief-side compatibility response cannot masquerade as agent work.
+        try:
+            legacy_result = await process_user_chat_message(
+                pid,
+                body.message,
+                selected_entity_id=body.selected_entity_id,
+            )
+            legacy_metadata = legacy_result.get("metadata") or {}
+        except ValueError:
+            legacy_metadata = {}
+    reply = f"Đã tạo Workflow Run `{run['run_id']}` cho Revision #{run['scene_revision']}. Trạng thái: **{run['status']}**."
+    assistant_message_id = f"msg_{uuid.uuid4().hex[:10]}"
+    conn = get_conn()
+    metadata = {
+        "agent_id": "agent_chief_architect",
+        "workflow_run_id": run["run_id"],
+        "events": len(run["events"]),
+        "native_task_ids": [event["native_task_id"] for event in run["events"] if event.get("native_task_id")],
+    }
+    for key in ("question", "question_request", "proposal", "proposal_id", "spatial_qa", "invalidated_nodes"):
+        if key in legacy_metadata:
+            metadata[key] = legacy_metadata[key]
+    if run["status"] == "WAITING_FOR_INPUT":
+        question_row = conn.execute(
+            "SELECT payload_json FROM questions WHERE project_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
+            (pid,),
+        ).fetchone()
+        if question_row:
+            metadata["question"] = json.loads(question_row["payload_json"])
+        else:
+            question = QuestionRequest(
+                question_id=f"q_{uuid.uuid4().hex[:10]}",
+                project_id=pid,
+                run_id=run["run_id"],
+                origin_agent="agent_floorplan",
+                context="Bản vẽ mặt bằng hiện tại chưa có thông số tỷ lệ chuẩn (mm/px).",
+                question_text="Chiều dài thực tế của một cạnh tường chuẩn là bao nhiêu milimet?",
+                why_needed="Cần ít nhất một cạnh chuẩn để giữ đúng kích thước khi dựng 3D.",
+                choices=[QuestionChoice(id="scale_4000", label="4,000 mm (4.0 mét)")],
+                blocking=True,
+                resume_token=f"resume_{uuid.uuid4().hex[:8]}",
+                status="PENDING",
+                created_at=now_iso(),
+            )
+            conn.execute(
+                "INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (question.question_id, pid, "PENDING", question.model_dump_json(), question.created_at),
+            )
+            metadata["question"] = question.model_dump()
+    conn.execute(
+        "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (assistant_message_id, pid, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply,
+         json.dumps(metadata, ensure_ascii=False), now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
+    return {
+        "user_message_id": user_message_id,
+        "assistant_message_id": assistant_message_id,
+        "reply": reply,
+        "workflow_run": run,
+        "metadata": {**metadata, "workflow_state": run["status"]},
+    }
 
 
 @app.get("/api/v1/bridge/tasks")
@@ -841,6 +1004,11 @@ def api_list_workflows():
 @app.put("/api/v1/workflows/{workflow_id}")
 def api_update_workflow(workflow_id: str, wf_payload: Dict[str, Any]):
     conn = get_conn()
+    agent_ids = [row["agent_id"] for row in conn.execute("SELECT agent_id FROM agents").fetchall()]
+    validation_errors = validate_workflow_snapshot(wf_payload, agent_ids=agent_ids)
+    if validation_errors:
+        conn.close()
+        raise HTTPException(status_code=422, detail={"workflow_invalid": validation_errors})
     ver = int(wf_payload.get("version", 1)) + 1
     wf_payload["workflow_id"] = workflow_id
     wf_payload["version"] = ver
@@ -854,9 +1022,9 @@ def api_update_workflow(workflow_id: str, wf_payload: Dict[str, Any]):
 
 
 @app.post("/api/v1/workflows/{workflow_id}/runs")
-async def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m"):
+async def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m", native_tasks: bool = False):
     try:
-        return await execute_real_workflow_run(workflow_id, project_id)
+        return await execute_real_workflow_run(workflow_id, project_id, native_tasks=native_tasks)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -884,7 +1052,70 @@ async def api_stream_run_events(run_id: str):
             await asyncio.sleep(0.05)
         yield f"data: {json.dumps({'status': 'DONE', 'run_id': run_id})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(event_generator(), media_type="text/event-stream; charset=utf-8")
+
+
+@app.get("/api/v1/runs/{run_id}/artifacts")
+def api_list_run_artifacts(run_id: str):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT artifact_id, run_id, project_id, node_id, agent_id, artifact_type, schema_version, source_revision, validation_status, storage_ref, checksum_sha256, payload_json, created_at FROM workflow_artifacts WHERE run_id = ? ORDER BY created_at ASC",
+        (run_id,),
+    ).fetchall()
+    conn.close()
+    return {
+        "run_id": run_id,
+        "artifacts": [
+            {**dict(row), "payload": json.loads(row["payload_json"])}
+            for row in rows
+        ],
+    }
+
+
+@app.get("/api/v1/runs/{run_id}/native-tasks")
+async def api_list_run_native_tasks(run_id: str):
+    try:
+        await sync_native_workflow_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT task_id, run_id, node_id, local_agent_id, native_agent_id, status, idempotency_key, payload_json, created_at, updated_at FROM workflow_native_tasks WHERE run_id = ? ORDER BY created_at ASC",
+        (run_id,),
+    ).fetchall()
+    conn.close()
+    return {
+        "run_id": run_id,
+        "tasks": [{**dict(row), "payload": json.loads(row["payload_json"])} for row in rows],
+    }
+
+
+@app.post("/api/v1/runs/{run_id}/sync")
+async def api_sync_native_workflow_run(run_id: str):
+    try:
+        return await sync_native_workflow_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/runs/{run_id}/decisions")
+def api_get_run_decisions(run_id: str):
+    conn = get_conn()
+    exists = conn.execute("SELECT 1 FROM workflow_runs WHERE run_id = ?", (run_id,)).fetchone()
+    conn.close()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy workflow run: {run_id}")
+    return list_run_decisions(run_id)
+
+
+@app.post("/api/v1/runs/{run_id}/inputs/reconcile")
+async def api_reconcile_run_inputs(run_id: str):
+    try:
+        result = await asyncio.to_thread(reconcile_workflow_inputs, run_id)
+        run = await sync_native_workflow_run(run_id)
+        return {"input_sync": result, "run": run}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/agents")
@@ -1455,6 +1686,11 @@ def api_create_furniture_material_proposal(
     )
     conn.commit()
     conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
     return {
         "ok": True,
         "persisted": False,
@@ -1544,6 +1780,11 @@ def api_create_placement_proposal(project_id: str, object_id: str, body: Placeme
     )
     conn.commit()
     conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
     return {"ok": True, "persisted": False, "proposal": proposal.model_dump(), "fit": fit, "preview_project": proposed.model_dump()}
 
 
@@ -1717,6 +1958,11 @@ def api_create_surface_material_proposal(
     )
     conn.commit()
     conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
     return {
         "ok": True,
         "persisted": False,

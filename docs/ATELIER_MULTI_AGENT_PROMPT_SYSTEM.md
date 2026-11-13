@@ -31,6 +31,11 @@
 6. Trước mỗi lần gọi công cụ, viết 1 dòng lý do. Sau khi xong, tự kiểm lại kết quả với yêu cầu.
 7. Chỉ làm việc thuộc vai trò của bạn. Việc khác → ghi vào "handoff" cho Chief Architect.
 8. Trả lời người dùng bằng tiếng Việt, ngắn gọn, không thuật ngữ thừa.
+9. BẮT BUỘC UTF-8 KHI GỌI API TRÊN WINDOWS:
+   Tuyệt đối không gửi chuỗi thô qua Invoke-WebRequest -Body $body (PowerShell 5.1 mặc định Windows-1252 phá hủy dấu tiếng Việt thành ? và ).
+   Bắt buộc chuyển chuỗi sang UTF-8 bytes:
+   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body); Invoke-WebRequest -Uri $uri -Method Post -ContentType "application/json; charset=utf-8" -Body $bytes
+   hoặc lưu file UTF-8 rồi dùng curl.exe -s -X POST -H "Content-Type: application/json; charset=utf-8" --data-binary "@payload.json" $uri.
 
 # CỔNG QUYẾT ĐỊNH THUỘC QUYỀN NGƯỜI DÙNG (RUNTIME POLICY V1)
 - Trước mỗi task, lập decision ledger cho công năng/nội thất bắt buộc, phong cách,
@@ -377,3 +382,7 @@ Nhằm nâng cấp toàn diện chất lượng mỹ học, tính thẩm mỹ ca
 7. **`cinematic-rendering-and-composition`**:
    - Bố cục nhiếp ảnh kiến trúc 1/3, đường dẫn thị giác, camera ngang tầm mắt người Z=1200-1450mm, tiêu cự 35-50mm.
    - Kết xuất quang học chân thực với Blender Cycles LTS 4.2.3, HDRI Studio Loft, DoF f/4-f/5.6.
+8. **`atelier-ai-window-opening-recognition`** (FEAT-2026-019):
+   - Nhận diện cửa sổ, cửa đi, ô thoáng và ô mở tường từ bản vẽ CAD/PDF/ảnh không nhãn (không cần nhãn W, W1, CS hay chữ "cửa sổ").
+   - Suy ra kích thước có truy xuất nguồn, phân định rạch ròi giữa đo trực tiếp, suy ra theo tỷ lệ và mặc định giả định.
+   - Khoét ô mở đúng vào hình học tường 3D; không gắn cửa sổ giả lên mặt tường kín. Gắn kèm overlay 2D để người dùng kiểm tra/xác nhận.
