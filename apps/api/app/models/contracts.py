@@ -4,7 +4,7 @@ Synchronized across FastAPI Backend, LangGraph Orchestrator, Pascal MCP Gateway,
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ScaleCalibration(BaseModel):
@@ -185,11 +185,45 @@ class AssetMetadata(BaseModel):
     created_at: str = ""
 
 
+class MeasurementEvidence(BaseModel):
+    value: Optional[float] = None
+    unit: Literal["mm", "deg"] = "mm"
+    status: Literal["CONFIRMED", "INFERRED", "UNKNOWN"]
+    source: str
+    source_ref: Optional[str] = None
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_known_value(self) -> "MeasurementEvidence":
+        if not self.source.strip():
+            raise ValueError("measurement source must not be empty")
+        if self.status == "UNKNOWN" and self.value is not None:
+            raise ValueError("UNKNOWN measurement must not carry a numeric value")
+        if self.status != "UNKNOWN" and self.value is None:
+            raise ValueError(f"{self.status} measurement requires a numeric value")
+        return self
+
+
+class DimensionSegment(BaseModel):
+    id: str
+    label: str
+    measurement: MeasurementEvidence
+
+
+class DimensionChain(BaseModel):
+    id: str
+    room_id: str
+    axis: Literal["width", "depth"]
+    segments: List[DimensionSegment]
+    expected_total: MeasurementEvidence
+    tolerance_mm: float = 0.0
+
+
 class FurnitureInstance(BaseModel):
     id: str
     sku: str
     name: str
-    category: str = "sofa"
+    category: str
     room_id: str = "room_main"
     x_mm: float = 2000.0
     y_mm: float = 2500.0
@@ -198,9 +232,13 @@ class FurnitureInstance(BaseModel):
     depth_mm: float = 880.0
     height_mm: float = 780.0
     rotation_deg: float = 0.0
+    wall: Optional[Literal["top", "right", "bottom", "left"]] = None
+    align: Optional[Literal["start", "center", "end", "left", "right", "top", "bottom"]] = None
+    offset_mm: float = 0.0
+    wall_distance_mm: float = 0.0
     color_hex: str = "#E4DDD3"
     price_vnd: float = 14500000.0
-    pascal_asset_id: str = "sofa"
+    pascal_asset_id: str
     pascal_node_id: Optional[str] = None
     source_url: Optional[str] = None
     vendor: Optional[str] = None
@@ -215,6 +253,18 @@ class FurnitureInstance(BaseModel):
     original_dimensions_mm: List[float] = Field(default_factory=list)
     parametric_module_mm: Optional[float] = None
     parametric_axes: List[Literal["width", "depth", "height"]] = Field(default_factory=list)
+    measurement_evidence: Dict[str, MeasurementEvidence] = Field(default_factory=dict)
+    legacy_flags: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def mark_legacy_defaults(self) -> "FurnitureInstance":
+        flags = list(self.legacy_flags)
+        if self.category != "sofa" and self.pascal_asset_id == "sofa":
+            flags.append("LEGACY_DEFAULT_PASCAL_ASSET_SOFA")
+        if not self.measurement_evidence:
+            flags.append("LEGACY_MISSING_MEASUREMENT_EVIDENCE")
+        self.legacy_flags = list(dict.fromkeys(flags))
+        return self
 
 
 class DesignBrief(BaseModel):
@@ -282,6 +332,7 @@ class CanonicalProject(BaseModel):
     openings: List[DoorOpening] = Field(default_factory=list)
     windows: List[WindowOpening] = Field(default_factory=list)
     furniture_instances: List[FurnitureInstance] = Field(default_factory=list)
+    dimension_chains: List[DimensionChain] = Field(default_factory=list)
     surface_material_overrides: Dict[str, MaterialOverride] = Field(default_factory=dict)
     design_brief: DesignBrief = Field(default_factory=DesignBrief)
     estimate_snapshot: Optional[CostEstimateSnapshot] = None

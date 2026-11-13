@@ -160,8 +160,16 @@ async function runGatewayCommand(payload) {
 
       // Set design brief so Pascal allows item placement
       if (furniture.length > 0) {
+        for (const item of furniture) {
+          if (!String(item.category || '').trim()) {
+            throw new Error(`Furniture ${item.id || '<unknown>'} requires category`)
+          }
+          if (!String(item.pascal_asset_id || '').trim()) {
+            throw new Error(`Furniture ${item.id || '<unknown>'} requires pascal_asset_id`)
+          }
+        }
         const itemsToPlace = furniture.map((item) => ({
-          assetId: item.pascal_asset_id || 'sofa',
+          assetId: item.pascal_asset_id,
           x: Number(((item.x_mm || 2000) / 1000).toFixed(3)),
           z: Number(((item.y_mm || 2500) / 1000).toFixed(3)),
           rotation: Number((((item.rotation_deg || 0) * Math.PI) / 180).toFixed(4)),

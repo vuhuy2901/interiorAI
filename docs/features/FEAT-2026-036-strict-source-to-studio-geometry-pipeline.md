@@ -2,7 +2,7 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | IMPLEMENTING |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Codex |
 | Người chấp thuận | User request 2026-11-13 |
@@ -195,12 +195,15 @@ revision 5 passes M1-M6.
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
 | 2026-11-13T19:00:00+07:00 | ce745117 | Contract frozen | No implementation files changed by this contract yet |
+| 2026-11-13T19:20:00+07:00 | M1 commit (this revision) | Strict identity, measurement evidence, legacy flags and dimension-chain gate | No database rows or scene revisions changed |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-13T19:18:00+07:00 | M1 working tree | Focused strict contract tests | PASS | `7 passed in 3.91s` |
+| 2026-11-13T19:20:00+07:00 | M1 working tree | Strict + Pascal + smart-fit + project compatibility suite | PASS | `21 passed in 10.25s` |
+| 2026-11-13T19:20:00+07:00 | M1 working tree | Python compile, Node syntax, diff check | PASS | No syntax or whitespace errors; line-ending warnings only |
 
 ## 14. Kết quả và đóng chức năng
 

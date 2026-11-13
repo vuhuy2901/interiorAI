@@ -82,6 +82,7 @@ from app.services.geometry import (
     analyze_scene_spatial_quality,
     check_catalog_product_fit,
 )
+from app.services.measurement_validation import validate_project_for_persistence
 from app.services.mcp_gateway import (
     call_pascal_mcp_tool,
     list_pascal_mcp_tools,
@@ -375,6 +376,16 @@ async def api_update_scene(project_id: str, updated: CanonicalProject):
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     updated.project_id = project_id
     updated.revision = existing.revision
+    strict_report = validate_project_for_persistence(updated)
+    if not strict_report["valid"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "SCENE_MEASUREMENT_VALIDATION_FAILED",
+                "message": "Scene was not saved because identity or measurement evidence is invalid.",
+                "issues": strict_report["issues"],
+            },
+        )
     sync_res = await sync_canonical_to_pascal(updated)
     if sync_res.get("ok") and sync_res.get("sceneJson"):
         updated.pascal_scene_json = sync_res["sceneJson"]
