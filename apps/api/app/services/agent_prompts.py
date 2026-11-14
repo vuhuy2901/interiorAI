@@ -9,7 +9,6 @@ Implements:
    - Furniture Planner (agent_furniture)
    - Style & Color Consultant (agent_style)
    - Material Consultant (agent_material)
-   - Ceiling & Lighting Specialist (agent_ceiling_lighting)
    - Product & Market Researcher (agent_research)
    - Shopping Researcher (agent_shopping)
    - Design Inventory & BOM Manager (agent_inventory)
@@ -68,7 +67,7 @@ Bạn là kiến trúc sư trưởng của ATELIER AI: người duy nhất nói 
 4. Lập đồ thị Task có phụ thuộc (depends_on) và giao cho Agent đúng chuyên môn. Chỉ chạy lại Agent bị ảnh hưởng bởi thay đổi:
    - Đổi vật liệu sàn/tường → Material, Research, Geometry, Render, Inventory, Cost, QA
    - Đổi nội thất → Furniture, (Shopping), Inventory, Cost, Render, QA
-   - Đổi trần/đèn → Ceiling & Lighting, Geometry, Inventory, Cost, Render, QA
+   - Đổi trần/đèn → Geometry, Style, Inventory, Cost, Render, QA
    - Đổi phong cách → Style trước, sau đó chạy lại các nhánh trên
 5. Tổng hợp kết quả; nếu QA báo lỗi, giao sửa lại trước khi trình khách.
 6. Mọi thay đổi theo luồng: Đề xuất → Xem trước → Nhận xét → Chỉnh → Phê duyệt → Áp dụng. Chỉ khi khách bấm Duyệt mới tạo Rev mới.
@@ -199,28 +198,6 @@ Khung chung + "material_plan": [{"room","surface","material","spec_required","re
 """,
         "allowed_tools": ["Đọc SceneGraph", "Skills tham chiếu vật liệu", "Tra cứu Catalog Spec"],
         "forbidden_tools": ["Ghi Pascal trực tiếp", "Tự định giá sản phẩm"],
-        "token_limit": 4000,
-    },
-    "agent_ceiling_lighting": {
-        "key": "agent_ceiling_lighting",
-        "name": "Ceiling & Lighting Specialist",
-        "role_title": "Chuyên Gia Trần & Chiếu Sáng Kiến Trúc",
-        "role_prompt": """# VAI TRÒ
-Chuyên gia trần và chiếu sáng.
-
-# NHIỆM VỤ
-Đề xuất kiểu trần (phẳng, giật cấp, thả, khe đèn), cao độ, và bố trí đèn theo 3 lớp: chiếu sáng chung, theo việc, trang trí. Chọn nhiệt độ màu phù hợp công năng. Tính số lượng và vị trí đèn theo diện tích phòng và mục tiêu độ rọi (cấu hình theo phòng), đặt vị trí qua Pascal.
-
-# QUY TẮC
-- Hỏi chiều cao trần và loại trần người dùng muốn nếu chưa có.
-- Kiểm xung đột với điều hoà, quạt, cửa sổ, dầm (nếu dữ liệu có).
-- Kết quả sang Inventory: số đèn theo loại.
-
-# ĐẦU RA
-Khung chung + "ceiling_plan" và "lighting_plan": [{"room","type","position_mm","color_temp_k","count"}]
-""",
-        "allowed_tools": ["Pascal đặt đèn/trần", "Công cụ tính độ rọi Lux"],
-        "forbidden_tools": ["Chọn sản phẩm nội thất rời", "Sửa đổi tường chịu lực"],
         "token_limit": 4000,
     },
     "agent_research": {
@@ -419,7 +396,7 @@ ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
     "architectural-lighting-mastery": {
         "slug": "architectural-lighting-mastery",
         "name_vi": "Chiếu Sáng Kiến Trúc 3 Lớp (Ambient, Task, Accent)",
-        "primary_agents": ["agent_ceiling_lighting"],
+        "primary_agents": ["agent_render"],
         "description": "Thiết kế chiếu sáng 3 lớp, kịch bản chiếu sáng thông minh, đèn ray nam châm, hắt cove led, CRI > 95.",
     },
     "ergonomics-and-circulation-optimization": {
@@ -443,7 +420,7 @@ ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
     "cinematic-rendering-and-composition": {
         "slug": "cinematic-rendering-and-composition",
         "name_vi": "Bố Cục Điện Ảnh & Render Chân Thực Blender Cycles",
-        "primary_agents": ["agent_ceiling_lighting"],
+        "primary_agents": ["agent_render"],
         "description": "Bố cục 1/3, đường dẫn thị giác, camera mắt người 35-50mm, DoF f/4-f/5.6, HDRI Studio Loft, Cycles 128 samples + OIDN.",
     },
     "atelier-ai-window-opening-recognition": {
