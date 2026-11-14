@@ -53,6 +53,11 @@ def test_create_native_task_returns_observed_task_without_fake_acceptance(monkey
     assert result["acceptance_observed"] is False
     assert calls[-1][2]["assigneeAgentId"] == "native-floorplan"
     assert calls[-1][2]["idempotencyKey"] == "run-1:floorplan_node:native"
+    description = calls[-1][2]["description"]
+    assert "Local ATELIER Project ID: proj_bedroom" in description
+    assert "Native Paperclip Project ID: paperclip-project-1" in description
+    assert "/openapi.json" in description
+    assert '"id": "floorplan_node"' in description
 
 
 def test_post_issue_comment_uses_idempotent_board_receipt(monkeypatch: pytest.MonkeyPatch):
