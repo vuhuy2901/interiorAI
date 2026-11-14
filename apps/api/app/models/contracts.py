@@ -318,6 +318,141 @@ class CostEstimateSnapshot(BaseModel):
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."
 
 
+# ============================================================================
+# UNIFIED PROJECT BOQ & AI FINANCIAL MANAGEMENT CONTRACTS (FEAT-2026-033)
+# ============================================================================
+class MaterialSpecDetail(BaseModel):
+    board_core: str = "MDF chống ẩm lõi xanh"
+    surface_finish: str = "Melamine"
+    color_code: str = "Óc chó Walnut 612 EV"
+    thickness_desc: str = "Thân & cánh 17mm, hậu 9mm"
+    thickness_mm: float = 17.0
+    brand_product_code: str = "An Cường AC-MDF-MR-17-WALNUT-612"
+    warranty_desc: str = "Bảo hành 24 tháng theo tiêu chuẩn nhà sản xuất"
+
+
+class MaterialProposalOption(BaseModel):
+    option_id: str
+    title: str
+    board_core: str
+    surface_finish: str
+    color_code: str
+    thickness_desc: str
+    brand: str
+    product_code: str
+    pros: List[str] = Field(default_factory=list)
+    cons: List[str] = Field(default_factory=list)
+    durability_score: float = 9.0
+    price_tier: Literal["economy", "standard", "premium"] = "standard"
+    proposed_by_agent: str = "Materials AI"
+    is_recommended: bool = False
+
+
+class SupplierQuoteOption(BaseModel):
+    quote_id: str
+    supplier_name: str
+    sku: str
+    unit_price_vnd: float
+    unit: str
+    source_type: Literal["GIÁ MINH HỌA", "GIÁ THAM KHẢO CÓ NGUỒN", "BÁO GIÁ CHÍNH THỨC", "NGƯỜI DÙNG CUNG CẤP"]
+    source_url: Optional[str] = None
+    queried_at: str = "2026-11-13"
+    notes: Optional[str] = None
+    is_verified: bool = True
+
+
+class BOMSubItem(BaseModel):
+    part_id: str
+    part_name: str
+    specification: str
+    quantity: float
+    unit: str
+    unit_price_vnd: Optional[float] = None
+    subtotal_vnd: Optional[float] = None
+    waste_rate: float = 0.0
+    notes: Optional[str] = None
+
+
+class UnifiedBOQItem(BaseModel):
+    id: str
+    group_id: Literal[
+        "group_1_furniture_millwork",
+        "group_2_wood_boards",
+        "group_3_tile_stone_floor",
+        "group_4_paint_wall_ceiling",
+        "group_5_doors_windows_glazing",
+        "group_6_electrical_lighting",
+        "group_7_hardware_fittings",
+        "group_8_appliances_decor",
+        "group_9_labor_logistics_other",
+    ]
+    group_label: str
+    item_type: Literal["custom_millwork", "ready_made", "raw_material", "surface", "fixture", "service"]
+    name: str
+    room_id: Optional[str] = None
+    room_name: Optional[str] = None
+    dimensions_desc: str = ""
+    dimensions_mm: Optional[List[float]] = None
+    quantity: float = 1.0
+    unit: str = "Bộ"
+    waste_rate: float = 0.0
+    selected_material_spec: Optional[MaterialSpecDetail] = None
+    material_proposals: List[MaterialProposalOption] = Field(default_factory=list)
+    supplier_quotes: List[SupplierQuoteOption] = Field(default_factory=list)
+    selected_quote_id: Optional[str] = None
+    unit_price_vnd: Optional[float] = None
+    subtotal_vnd: Optional[float] = None
+    price_status: Literal["CHƯA CÓ BÁO GIÁ", "GIÁ THAM KHẢO CÓ NGUỒN", "GIÁ BÁO CHÍNH THỨC", "ĐÃ PHÊ DUYỆT"] = "CHƯA CÓ BÁO GIÁ"
+    approval_state: Literal["DRAFT", "PROPOSED", "USER_APPROVED"] = "PROPOSED"
+    proposed_by_agent: str = "Materials AI"
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    decision_version: str = "1.0"
+    calculation_formula: str = ""
+    bom_breakdown: List[BOMSubItem] = Field(default_factory=list)
+    parent_item_id: Optional[str] = None
+    is_included_in_total: bool = True
+    needs_recalculation: bool = False
+    source_entity_id: Optional[str] = None
+
+
+class BOQGroupSummary(BaseModel):
+    group_id: str
+    group_label: str
+    item_count: int
+    subtotal_vnd: float
+    priced_count: int
+    unpriced_count: int
+
+
+class UnifiedProjectBOQ(BaseModel):
+    project_id: str
+    project_name: str
+    revision: int
+    budget_limit_vnd: float = 120000000.0
+    items: List[UnifiedBOQItem] = Field(default_factory=list)
+    groups: List[BOQGroupSummary] = Field(default_factory=list)
+    total_calculated_vnd: float = 0.0
+    total_approved_vnd: float = 0.0
+    unpriced_items_count: int = 0
+    tax_rate: float = 0.08
+    tax_vnd: float = 0.0
+    total_with_tax_vnd: float = 0.0
+    budget_variance_vnd: float = 0.0
+    is_within_budget: bool = True
+    generated_at: str = ""
+
+
+class BOQDecisionPayload(BaseModel):
+    selected_option_id: Optional[str] = None
+    custom_material_spec: Optional[Dict[str, Any]] = None
+    selected_quote_id: Optional[str] = None
+    custom_quote: Optional[Dict[str, Any]] = None
+    approved: bool = True
+    approved_by: str = "Chủ Project"
+    notes: Optional[str] = None
+
+
 class CanonicalProject(BaseModel):
     project_id: str
     name: str
