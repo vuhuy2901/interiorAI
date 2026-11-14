@@ -168,7 +168,7 @@ async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
         event["node_id"] for event in events
         if event.get("native_task_id") or event.get("status") not in {"INPUT_RESOLVED"}
     }
-    project_id = run_doc["project_id"]
+    project_id = run_doc.get("project_id") or run_doc.get("canonical_project_id") or "proj_demo_4x5m"
     for node in snapshot.get("nodes") or []:
         node_id = node.get("id")
         if node_id not in ready or node_id in existing_nodes:

@@ -13,6 +13,7 @@ Exposes REST & SSE endpoints for:
 """
 from __future__ import annotations
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import uuid
@@ -20,13 +21,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.db import (
     audit_legacy_scenes,
+    bind_project_workflow,
     build_default_demo_project,
     create_atelier_room,
     get_conn,
@@ -60,6 +62,12 @@ from app.models.contracts import (
     SceneProposal,
     QuestionChoice,
     QuestionRequest,
+    BOQDecisionPayload,
+)
+from app.services.unified_boq_engine import (
+    build_unified_project_boq,
+    save_boq_material_decision,
+    export_unified_boq_xlsx,
 )
 from app.services.render_engine import render_scene_visual
 from app.services.cad_export import (
@@ -250,6 +258,7 @@ class CreateProjectPayload(BaseModel):
     style: str = "Japandi"
     budget_limit_vnd: float = 120000000.0
     scale_calibrated: bool = False
+    workflow_id: Optional[str] = None
 
 
 class InitializeNativeProjectPayload(BaseModel):
@@ -329,6 +338,15 @@ def api_list_projects(include_fixtures: bool = True):
 
 @app.post("/api/v1/projects")
 async def api_create_project(body: CreateProjectPayload):
+    workflow_id = body.workflow_id or "wf_default_interior_pipeline"
+    conn = get_conn()
+    workflow_exists = conn.execute(
+        "SELECT 1 FROM workflows WHERE workflow_id = ?",
+        (workflow_id,),
+    ).fetchone()
+    conn.close()
+    if not workflow_exists:
+        raise HTTPException(status_code=409, detail=f"Không tìm thấy workflow đã publish: {workflow_id}")
     pid = f"proj_{uuid.uuid4().hex[:8]}"
     base = build_default_demo_project()
     base.project_id = pid
@@ -353,6 +371,10 @@ async def api_create_project(body: CreateProjectPayload):
         base.pascal_scene_json = sync_res["sceneJson"]
 
     saved = save_project(base, author="User", reason="Khởi tạo dự án mới", bump_revision=False)
+    try:
+        bind_project_workflow(saved.project_id, workflow_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return saved.model_dump()
 
 
@@ -575,9 +597,20 @@ class ChatMessagePayload(BaseModel):
     project_id: str = "proj_demo_4x5m"
     message: str
     workflow_id: Optional[str] = None
-    native_tasks: bool = False
+    native_tasks: Optional[bool] = None
     selected_entity_id: Optional[str] = None
     to_ide: Optional[bool] = False
+
+
+def resolve_chat_native_tasks(*, project_scoped: bool, requested: Optional[bool]) -> bool:
+    """Select execution mode without allowing Studio to bypass native agents."""
+    if project_scoped:
+        if requested is False:
+            raise ValueError(
+                "Studio Chat chỉ chạy bằng Native Paperclip Tasks; không thể chuyển sang chế độ một tiến trình giả lập nhiều agent"
+            )
+        return True
+    return bool(requested)
 
 
 class ResolveBridgeTaskPayload(BaseModel):
@@ -651,6 +684,13 @@ def api_get_project_workflow_events(
 @app.post("/api/v1/projects/{project_id}/chat/messages")
 async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[str] = None):
     pid = project_id or body.project_id
+    try:
+        native_tasks = resolve_chat_native_tasks(
+            project_scoped=project_id is not None,
+            requested=body.native_tasks,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     
     # Check if request routes to Antigravity IDE Reverse Bridge (Zero API Cost)
     if ide_bridge_service.is_ide_bridge_enabled():
@@ -690,12 +730,12 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
             raise HTTPException(status_code=409, detail="Project chưa được gắn workflow đã publish")
         run = await execute_real_workflow_run(
             selected_workflow_id, pid, user_message_id=user_message_id, user_text=body.message,
-            native_tasks=body.native_tasks,
+            native_tasks=native_tasks,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     legacy_metadata: Dict[str, Any] = {}
-    if not body.native_tasks:
+    if not native_tasks:
         # Preserve the existing Questions/Approval response contract for the
         # legacy UI. Native mode deliberately skips this local handler so a
         # Chief-side compatibility response cannot masquerade as agent work.
@@ -716,6 +756,7 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
         "workflow_run_id": run["run_id"],
         "events": len(run["events"]),
         "native_task_ids": [event["native_task_id"] for event in run["events"] if event.get("native_task_id")],
+        "execution_mode": "native_paperclip_tasks" if native_tasks else "legacy_local_compatibility",
     }
     for key in ("question", "question_request", "proposal", "proposal_id", "spatial_qa", "invalidated_nodes"):
         if key in legacy_metadata:
@@ -1323,6 +1364,51 @@ def api_export_project_file(project_id: str, fmt: str):
         raise HTTPException(status_code=400, detail=f"Định dạng xuất '{fmt}' không được hỗ trợ")
 
     return FileResponse(path=str(path), filename=path.name, media_type=media)
+
+
+# ==============================================================================
+# UNIFIED BOQ & AI FINANCIAL MANAGEMENT (FEAT-2026-033)
+# ==============================================================================
+@app.get("/api/v1/projects/{project_id}/unified-boq")
+def api_get_unified_boq(project_id: str):
+    """Returns single unified BOQ & BOM breakdown with 9 groups, AI proposals, and quotes."""
+    try:
+        boq = build_unified_project_boq(project_id)
+        return boq.model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo bảng BOQ hợp nhất: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/boq-items/{item_id}/decision")
+def api_save_boq_item_decision(project_id: str, item_id: str, payload: BOQDecisionPayload):
+    """Saves user decision on material, finish, quote, and approval status."""
+    try:
+        res = save_boq_material_decision(project_id, item_id, payload)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi lưu quyết định BOQ: {str(e)}")
+
+
+@app.get("/api/v1/exports/{project_id}/unified-boq/xlsx")
+@app.get("/api/v1/projects/{project_id}/unified-boq/export/xlsx")
+def api_export_unified_boq_xlsx_endpoint(project_id: str):
+    """Exports fully-formatted architectural & financial BOQ to Excel (.xlsx)."""
+    try:
+        data = export_unified_boq_xlsx(project_id)
+        proj = get_project(project_id)
+        name_slug = proj.project_id if proj else project_id
+        filename = f"BOQ_{name_slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất Excel BOQ: {str(e)}")
 
 
 # ==============================================================================

@@ -30,6 +30,7 @@ from app.services.cost_engine import calculate_project_estimate
 ROOT_DIR = Path(__file__).resolve().parents[4]
 DATA_DIR = ROOT_DIR / "data"
 DB_PATH = DATA_DIR / "atelier.db"
+DEFAULT_WORKFLOW_ID = "wf_default_interior_pipeline"
 
 
 def now_iso() -> str:
@@ -46,7 +47,12 @@ def get_conn() -> sqlite3.Connection:
 
 
 def get_project_workflow_id(project_id: str) -> Optional[str]:
-    """Resolve the published workflow for a project without embedding a node graph."""
+    """Resolve a project's explicit workflow or the stable product default.
+
+    Never route an unbound project through whichever workflow happened to be
+    updated most recently; test and draft workflows must not become production
+    routing authority by timestamp.
+    """
     conn = get_conn()
     try:
         binding = conn.execute(
@@ -55,10 +61,43 @@ def get_project_workflow_id(project_id: str) -> Optional[str]:
         ).fetchone()
         if binding:
             return binding["workflow_id"]
-        latest = conn.execute(
-            "SELECT workflow_id FROM workflows ORDER BY updated_at DESC LIMIT 1"
+        default = conn.execute(
+            "SELECT workflow_id FROM workflows WHERE workflow_id = ?",
+            (DEFAULT_WORKFLOW_ID,),
         ).fetchone()
-        return latest["workflow_id"] if latest else None
+        return default["workflow_id"] if default else None
+    finally:
+        conn.close()
+
+
+def bind_project_workflow(project_id: str, workflow_id: str = DEFAULT_WORKFLOW_ID) -> str:
+    """Persist the workflow authority for one canonical project."""
+    conn = get_conn()
+    try:
+        project = conn.execute(
+            "SELECT project_id FROM projects WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        if not project:
+            raise ValueError(f"Không tìm thấy dự án {project_id}")
+        workflow = conn.execute(
+            "SELECT workflow_id FROM workflows WHERE workflow_id = ?",
+            (workflow_id,),
+        ).fetchone()
+        if not workflow:
+            raise ValueError(f"Không tìm thấy workflow đã publish: {workflow_id}")
+        conn.execute(
+            """
+            INSERT INTO project_workflow_bindings (project_id, workflow_id, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                workflow_id = excluded.workflow_id,
+                updated_at = excluded.updated_at
+            """,
+            (project_id, workflow_id, now_iso()),
+        )
+        conn.commit()
+        return workflow_id
     finally:
         conn.close()
 
@@ -279,6 +318,205 @@ def build_default_demo_project() -> CanonicalProject:
             approved_decisions=[
                 "Xác nhận kích thước phòng chuẩn 4000×5000mm",
                 "Chọn sàn gỗ sồi sáng An Cường kết hợp tường nhấn Xanh Sage (Dulux 50GY 53/083)",
+            ],
+        ),
+        approval_state="APPROVED",
+        created_at=ts,
+        updated_at=ts,
+    )
+    proj.estimate_snapshot = calculate_project_estimate(proj)
+    return proj
+
+
+def build_kid_bedroom_project() -> CanonicalProject:
+    ts = now_iso()
+    proj = CanonicalProject(
+        project_id="proj_kid_bedroom",
+        name="Phòng Ngủ Trẻ Em — Giường Tầng & Tủ Áo (3.6m × 3.2m)",
+        description="Dự án thiết kế nội thất phòng ngủ trẻ em 3600×3200mm (11.52 m²): hệ giường tầng thông minh tích hợp cầu thang hộp lưu trữ, tủ quần áo 2 cánh kịch trần, bàn học đôi liền giá sách, sàn gỗ công nghiệp chống ẩm và hệ đèn học chống cận.",
+        revision=1,
+        units="mm",
+        display_unit="m",
+        scale_calibrated=True,
+        scale_reference=ScaleCalibration(
+            p1_px=[0.0, 0.0],
+            p2_px=[360.0, 0.0],
+            real_length_mm=3600.0,
+            mm_per_px=10.0,
+            confirmed_by_user=True,
+            confidence=0.99,
+            notes="Đã xác nhận cạnh chuẩn Bắc 3600mm",
+        ),
+        rooms=[
+            RoomZone(
+                id="room_kid_bedroom",
+                name="Phòng Ngủ Trẻ Em",
+                room_type="bedroom",
+                polygon_mm=[[0.0, 0.0], [3600.0, 0.0], [3600.0, 3200.0], [0.0, 3200.0]],
+                ceiling_height_mm=2700.0,
+                floor_material_id="floor_wood_oak_straight",
+                ceiling_material_id="paint_ceiling_gypsum_white",
+                wall_base_material_id="paint_dulux_japandi_ivory",
+                skirting_material_id="skirting_wood_oak_90",
+            )
+        ],
+        walls=[
+            WallSegment(
+                id="wall_north_bunk",
+                start_mm=[0.0, 0.0],
+                end_mm=[3600.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=True,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_east_window",
+                start_mm=[3600.0, 0.0],
+                end_mm=[3600.0, 3200.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_south_door",
+                start_mm=[3600.0, 3200.0],
+                end_mm=[0.0, 3200.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=True,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_west_wardrobe",
+                start_mm=[0.0, 3200.0],
+                end_mm=[0.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+        ],
+        openings=[
+            DoorOpening(
+                id="door_kid_entry",
+                wall_id="wall_south_door",
+                wall_index=2,
+                t=0.25,
+                width_mm=800.0,
+                height_mm=2100.0,
+                door_type="hinged",
+            )
+        ],
+        windows=[
+            WindowOpening(
+                id="win_kid_study",
+                wall_id="wall_east_window",
+                wall_index=1,
+                t=0.5,
+                width_mm=1400.0,
+                height_mm=1200.0,
+                sill_height_mm=900.0,
+                window_type="sliding",
+                room_id="room_kid_bedroom",
+            )
+        ],
+        furniture_instances=[
+            FurnitureInstance(
+                id="furn_wardrobe_kid",
+                sku="WARD-KID-120-OAK",
+                name="Tủ Quần Áo Trẻ Em 2 Cánh Kịch Trần",
+                category="wardrobe",
+                room_id="room_kid_bedroom",
+                x_mm=600.0,
+                y_mm=400.0,
+                z_mm=0.0,
+                width_mm=1200.0,
+                depth_mm=600.0,
+                height_mm=2400.0,
+                rotation_deg=0.0,
+                color_hex="#8B5A2B",
+                price_vnd=8200000.0,
+                pascal_asset_id="wardrobe",
+                vendor="Gỗ An Cường / Atelier Custom (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_bunk_bed_kid",
+                sku="BED-BUNK-KID-200",
+                name="Giường Tầng Thông Minh Trẻ Em Có Cầu Thang Hộp",
+                category="bed",
+                room_id="room_kid_bedroom",
+                x_mm=2200.0,
+                y_mm=800.0,
+                z_mm=0.0,
+                width_mm=2000.0,
+                depth_mm=1200.0,
+                height_mm=1800.0,
+                rotation_deg=0.0,
+                color_hex="#E8E2D5",
+                price_vnd=16500000.0,
+                pascal_asset_id="bed-double",
+                vendor="Atelier Kids Joinery (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_study_desk_kid",
+                sku="DESK-STUDY-KID-160",
+                name="Bàn Học Đôi Kèm Giá Sách Liên Hoàn",
+                category="desk",
+                room_id="room_kid_bedroom",
+                x_mm=2500.0,
+                y_mm=2400.0,
+                z_mm=0.0,
+                width_mm=1600.0,
+                depth_mm=600.0,
+                height_mm=1600.0,
+                rotation_deg=180.0,
+                color_hex="#C8A986",
+                price_vnd=5800000.0,
+                pascal_asset_id="study-desk",
+                vendor="Atelier Joinery (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_study_chair_kid",
+                sku="CHAIR-ERGO-KID-01",
+                name="Ghế Ngồi Học Chống Gù Ergonomic",
+                category="chair",
+                room_id="room_kid_bedroom",
+                x_mm=2500.0,
+                y_mm=2800.0,
+                z_mm=0.0,
+                width_mm=500.0,
+                depth_mm=500.0,
+                height_mm=850.0,
+                rotation_deg=0.0,
+                color_hex="#5B92E5",
+                price_vnd=1950000.0,
+                pascal_asset_id="desk-chair",
+                vendor="Hòa Phát Ergonomics (Minh họa)",
+            ),
+        ],
+        design_brief=DesignBrief(
+            style="Hiện đại & Tối giản trẻ em",
+            room_function="Phòng ngủ và góc học tập cho 2 bé",
+            color_palette=["#F5F2EB", "#C8A986", "#5B92E5", "#8B5A2B"],
+            liked_elements=["Gỗ chống ẩm", "Màu óc chó ấm cúng", "Góc học tập đủ sáng", "Cầu thang hộp an toàn"],
+            disliked_elements=["Góc nhọn nguy hiểm", "Vật liệu dễ bám bẩn"],
+            budget_limit_vnd=70000000.0,
+            occupants="2 bé (7 tuổi và 10 tuổi)",
+            must_have_constraints=["Lối đi thông thủy >= 750mm", "Vật liệu an toàn thân thiện trẻ em E1"],
+            approved_decisions=[
+                "Xác nhận kích thước phòng ngủ trẻ em 3600×3200mm",
+                "Bố trí giường tầng dọc tường Bắc, tủ quần áo 1.2m góc Tây Bắc",
+                "Bàn học đôi cạnh cửa sổ đón ánh sáng tự nhiên",
             ],
         ),
         approval_state="APPROVED",
@@ -1058,6 +1296,26 @@ def init_db() -> None:
             ON atelier_rooms(native_project_id, position, created_at);
         CREATE INDEX IF NOT EXISTS atelier_scene_links_project_idx
             ON atelier_scene_links(native_project_id, room_id, archived);
+
+        CREATE TABLE IF NOT EXISTS unified_boq_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            selected_option_id TEXT,
+            material_spec_json TEXT,
+            selected_quote_id TEXT,
+            custom_quote_json TEXT,
+            approval_state TEXT NOT NULL DEFAULT 'PROPOSED',
+            approved_by TEXT,
+            approved_at TEXT,
+            decision_version TEXT DEFAULT '1.0',
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, item_id)
+        );
+        CREATE INDEX IF NOT EXISTS unified_boq_decisions_proj_idx
+            ON unified_boq_decisions(project_id, item_id);
         """
     )
 
@@ -1150,6 +1408,50 @@ def init_db() -> None:
                     "(nằm trọn vẹn trong khoảng ngân sách dự kiến 75 - 120 triệu VNĐ)."
                 ),
                 json.dumps(b_welcome_meta, ensure_ascii=False),
+                now_iso(),
+            ),
+        )
+
+    # Seed Kid Bedroom Project if missing (FEAT-2026-033)
+    row_kid = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_kid_bedroom",)).fetchone()
+    if not row_kid:
+        kid_proj = build_kid_bedroom_project()
+        k_payload = kid_proj.model_dump_json()
+        cur.execute(
+            "INSERT INTO projects (project_id, name, revision, payload_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (kid_proj.project_id, kid_proj.name, kid_proj.revision, k_payload, kid_proj.updated_at),
+        )
+        cur.execute(
+            "INSERT INTO scene_revisions (project_id, revision, author, reason, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (kid_proj.project_id, 1, "System Seed", "Khởi tạo dự án Phòng Ngủ Trẻ Em 3.6×3.2m giường tầng & tủ áo", k_payload, kid_proj.updated_at),
+        )
+        k_welcome_meta = {
+            "agent_id": "agent_chief_architect",
+            "highlights": [
+                "Phòng ngủ trẻ em 3.6m × 3.2m (11.52 m²), trần cao 2.7m, tỷ lệ đã xác nhận.",
+                "Hệ giường tầng thông minh tích hợp cầu thang hộp lưu trữ, tủ áo kịch trần 1.2m.",
+                "Bàn học đôi liền giá sách cạnh cửa sổ đón sáng tự nhiên.",
+                f"Tổng dự toán hoàn thiện: {kid_proj.estimate_snapshot.total_vnd:,.0f} VNĐ (Trong ngân sách 70,000,000 VNĐ).",
+            ],
+            "suggested_prompts": [
+                "Materials AI hãy đề xuất vật liệu gỗ ván phù hợp cho tủ quần áo và bàn học trẻ em",
+                "Shopping AI tra cứu báo giá các nhà cung cấp uy tín tại Việt Nam cho tủ quần áo MDF chống ẩm",
+                "Cost AI tính toán bóc tách dự toán chi tiết từng hạng mục tủ, giường và nhân công",
+            ],
+        }
+        cur.execute(
+            "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "msg_welcome_kid_01",
+                kid_proj.project_id,
+                "assistant",
+                "Kiến Trúc Sư Trưởng (Chief Architect)",
+                (
+                    "Xin chào! Tôi là **Kiến Trúc Sư Trưởng AI** phụ trách dự án **Phòng Ngủ Trẻ Em (3.6m × 3.2m)**. "
+                    "Không gian phòng ngủ và góc học tập của 2 bé đã được thiết lập với đầy đủ hệ tủ áo, giường tầng thông minh và bàn học đôi.\n\n"
+                    "Materials AI và Shopping AI đã sẵn sàng đề xuất giải pháp vật liệu gỗ ván an toàn và tìm kiếm báo giá thực tế."
+                ),
+                json.dumps(k_welcome_meta, ensure_ascii=False),
                 now_iso(),
             ),
         )
@@ -1614,3 +1916,75 @@ def restore_project_revision(project_id: str, target_revision: int) -> Optional[
     )
     restored.revision = latest_rev
     return save_project(restored, author="Undo/Restore", reason=f"Khôi phục về phiên bản #{target_revision}", bump_revision=True)
+
+
+# ============================================================================
+# UNIFIED BOQ PERSISTENCE (FEAT-2026-033)
+# ============================================================================
+def save_boq_decision_db(
+    project_id: str,
+    item_id: str,
+    selected_option_id: Optional[str] = None,
+    material_spec_json: Optional[str] = None,
+    selected_quote_id: Optional[str] = None,
+    custom_quote_json: Optional[str] = None,
+    approval_state: str = "USER_APPROVED",
+    approved_by: str = "Chủ Project",
+    notes: Optional[str] = None,
+) -> Dict[str, Any]:
+    conn = get_conn()
+    now = now_iso()
+    decision_id = f"dec_{project_id}_{item_id}"
+    conn.execute(
+        """
+        INSERT INTO unified_boq_decisions (
+            id, project_id, item_id, selected_option_id, material_spec_json,
+            selected_quote_id, custom_quote_json, approval_state, approved_by,
+            approved_at, decision_version, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, item_id) DO UPDATE SET
+            selected_option_id = excluded.selected_option_id,
+            material_spec_json = excluded.material_spec_json,
+            selected_quote_id = excluded.selected_quote_id,
+            custom_quote_json = excluded.custom_quote_json,
+            approval_state = excluded.approval_state,
+            approved_by = excluded.approved_by,
+            approved_at = excluded.approved_at,
+            notes = excluded.notes,
+            updated_at = excluded.updated_at
+        """,
+        (
+            decision_id,
+            project_id,
+            item_id,
+            selected_option_id,
+            material_spec_json,
+            selected_quote_id,
+            custom_quote_json,
+            approval_state,
+            approved_by,
+            now,
+            "1.0",
+            notes or "",
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM unified_boq_decisions WHERE project_id = ? AND item_id = ?",
+        (project_id, item_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_all_boq_decisions_db(project_id: str) -> Dict[str, Dict[str, Any]]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM unified_boq_decisions WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return {row["item_id"]: dict(row) for row in rows}
+
