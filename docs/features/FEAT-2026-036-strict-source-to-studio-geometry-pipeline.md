@@ -208,6 +208,9 @@ revision 5 passes M1-M6.
 |---|---|---|---|
 | 2026-11-13T19:00:00+07:00 | ce745117 | Contract frozen | No implementation files changed by this contract yet |
 | 2026-11-13T19:20:00+07:00 | M1 commit (this revision) | Strict identity, measurement evidence, legacy flags and dimension-chain gate | No database rows or scene revisions changed |
+| 2026-11-14T00:12:00+07:00 | bd855bb | CR-002 frozen; semantic furniture fallbacks implemented in Studio, Pascal and Blender | Existing dirty worktree preserved; no task/project created |
+| 2026-11-14T00:28:00+07:00 | ca0f333 | CR-004 frozen; source-plan revision script applied | `proj_bedroom_japandi_4x4m` revision 2 preserved; revision 3 created with source SHA provenance |
+| 2026-11-14T00:36:00+07:00 | 95c2db7 + working tree | CR-005 frozen; bed/wardrobe material parts separated and Cycles render regenerated | Canonical geometry and revision unchanged after material pass |
 
 ## 13. Verification evidence
 
@@ -216,6 +219,9 @@ revision 5 passes M1-M6.
 | 2026-11-13T19:18:00+07:00 | M1 working tree | Focused strict contract tests | PASS | `7 passed in 3.91s` |
 | 2026-11-13T19:20:00+07:00 | M1 working tree | Strict + Pascal + smart-fit + project compatibility suite | PASS | `21 passed in 10.25s` |
 | 2026-11-13T19:20:00+07:00 | M1 working tree | Python compile, Node syntax, diff check | PASS | No syntax or whitespace errors; line-ending warnings only |
+| 2026-11-14T00:34:00+07:00 | 95c2db7 + working tree | Blender/Pascal semantic geometry tests | PASS | `8 passed`; Python compile, Node syntax and Paperclip UI production build passed |
+| 2026-11-14T00:24:51+07:00 | Scene revision 3 | Blender Cycles render and scene verification | PASS | Job `rjob_85f541c115`; 1280x960, 96 samples, CUDA GTX 1650; exact counts and all transforms/dimensions within 2 mm; SHA-256 `74ef479ba5dfc6068d99b474aa7dea16634f4bf4934c962aa163b9be397ddf39` |
+| 2026-11-14T00:50:00+07:00 | Scene revision 3 | Paperclip reload/UI persistence | PASS | Paperclip 3100 healthy; Studio selected `Phòng Ngủ Master Japandi (4.19m x 4.04m) (Rev #3)`, `Pascal SceneGraph: VALID`, 9 furniture items |
 
 ## 14. Kết quả và đóng chức năng
 

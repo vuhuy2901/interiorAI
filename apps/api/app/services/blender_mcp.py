@@ -403,11 +403,19 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
             "hide_ceiling": False,
         }
     if cam_key == "corner":
+        max_span = max(span_x, span_y)
         return {
             "camera_id": "corner",
-            "eye_m": [round(max_x - span_x * 0.10, 3), round(min_y + span_y * 0.10, 3), 1.68],
-            "target_m": [round(sofa_x, 3), round(sofa_y, 3), 0.72],
-            "lens_mm": 26.0,
+            # Stay outside the room envelope while filling the frame. The
+            # earlier 0.75-span offset made compact rooms look like tiny
+            # dollhouses surrounded by the HDRI background.
+            "eye_m": [
+                round(min_x - span_x * 0.45, 3),
+                round(min_y - span_y * 0.45, 3),
+                round(max(3.3, max_span * 0.80), 3),
+            ],
+            "target_m": [round(cx, 3), round(cy, 3), 0.78],
+            "lens_mm": 32.0,
             "hide_ceiling": False,
         }
     if cam_key == "wide":
@@ -418,7 +426,23 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
             "lens_mm": 22.0,
             "hide_ceiling": False,
         }
+    if cam_key == "door":
+        return {
+            "camera_id": "door",
+            "eye_m": [round(min_x + 0.42, 3), round(max_y - 0.52, 3), 1.48],
+            "target_m": [round(cx + 0.18, 3), round(min_y + span_y * 0.34, 3), 0.92],
+            "lens_mm": 25.0,
+            "hide_ceiling": False,
+        }
     if cam_key in {"detail", "detail_sofa"}:
+        if sofa and sofa.category.lower() in {"bunk_bed", "bunkbed"}:
+            return {
+                "camera_id": cam_key,
+                "eye_m": [round(sofa_x, 3), round(min(max_y - 0.85, sofa_y + 1.85), 3), 2.05],
+                "target_m": [round(sofa_x, 3), round(sofa_y, 3), 0.92],
+                "lens_mm": 27.0,
+                "hide_ceiling": False,
+            }
         # Position 2.1m in front of the sofa looking directly at the sofa and floor tile
         dx = cx - sofa_x
         dy = cy - sofa_y
@@ -437,9 +461,13 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
         max_span = max(span_x, span_y)
         return {
             "camera_id": "top",
-            "eye_m": [round(cx, 3), round(cy - 0.01, 3), round(max_span * 1.35, 3)],
+            "eye_m": [round(cx, 3), round(cy - 0.01, 3), round(max_span * 1.6, 3)],
             "target_m": [round(cx, 3), round(cy, 3), 0.0],
             "lens_mm": 32.0,
+            "projection": "ORTHO",
+            # Blender's ortho_scale is the horizontal scale. A landscape
+            # render therefore needs extra width to retain the full room depth.
+            "ortho_scale": round(max_span * 2.0, 3),
             "hide_ceiling": True,
         }
     return {
@@ -463,6 +491,7 @@ def build_scene_bridge_manifest(
     """
     material_hash = compute_project_material_hash(project)
     registry_defs = {m.material_id: m.model_dump() for m in list_materials()}
+    presentation_mode = "trẻ em" in project.design_brief.style.lower()
 
     # Resolve floor surface material override if present
     floor_override_resolved: Optional[Dict[str, Any]] = None
@@ -477,8 +506,16 @@ def build_scene_bridge_manifest(
         if m_def:
             floor_override_resolved = resolve_material(MaterialOverride(material_id=m_id, material_version=m_def.version))
 
-    # Prepare tile texture pair if floor uses physical tile scale with grout
+    # Prepare tile texture pair if floor uses physical tile scale with grout.
+    # Some legacy projects carry a descriptive material alias that predates the
+    # registry ID; keep the visible material family instead of silently turning
+    # an oak floor into generic 600 mm tile.
     tile_textures: Dict[str, str] = {}
+    floor_material_hint = (
+        project.rooms[0].floor_material_id.lower()
+        if project.rooms and project.rooms[0].floor_material_id
+        else ""
+    )
     if out_dir is not None:
         if floor_override_resolved and floor_override_resolved.get("kind") == "tile":
             ps = floor_override_resolved.get("physical_scale") or {}
@@ -496,6 +533,22 @@ def build_scene_bridge_manifest(
                 "grout_width_mm": gw,
                 "tint": t_hex,
                 "grout_color": g_hex,
+            }
+        elif (
+            floor_override_resolved and floor_override_resolved.get("kind") == "wood"
+        ) or any(token in floor_material_hint for token in ("wood", "oak", "go_", "go-")):
+            # A light straight-plank pattern reads as timber in presentation renders
+            # while keeping the existing deterministic texture generator.
+            wood_tint = str((floor_override_resolved or {}).get("tint") or "#DDBB86")
+            d_path, b_path = _generate_tile_texture_pair(out_dir, 1200.0, 180.0, 1.0, wood_tint, "#B98F61")
+            tile_textures = {
+                "diffuse_path": str(d_path.resolve()),
+                "bump_path": str(b_path.resolve()),
+                "width_mm": 1200.0,
+                "height_mm": 180.0,
+                "grout_width_mm": 1.0,
+                "tint": wood_tint,
+                "grout_color": "#B98F61",
             }
         else:
             # Default room tile grid (600x600 or wood plank)
@@ -618,11 +671,11 @@ def build_scene_bridge_manifest(
     else:
         lighting_spec = {
             "time_of_day": "day",
-            "world_strength": 1.15,
-            "sun_energy": 4.5,
+            "world_strength": 0.85 if presentation_mode else 1.15,
+            "sun_energy": 3.2 if presentation_mode else 4.5,
             "sun_color": [1.0, 0.97, 0.92],
             "sun_elevation_deg": 42.0,
-            "interior_light_energy": 95.0,
+            "interior_light_energy": 360.0 if presentation_mode else 95.0,
             "interior_light_color": [1.0, 0.96, 0.90],
         }
 
@@ -652,6 +705,8 @@ def build_scene_bridge_manifest(
         "camera": camera_spec,
         "lights": lighting_spec,
         "environment": hdri_info,
+        "presentation_palette": list(project.design_brief.color_palette),
+        "presentation_mode": presentation_mode,
     }
 
 
@@ -689,6 +744,8 @@ seed = int(args[8]) if len(args) > 8 else 1234
 
 with open(manifest_path, "r", encoding="utf-8") as f:
     manifest = json.load(f)
+
+presentation_palette = manifest.get("presentation_palette") or ["#FFF1DC", "#DDEBFF", "#69B7A9", "#EF70A1"]
 
 # 1. Reset factory scene completely
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -763,7 +820,13 @@ if tile_tex.get("diffuse_path") and os.path.isfile(tile_tex["diffuse_path"]):
         nt.links.new(bump_img_node.outputs["Color"], bump_node.inputs["Height"])
         nt.links.new(bump_node.outputs["Normal"], bsdf.inputs["Normal"])
 
-wall_mat = create_principled_material("MAT_SURFACE_WALL", hex_color="#F2EFE9", roughness=0.72, metallic=0.0)
+wall_mat = create_principled_material("MAT_SURFACE_WALL", hex_color=presentation_palette[0], roughness=0.72, metallic=0.0)
+accent_wall_mat = create_principled_material(
+    "MAT_SURFACE_WALL_ACCENT",
+    hex_color=presentation_palette[1] if len(presentation_palette) > 1 else "#DDEBFF",
+    roughness=0.68,
+    metallic=0.0,
+)
 ceiling_mat = create_principled_material("MAT_SURFACE_CEILING", hex_color="#FAF8F5", roughness=0.85, metallic=0.0)
 door_frame_mat = create_principled_material("MAT_DOOR_WOOD", hex_color="#B8926A", roughness=0.45, metallic=0.0, coat=0.12)
 win_frame_mat = create_principled_material("MAT_WINDOW_FRAME", hex_color="#2C3038", roughness=0.35, metallic=0.6)
@@ -847,7 +910,7 @@ for w in walls:
     w_obj.name = f"WALL_{w['id']}"
     w_obj.scale = (length, th, h)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    w_obj.data.materials.append(wall_mat)
+    w_obj.data.materials.append(accent_wall_mat if w.get("is_accent_wall") else wall_mat)
 
     # Cut openings for doors & windows on this wall
     wall_openings = [d for d in openings if d.get("wall_id") == w["id"]]
@@ -879,7 +942,7 @@ for w in walls:
         eye_vec = Vector((cam_eye.x - cam_target.x, cam_eye.y - cam_target.y))
         if eye_vec.length > 0.1 and wall_vec.length > 0.1:
             # If wall midpoint is on the camera side of room center and close to camera ray
-            if wall_vec.dot(eye_vec.normalized()) > eye_vec.length * 0.55:
+            if wall_vec.dot(eye_vec.normalized()) > 0.15:
                 w_obj.visible_camera = False
 
     created_walls.append(w_obj)
@@ -1008,18 +1071,149 @@ for f in manifest.get("furniture_assets", []):
         imported_from_glb = len(mesh_children) > 0
 
     if not mesh_children:
-        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, target_h / 2.0))
-        box_obj = bpy.context.active_object
-        box_obj.name = f"MESH_{fid}"
-        box_obj.scale = (target_w, target_d, target_h)
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-        bev = box_obj.modifiers.new("Bevel", 'BEVEL')
-        bev.width = 0.015
-        bev.segments = 2
-        bpy.ops.object.modifier_apply(modifier=bev.name)
-        f_mat = create_principled_material(f"MAT_{fid}", hex_color=f.get("color_hex", "#D8D0C5"), roughness=0.6)
-        box_obj.data.materials.append(f_mat)
-        mesh_children = [box_obj]
+        category = str(f.get("category") or "furniture").lower()
+        item_color = f.get("color_hex", "#D8D0C5")
+        f_mat = create_principled_material(f"MAT_{fid}", hex_color=item_color, roughness=0.6)
+        # Keep playful colors legible on geometry facing away from the sun without
+        # flattening the soft Cycles shadows used by the presentation pass.
+        f_bsdf = f_mat.node_tree.nodes.get("Principled BSDF")
+        if f_bsdf:
+            set_bsdf_input(f_bsdf, "Emission Color", hex_to_rgba(item_color, 1.0))
+            set_bsdf_input(f_bsdf, "Emission Strength", 0.12)
+
+        def add_fallback_box(name, width, depth, height, x=0.0, y=0.0, z=0.0, material=None):
+            bpy.ops.mesh.primitive_cube_add(size=1.0, location=(x, y, z + height / 2.0))
+            obj = bpy.context.active_object
+            obj.name = f"MESH_{fid}_{name}"
+            obj.scale = (width, depth, height)
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            bev = obj.modifiers.new("Bevel", 'BEVEL')
+            bev.width = min(0.012, width * 0.08, depth * 0.08, height * 0.08)
+            bev.segments = 2
+            bpy.ops.object.modifier_apply(modifier=bev.name)
+            obj.data.materials.append(material or f_mat)
+            mesh_children.append(obj)
+
+        def add_fallback_cylinder(name, width, depth, height, x=0.0, y=0.0, z=0.0, vertices=48, material=None):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=0.5, depth=1.0, location=(x, y, z + height / 2.0))
+            obj = bpy.context.active_object
+            obj.name = f"MESH_{fid}_{name}"
+            obj.scale = (width, depth, height)
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            obj.data.materials.append(material or f_mat)
+            mesh_children.append(obj)
+
+        def add_fallback_sphere(name, width, depth, height, x=0.0, y=0.0, z=0.0, material=None):
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=0.5, location=(x, y, z + height / 2.0))
+            obj = bpy.context.active_object
+            obj.name = f"MESH_{fid}_{name}"
+            obj.scale = (width, depth, height)
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+            obj.data.materials.append(material or f_mat)
+            mesh_children.append(obj)
+
+        if category in {"bed", "double_bed"}:
+            frame_mat = create_principled_material(f"MAT_{fid}_frame", hex_color="#C7B7A7", roughness=0.72)
+            linen_mat = create_principled_material(f"MAT_{fid}_linen", hex_color="#F3EEE6", roughness=0.82)
+            blanket_mat = create_principled_material(f"MAT_{fid}_blanket", hex_color="#A9B8A4", roughness=0.88)
+            frame_h = min(0.28, target_h * 0.30)
+            mattress_h = min(0.24, target_h * 0.26)
+            headboard_d = min(0.14, target_d * 0.09)
+            add_fallback_box("frame", target_w, target_d * 0.94, frame_h, 0.0, target_d * 0.02, 0.0, material=frame_mat)
+            add_fallback_box("mattress", target_w * 0.96, target_d * 0.86, mattress_h, 0.0, target_d * 0.06, frame_h, material=linen_mat)
+            add_fallback_box("headboard", target_w, headboard_d, target_h, 0.0, -target_d / 2 + headboard_d / 2, 0.0, material=frame_mat)
+            add_fallback_sphere("pillow_left", target_w * 0.38, target_d * 0.20, mattress_h * 0.55, -target_w * 0.23, -target_d * 0.27, frame_h + mattress_h, material=linen_mat)
+            add_fallback_sphere("pillow_right", target_w * 0.38, target_d * 0.20, mattress_h * 0.55, target_w * 0.23, -target_d * 0.27, frame_h + mattress_h, material=linen_mat)
+            add_fallback_box("blanket", target_w * 0.88, target_d * 0.42, 0.035, 0.0, target_d * 0.18, frame_h + mattress_h, material=blanket_mat)
+        elif category in {"nightstand", "bedside_table"}:
+            leg = min(0.045, target_w * 0.12, target_d * 0.12)
+            body_h = target_h * 0.66
+            body_bottom = target_h * 0.25
+            add_fallback_box("cabinet", target_w, target_d, body_h, 0.0, 0.0, body_bottom)
+            add_fallback_box("drawer_front", target_w * 0.88, min(0.025, target_d * 0.08), body_h * 0.42, 0.0, target_d / 2, body_bottom + body_h * 0.47)
+            for px in (-target_w / 2 + leg, target_w / 2 - leg):
+                for py in (-target_d / 2 + leg, target_d / 2 - leg):
+                    add_fallback_box("leg", leg, leg, body_bottom, px, py, 0.0)
+        elif category in {"rug", "round_rug", "rug_round"}:
+            add_fallback_cylinder("rug", target_w, target_d, target_h)
+        elif category in {"tv_cabinet", "tv_console"}:
+            shell = min(0.035, target_h * 0.16)
+            add_fallback_box("base", target_w, target_d, shell, 0.0, 0.0, 0.0)
+            add_fallback_box("top", target_w, target_d, shell, 0.0, 0.0, target_h - shell)
+            add_fallback_box("side_l", shell, target_d, target_h, -target_w / 2 + shell / 2, 0.0, 0.0)
+            add_fallback_box("side_r", shell, target_d, target_h, target_w / 2 - shell / 2, 0.0, 0.0)
+            add_fallback_box("divider", shell, target_d, target_h, 0.0, 0.0, 0.0)
+            add_fallback_box("door_l", target_w / 2 - shell * 2, shell, target_h - shell * 2, -target_w / 4, target_d / 2 - shell / 2, shell)
+            add_fallback_box("door_r", target_w / 2 - shell * 2, shell, target_h - shell * 2, target_w / 4, target_d / 2 - shell / 2, shell)
+        elif category in {"chair", "armchair", "desk_chair"}:
+            leg = min(0.055, target_w * 0.12, target_d * 0.12)
+            seat_z = min(target_h * 0.55, 0.46)
+            seat_h = min(0.10, target_h * 0.14)
+            add_fallback_box("seat", target_w * 0.86, target_d * 0.82, seat_h, 0.0, 0.0, seat_z - seat_h / 2)
+            add_fallback_box("back", target_w * 0.86, min(0.11, target_d * 0.20), target_h - seat_z, 0.0, -target_d * 0.36, seat_z)
+            for px in (-target_w * 0.34, target_w * 0.34):
+                for py in (-target_d * 0.32, target_d * 0.32):
+                    add_fallback_box("leg", leg, leg, seat_z, px, py, 0.0)
+        elif category in {"bunk_bed", "bunkbed"}:
+            post = min(0.08, target_w * 0.08, target_d * 0.08)
+            deck = min(0.10, target_h * 0.08)
+            for px in (-target_w / 2 + post / 2, target_w / 2 - post / 2):
+                for py in (-target_d / 2 + post / 2, target_d / 2 - post / 2):
+                    add_fallback_box("post", post, post, target_h, px, py, 0.0)
+            for index, deck_z in enumerate((0.40, min(1.40, target_h - deck))):
+                add_fallback_box(f"deck_{index}", target_w - post * 2, target_d - post * 2, deck, 0.0, 0.0, deck_z)
+            rail_z = min(target_h - post, 1.50)
+            add_fallback_box("guard", target_w - post * 2, post, post, 0.0, -target_d / 2 + post, rail_z)
+        elif category in {"desk", "study_desk"}:
+            top = min(0.06, target_h * 0.12)
+            leg = min(0.07, target_w * 0.12, target_d * 0.15)
+            add_fallback_box("top", target_w, target_d, top, 0.0, 0.0, target_h - top)
+            for px in (-target_w / 2 + leg, target_w / 2 - leg):
+                for py in (-target_d / 2 + leg, target_d / 2 - leg):
+                    add_fallback_box("leg", leg, leg, target_h - top, px, py, 0.0)
+        elif category == "wardrobe":
+            wardrobe_door_mat = create_principled_material(f"MAT_{fid}_doors", hex_color="#D4B58B", roughness=0.58)
+            panel = min(0.05, target_w * 0.08, target_d * 0.12)
+            add_fallback_box("base", target_w, target_d, panel, 0.0, 0.0, 0.0)
+            add_fallback_box("top", target_w, target_d, panel, 0.0, 0.0, target_h - panel)
+            add_fallback_box("side_l", panel, target_d, target_h, -target_w / 2 + panel / 2, 0.0, 0.0)
+            add_fallback_box("side_r", panel, target_d, target_h, target_w / 2 - panel / 2, 0.0, 0.0)
+            add_fallback_box("door_l", target_w / 2 - panel, panel, target_h - panel * 2, -target_w / 4, -target_d / 2 + panel / 2, panel, material=wardrobe_door_mat)
+            add_fallback_box("door_r", target_w / 2 - panel, panel, target_h - panel * 2, target_w / 4, -target_d / 2 + panel / 2, panel, material=wardrobe_door_mat)
+        elif category in {"bookshelf", "bookcase"}:
+            panel = min(0.045, target_w * 0.12, target_d * 0.12)
+            add_fallback_box("side_l", panel, target_d, target_h, -target_w / 2 + panel / 2, 0.0, 0.0)
+            add_fallback_box("side_r", panel, target_d, target_h, target_w / 2 - panel / 2, 0.0, 0.0)
+            for index in range(6):
+                z = ((target_h - panel) * index) / 5.0
+                add_fallback_box(f"shelf_{index}", target_w, target_d, panel, 0.0, 0.0, z)
+        elif category in {"stair", "staircase", "bunk_stair"}:
+            step_w = target_w / 8.0
+            for index in range(8):
+                step_h = target_h * (index + 1) / 8.0
+                px = -target_w / 2 + step_w * (index + 0.5)
+                add_fallback_box(f"step_{index + 1}", step_w, target_d, step_h, px, 0.0, 0.0)
+        elif category in {"round_rug", "rug_round"}:
+            add_fallback_cylinder("rug", target_w, target_d, target_h)
+        elif category == "pillow":
+            add_fallback_sphere("cushion", target_w, target_d, target_h)
+        elif category == "plant":
+            add_fallback_cylinder("pot", target_w * 0.45, target_d * 0.45, target_h * 0.32)
+            add_fallback_cylinder("stem", target_w * 0.10, target_d * 0.10, target_h * 0.48, z=target_h * 0.26, vertices=20)
+            add_fallback_sphere("leaves", target_w, target_d, target_h * 0.58, z=target_h * 0.42)
+        elif category in {"table_lamp", "lamp"}:
+            add_fallback_cylinder("base", target_w * 0.62, target_d * 0.62, target_h * 0.10)
+            add_fallback_cylinder("stem", target_w * 0.12, target_d * 0.12, target_h * 0.58, z=target_h * 0.08, vertices=24)
+            bpy.ops.mesh.primitive_cone_add(vertices=48, radius1=target_w * 0.34, radius2=target_w * 0.18, depth=target_h * 0.34, location=(0.0, 0.0, target_h * 0.78))
+            shade = bpy.context.active_object
+            shade.name = f"MESH_{fid}_shade"
+            shade.data.materials.append(f_mat)
+            mesh_children.append(shade)
+        elif category == "book_stack":
+            for index, book_color_shift in enumerate((0.0, 0.02, -0.015, 0.01)):
+                add_fallback_box(f"book_{index}", target_w * (0.82 + abs(book_color_shift)), target_d, target_h / 4.4, book_color_shift, 0.0, index * target_h / 4.2)
+        else:
+            add_fallback_box("body", target_w, target_d, target_h)
 
     # Normalize combined vertex bounds of mesh_children to exact (target_w, target_d, target_h)
     all_xs, all_ys, all_zs = [], [], []
@@ -1144,10 +1338,25 @@ scene.world = world
 world.use_nodes = True
 w_nt = world.node_tree
 w_bg = w_nt.nodes.get("Background")
-if env_spec.get("hdri_available") and env_spec.get("hdri_path") and os.path.isfile(env_spec["hdri_path"]):
+if not manifest.get("presentation_mode") and env_spec.get("hdri_available") and env_spec.get("hdri_path") and os.path.isfile(env_spec["hdri_path"]):
     env_tex = w_nt.nodes.new("ShaderNodeTexEnvironment")
     env_tex.image = bpy.data.images.load(env_spec["hdri_path"])
     w_nt.links.new(env_tex.outputs["Color"], w_bg.inputs["Color"])
+    # Preserve HDRI lighting/reflections but keep the camera background clean.
+    # This avoids a floating dollhouse over an unrelated studio photograph.
+    world_out = w_nt.nodes.get("World Output")
+    camera_bg = w_nt.nodes.new("ShaderNodeBackground")
+    camera_bg.inputs["Color"].default_value = (0.055, 0.062, 0.072, 1.0)
+    camera_bg.inputs["Strength"].default_value = 0.28
+    light_path = w_nt.nodes.new("ShaderNodeLightPath")
+    camera_mix = w_nt.nodes.new("ShaderNodeMixShader")
+    for link in list(w_nt.links):
+        if link.to_node == world_out and link.to_socket == world_out.inputs["Surface"]:
+            w_nt.links.remove(link)
+    w_nt.links.new(light_path.outputs["Is Camera Ray"], camera_mix.inputs[0])
+    w_nt.links.new(w_bg.outputs["Background"], camera_mix.inputs[1])
+    w_nt.links.new(camera_bg.outputs["Background"], camera_mix.inputs[2])
+    w_nt.links.new(camera_mix.outputs["Shader"], world_out.inputs["Surface"])
 else:
     w_bg.inputs["Color"].default_value = (0.85, 0.88, 0.94, 1.0)
 w_bg.inputs["Strength"].default_value = float(light_spec.get("world_strength", 1.0))
@@ -1173,9 +1382,23 @@ area_obj = bpy.data.objects.new(name="AREA_CEILING_FILL", object_data=area_data)
 area_obj.location = (cam_target.x, cam_target.y, 2.62)
 scene.collection.objects.link(area_obj)
 
+if manifest.get("presentation_mode"):
+    fill_data = bpy.data.lights.new(name="AREA_CAMERA_FILL", type='AREA')
+    fill_data.energy = 110.0 if cam_spec.get("camera_id") in {"door", "detail", "detail_sofa"} else 260.0
+    fill_data.color = (0.78, 0.88, 1.0)
+    fill_data.size = 3.0
+    fill_obj = bpy.data.objects.new(name="AREA_CAMERA_FILL", object_data=fill_data)
+    fill_obj.location = cam_eye
+    fill_direction = cam_target - cam_eye
+    fill_obj.rotation_euler = fill_direction.to_track_quat('-Z', 'Y').to_euler()
+    scene.collection.objects.link(fill_obj)
+
 # 6. Setup Camera
 cam_data = bpy.data.cameras.new(name=f"CAM_{cam_spec['camera_id']}")
 cam_data.lens = float(cam_spec.get("lens_mm", 28.0))
+if cam_spec.get("projection") == "ORTHO":
+    cam_data.type = 'ORTHO'
+    cam_data.ortho_scale = float(cam_spec.get("ortho_scale", 5.0))
 cam_data.clip_start = 0.05
 cam_data.clip_end = 100.0
 cam_obj = bpy.data.objects.new(name=f"CAM_{cam_spec['camera_id']}", object_data=cam_data)
@@ -1197,6 +1420,8 @@ scene.cycles.use_adaptive_sampling = True
 scene.cycles.adaptive_threshold = 0.04 if render_mode == "preview" else 0.015
 scene.cycles.use_denoising = True
 scene.view_settings.view_transform = 'AgX' if 'AgX' in ['Standard', 'AgX', 'Filmic'] else 'Filmic'
+if manifest.get("presentation_mode") and cam_spec.get("camera_id") in {"door", "detail", "detail_sofa"}:
+    scene.view_settings.exposure = -0.65
 
 # Try enabling CUDA GPU first, fallback cleanly to CPU
 compute_device_used = "CPU"
