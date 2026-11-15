@@ -280,6 +280,7 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
 
     # 5. Furniture Instances
     for furn in project.furniture_instances:
+        has_price = furn.price_vnd is not None and furn.price_vnd > 0
         lines.append(EstimateLineItem(
             id=f"line_furn_{furn.id}",
             category="furniture",
@@ -293,8 +294,14 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
             package_unit="bộ",
             unit_price_vnd=furn.price_vnd,
             subtotal_vnd=furn.price_vnd,
-            formula_explanation=f"1 bộ × {furn.price_vnd:,.0f} đ (Đơn giá catalog minh họa)",
-            source_url=furn.source_url or "https://baya.vn (Giá minh họa)",
+            price_status="provided_unverified" if has_price else "unknown",
+            formula_explanation=(
+                f"1 bộ × {furn.price_vnd:,.0f} đ (Đơn giá catalog chưa xác minh)"
+                if has_price else
+                "Chưa có đơn giá; mục này không được cộng vào tổng tạm tính, không phải là đồ miễn phí."
+            ),
+            source_label="GIÁ CHƯA XÁC MINH" if has_price else "CHƯA CÓ GIÁ",
+            source_url=furn.source_url,
         ))
 
     materials_sub = sum(
@@ -308,6 +315,29 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
     tax_vnd = round(pre_tax * tax_rate)
     total_vnd = round(pre_tax + tax_vnd)
     budget_limit = project.design_brief.budget_limit_vnd or 120000000.0
+    unpriced_item_ids = [
+        line.id.removeprefix("line_furn_")
+        for line in lines
+        if line.price_status == "unknown"
+    ]
+    priced_line_count = len(lines) - len(unpriced_item_ids)
+    total_is_complete = not unpriced_item_ids
+    price_coverage_percent = round((priced_line_count / len(lines)) * 100, 1) if lines else 100.0
+    budget_status = (
+        "incomplete" if not total_is_complete
+        else "within_budget" if total_vnd <= budget_limit
+        else "over_budget"
+    )
+    disclaimer = (
+        "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định "
+        "(Deterministic Cost Engine), không dùng LLM tự đoán giá."
+    )
+    if not total_is_complete:
+        disclaimer += (
+            f" Tổng tạm tính chưa bao gồm {len(unpriced_item_ids)} hạng mục chưa có giá: "
+            + ", ".join(unpriced_item_ids)
+            + "."
+        )
 
     return CostEstimateSnapshot(
         snapshot_id=f"est_{uuid.uuid4().hex[:10]}",
@@ -324,6 +354,13 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
         tax_rate=tax_rate,
         tax_vnd=tax_vnd,
         total_vnd=total_vnd,
+        priced_line_count=priced_line_count,
+        unpriced_line_count=len(unpriced_item_ids),
+        unpriced_item_ids=unpriced_item_ids,
+        price_coverage_percent=price_coverage_percent,
+        total_is_complete=total_is_complete,
+        budget_status=budget_status,
         budget_limit_vnd=budget_limit,
         within_budget=total_vnd <= budget_limit,
+        disclaimer=disclaimer,
     )

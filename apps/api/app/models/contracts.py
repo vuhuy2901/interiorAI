@@ -293,6 +293,7 @@ class EstimateLineItem(BaseModel):
     package_unit: Optional[str] = None
     unit_price_vnd: float
     subtotal_vnd: float
+    price_status: Literal["verified", "illustrative", "provided_unverified", "unknown"] = "illustrative"
     formula_explanation: str
     source_label: str = "GIÁ MINH HỌA"
     source_url: Optional[str] = None
@@ -314,6 +315,12 @@ class CostEstimateSnapshot(BaseModel):
     tax_rate: float = 0.08
     tax_vnd: float = 0.0
     total_vnd: float = 0.0
+    priced_line_count: int = 0
+    unpriced_line_count: int = 0
+    unpriced_item_ids: List[str] = Field(default_factory=list)
+    price_coverage_percent: float = 100.0
+    total_is_complete: bool = True
+    budget_status: Literal["within_budget", "over_budget", "incomplete"] = "within_budget"
     budget_limit_vnd: float = 120000000.0
     within_budget: bool = True
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."

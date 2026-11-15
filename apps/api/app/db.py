@@ -37,6 +37,30 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+LEGACY_MCP_TOOL_REPLACEMENTS: Dict[str, List[str]] = {
+    "get_scene_info": ["get_scene"],
+    "list_nodes_by_type": ["find_by_type"],
+    "create_building": ["place_building"],
+    "update_node": ["move_node"],
+    "delete_nodes": ["delete_node"],
+    "move_items": ["move_node"],
+    "swap_item": ["search_assets", "delete_node", "place_items"],
+    "set_zone_material": ["paint"],
+    "apply_preset_material": ["paint"],
+}
+
+
+def normalize_mcp_tool_allowlist(tool_names: List[str]) -> List[str]:
+    """Replace known legacy Pascal tool names without dropping custom tools."""
+    normalized: List[str] = []
+    for name in tool_names:
+        replacements = LEGACY_MCP_TOOL_REPLACEMENTS.get(name, [name])
+        for replacement in replacements:
+            if replacement not in normalized:
+                normalized.append(replacement)
+    return normalized
+
+
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)

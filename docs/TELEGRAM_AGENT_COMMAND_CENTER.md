@@ -44,7 +44,7 @@ flowchart TD
 3. **Đồng bộ hai chiều (Two-Way Sync)**: Khi người dùng **Reply** tin nhắn trên Telegram, nội dung phản hồi tự động được ghi nhận thành bình luận trong Task tương ứng trên Paperclip.
 4. **Phê duyệt phương án bằng Inline Keyboard**: Đề xuất thiết kế và tác động ngân sách gửi về Telegram đi kèm 3 nút bấm tương tác: `[✅ Phê duyệt]`, `[❌ Từ chối]`, `[✏️ Yêu cầu sửa]`.
 5. **Zero Docker, Zero Redis, Zero RabbitMQ**: Chạy ngầm trong tiến trình Node.js của Paperclip với mức tiêu thụ RAM bổ sung `< 15 MB`.
-6. **Bảo mật tuyệt đối**: Token được che giấu (`••••••••`), chỉ cho phép các tài khoản đã ghép nối bằng mã 6 ký tự hoặc nằm trong Whitelist sử dụng Bot.
+6. **Bảo mật cục bộ**: Token được che giấu (`••••••••`) trên giao diện và lưu trong tệp cấu hình local đã được Git bỏ qua. Chỉ Chat ID, tài khoản đã ghép nối hoặc tài khoản nằm trong Whitelist được sử dụng Bot.
 
 ---
 
@@ -82,16 +82,23 @@ flowchart TD
    report - Báo cáo tổng hợp không gian và dự toán
    help - Hướng dẫn sử dụng chi tiết
    ```
-7. Mở trình duyệt tại máy tính: truy cập `http://127.0.0.1:3100/settings/telegram`.
-8. Dán Bot Token vào ô **Telegram Bot Token** và bấm **Lưu Cấu Hình & Cập Nhật Poller**.
+7. Mở trình duyệt tại máy tính: truy cập `http://127.0.0.1:3100/ATL/settings/telegram`. Đường dẫn rút gọn `http://127.0.0.1:3100/settings/telegram` cũng sẽ tự chuyển tới tổ chức đang chọn.
+8. Dán Bot Token vào ô **Telegram Bot Token**.
+9. Nhập **Telegram Chat ID nhận báo cáo và giao việc**. Với chat cá nhân, Chat ID thường chính là User ID; Chat ID của nhóm thường là một số âm.
+10. Bấm **Gửi thử tới Chat ID** để kiểm tra Token và Chat ID, sau đó bấm **Lưu Cấu Hình & Cập Nhật Poller**.
+11. Gửi `/help` hoặc một yêu cầu tự nhiên vào bot. Task được tạo trong Paperclip, gán cho Agent phù hợp và Agent được đánh thức để bắt đầu xử lý.
+
+> Không gửi Bot Token vào chat hỗ trợ hoặc commit vào Git. Hãy nhập trực tiếp trên trang cài đặt local.
 
 ---
 
 ## 3. CƠ CHẾ BẢO MẬT & GHÉP NỐI TÀI KHOẢN (PAIRING CODE)
 
+Nếu chỉ dùng một chat cá nhân hoặc một nhóm cố định, bạn có thể nhập thẳng Chat ID ở phần cấu hình và không cần pairing. Pairing Code phù hợp khi muốn cấp quyền thêm cho nhiều người dùng mà không sửa cấu hình Chat ID.
+
 Để ngăn chặn người lạ giao việc hoặc xem dự án của bạn:
 1. Mọi tài khoản Telegram lần đầu nhắn tin cho Bot đều nhận thông báo yêu cầu xác thực.
-2. Tại web `http://127.0.0.1:3100/settings/telegram`, bấm nút **Tạo Mã Ghép Nối Mới**.
+2. Tại web `http://127.0.0.1:3100/ATL/settings/telegram`, bấm nút **Tạo Mã Ghép Nối Mới**.
 3. Hệ thống sinh ra một mã xác thực 6 ký tự (VD: `ATL-8472`), có hiệu lực trong 15 phút.
 4. Trên điện thoại/máy tính, gửi tin nhắn cho Bot:
    ```text

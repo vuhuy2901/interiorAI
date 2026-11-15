@@ -12,18 +12,13 @@ import math
 from typing import Any, Dict, List, Tuple
 
 from app.models.contracts import CanonicalProject, FurnitureInstance
+from app.services.smart_fit import oriented_corners, polygons_overlap_sat
 
 
 def get_oriented_bbox_mm(furn: FurnitureInstance) -> Tuple[float, float, float, float]:
-    """Returns (min_x, min_y, max_x, max_y) in mm accounting for 90/270 degree rotations."""
-    rot = int(round(furn.rotation_deg)) % 360
-    if rot in (90, 270):
-        w, d = furn.depth_mm, furn.width_mm
-    else:
-        w, d = furn.width_mm, furn.depth_mm
-    half_w = w / 2.0
-    half_d = d / 2.0
-    return (furn.x_mm - half_w, furn.y_mm - half_d, furn.x_mm + half_w, furn.y_mm + half_d)
+    """Axis-aligned bounds enclosing the actual rotated footprint."""
+    points = oriented_corners(furn.x_mm, furn.y_mm, furn.width_mm, furn.depth_mm, furn.rotation_deg)
+    return (min(p[0] for p in points), min(p[1] for p in points), max(p[0] for p in points), max(p[1] for p in points))
 
 
 def boxes_overlap_area(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
@@ -70,13 +65,23 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
             )
 
     # 2. Pairwise overlap & main circulation walkway clearance
-    min_walkway_mm = 1150.0
+    min_walkway_mm = None
+    floor_coverings = {f.id for f in items if f.category.lower() in {"rug", "carpet"} and f.height_mm <= 50 and f.z_mm <= 50}
     for i in range(len(items)):
         for j in range(i + 1, len(items)):
             f1, f2 = items[i], items[j]
+            if f1.id in floor_coverings or f2.id in floor_coverings:
+                continue
+            if f1.room_id != f2.room_id:
+                continue
+            if min(f1.z_mm + f1.height_mm, f2.z_mm + f2.height_mm) <= max(f1.z_mm, f2.z_mm):
+                continue
             b1, b2 = boxes[f1.id], boxes[f2.id]
             ov = boxes_overlap_area(b1, b2)
-            if ov > 100.0:
+            if ov > 0 and polygons_overlap_sat(
+                oriented_corners(f1.x_mm, f1.y_mm, f1.width_mm, f1.depth_mm, f1.rotation_deg),
+                oriented_corners(f2.x_mm, f2.y_mm, f2.width_mm, f2.depth_mm, f2.rotation_deg),
+            ):
                 collisions.append(f"Va chạm hình học giữa '{f1.name}' và '{f2.name}'.")
             else:
                 pair_cats = {f1.category, f2.category}
@@ -84,7 +89,7 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
                 if pair_cats.issubset({"sofa", "coffee_table", "armchair"}):
                     continue
                 dist = box_clearance_distance_mm(b1, b2)
-                if 100.0 < dist < min_walkway_mm:
+                if min_walkway_mm is None or dist < min_walkway_mm:
                     min_walkway_mm = round(dist, 0)
 
     # 3. Door swing clearance check
@@ -99,14 +104,16 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
         r = door.width_mm
         door_arc_box = (cx - r / 2.0, cy - r, cx + r / 2.0, cy + r)
         for f in items:
+            if f.id in floor_coverings:
+                continue
             if boxes_overlap_area(door_arc_box, boxes[f.id]) > 5000.0:
                 door_swing_warnings.append(
                     f"Cửa '{door.id}' ({int(door.width_mm)}mm) khi mở có nguy cơ vướng vào '{f.name}'."
                 )
 
-    walkway_ok = min_walkway_mm >= 750.0
+    walkway_ok = min_walkway_mm >= 750.0 if min_walkway_mm is not None else None
     warnings = collisions + boundary_violations + door_swing_warnings
-    if not walkway_ok:
+    if walkway_ok is False:
         warnings.append(f"Khoảng cách lối đi hẹp nhất ({int(min_walkway_mm)}mm) nhỏ hơn tiêu chuẩn tối thiểu 750mm.")
 
     return {
@@ -117,6 +124,13 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
         "min_walkway_mm": min_walkway_mm,
         "walkway_ok": walkway_ok,
         "warnings": warnings,
+        "method": "rotated_footprint_sat_with_vertical_intervals",
+        "limitations": [
+            "Pairwise AABB gaps are a conservative clearance heuristic, not a traversable route or access assessment.",
+            "Door swing uses a conservative bounding box, not a swept door leaf; baseline warnings need review.",
+            "Room boundary uses the first room bounding rectangle; concave and multi-room containment needs separate assessment.",
+            "Thin floor rugs are treated as supporting floor coverings, not furniture obstacles.",
+        ],
     }
 
 

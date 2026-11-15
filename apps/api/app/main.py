@@ -1409,6 +1409,8 @@ class McpCallPayload(BaseModel):
     tool_name: str
     arguments: Dict[str, Any] = {}
     agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    expected_revision: Optional[int] = None
 
 
 @app.post("/api/v1/mcp/call")
@@ -1421,8 +1423,64 @@ async def api_mcp_call_tool(body: McpCallPayload):
         if row:
             ag = json.loads(row["payload_json"])
             allowed = ag.get("allowed_mcp_tools")
-    res = await call_pascal_mcp_tool(body.tool_name, body.arguments, allowed_tools=allowed)
-    return res
+    # Preserve permission-denied behavior without looking up a project. An
+    # unauthorized caller must not learn whether a scene exists.
+    if allowed is not None and body.tool_name not in allowed:
+        return await call_pascal_mcp_tool(
+            body.tool_name,
+            body.arguments,
+            allowed_tools=allowed,
+        )
+
+    project_id = (body.project_id or "").strip()
+    if not project_id:
+        raise HTTPException(
+            status_code=422,
+            detail="project_id is required so the MCP call can bind to the persisted canonical scene",
+        )
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    if body.expected_revision is not None and body.expected_revision != project.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "REVISION_MISMATCH",
+                "project_id": project.project_id,
+                "expected_revision": body.expected_revision,
+                "current_revision": project.revision,
+            },
+        )
+
+    scene_snapshot = project.pascal_scene_json
+    if not scene_snapshot or not isinstance(scene_snapshot, dict) or not scene_snapshot.get("nodes"):
+        from app.services.scene_furniture import synchronize_canonical_pascal_scene
+        sync_result = await synchronize_canonical_pascal_scene(project)
+        if sync_result.get("ok"):
+            scene_snapshot = project.pascal_scene_json
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "CANONICAL_SCENE_SYNC_FAILED",
+                    "project_id": project.project_id,
+                    "revision": project.revision,
+                    "error": sync_result.get("error", "Pascal scene snapshot is unavailable"),
+                },
+            )
+
+    result = await call_pascal_mcp_tool(
+        body.tool_name,
+        body.arguments,
+        allowed_tools=allowed,
+        scene_json=scene_snapshot,
+    )
+    return {
+        **result,
+        "project_id": project.project_id,
+        "revision": project.revision,
+        "scene_source": "persisted_canonical_project",
+    }
 
 
 # ==============================================================================

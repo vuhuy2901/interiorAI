@@ -33,18 +33,28 @@ def _run_gateway_sync(payload: Dict[str, Any], timeout_s: float = 20.0) -> Dict[
         cwd=str(GATEWAY_SCRIPT.parent),
         timeout=timeout_s,
     )
-    if proc.returncode != 0:
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not lines:
         return {
             "ok": False,
             "error": proc.stderr.strip() or f"Gateway exited with status {proc.returncode}",
+            "gateway_exit_code": proc.returncode,
         }
-    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    if not lines:
-        return {"ok": False, "error": "Empty stdout from Pascal MCP Gateway"}
     try:
-        return json.loads(lines[-1])
+        result = json.loads(lines[-1])
+        if proc.returncode != 0:
+            result.setdefault("ok", False)
+            result["gateway_exit_code"] = proc.returncode
+            if not result.get("error"):
+                result["error"] = proc.stderr.strip() or f"Gateway exited with status {proc.returncode}"
+        return result
     except Exception as exc:
-        return {"ok": False, "error": f"Invalid JSON from gateway: {exc}", "raw": lines[-1]}
+        return {
+            "ok": False,
+            "error": proc.stderr.strip() or f"Invalid JSON from gateway: {exc}",
+            "raw": lines[-1],
+            "gateway_exit_code": proc.returncode,
+        }
 
 
 async def list_pascal_mcp_tools(force_refresh: bool = False) -> Dict[str, Any]:
@@ -98,6 +108,32 @@ async def call_pascal_mcp_tool(
         return {
             "ok": False,
             "error": f"PermissionDenied: Agent is not permitted to invoke MCP tool '{tool_name}'. Allowed: {allowed_tools}",
+        }
+    registry = await list_pascal_mcp_tools()
+    if not registry.get("ok"):
+        return {
+            "ok": False,
+            "error": "ToolRegistryUnavailable: Pascal MCP tool registry could not be loaded",
+            "cause": registry.get("error"),
+        }
+    available = {tool.get("name") for tool in registry.get("tools", []) if isinstance(tool, dict)}
+    if tool_name not in available:
+        return {
+            "ok": False,
+            "error": f"ToolUnavailable: Pascal MCP tool '{tool_name}' is not installed",
+            "tool_name": tool_name,
+            "available_tool_count": len(available),
+        }
+    if not isinstance(scene_json, dict):
+        return {
+            "ok": False,
+            "error": "SceneContextRequired: canonical project scene snapshot is required for every MCP tool call",
+        }
+    nodes = scene_json.get("nodes")
+    if not isinstance(nodes, dict) or not nodes:
+        return {
+            "ok": False,
+            "error": "SceneSnapshotEmpty: canonical project scene has no Pascal nodes; synchronize the canonical project before retrying",
         }
     async with _SCENE_LOCK:
         return await asyncio.to_thread(
