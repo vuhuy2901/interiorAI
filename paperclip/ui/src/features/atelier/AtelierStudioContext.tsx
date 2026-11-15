@@ -119,6 +119,8 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<any[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("");
   const [project, setProject] = useState<any | null>(null);
+  const activeSceneRef = useRef(activeProjectId);
+  activeSceneRef.current = activeProjectId;
   const [estimate, setEstimate] = useState<any | null>(null);
   const [materialsCatalog, setMaterialsCatalog] = useState<any | null>(null);
   const [productsCatalog, setProductsCatalog] = useState<any[]>([]);
@@ -180,7 +182,8 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
           ]);
         if (!projRes.ok) throw new Error(`Không thể tải Scene (${projRes.status})`);
         const projectJson = await projRes.json();
-        setProject(projectJson);
+        if (activeSceneRef.current !== pid) return;
+        setProject((current: any) => current?.project_id === projectJson.project_id && Number(current.revision) > Number(projectJson.revision) ? current : projectJson);
         setRevisions(projectJson.revisions || []);
         if (estRes.ok) setEstimate(await estRes.json());
         if (chatRes.ok) setChatHistory(await chatRes.json());
@@ -238,6 +241,20 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
           if (prevLast !== newLast) return data;
           return prev;
         });
+        // Reconcile the persisted scene in the existing active Studio refresh cycle.
+        // A repeated revision preserves object identity and avoids rebuilding WebGL.
+        if (!document.hidden) {
+          const sceneRes = await fetch(`${API_BASE}/projects/${activeProjectId}`);
+          if (sceneRes.ok) {
+            const snapshot = await sceneRes.json();
+            if (isMounted && activeSceneRef.current === activeProjectId && snapshot.project_id === activeProjectId) {
+              setProject((current: any) => {
+                if (current?.project_id !== snapshot.project_id) return snapshot;
+                return Number(snapshot.revision) > Number(current.revision) ? snapshot : current;
+              });
+            }
+          }
+        }
       } catch {
         consecutiveErrors += 1;
       }
