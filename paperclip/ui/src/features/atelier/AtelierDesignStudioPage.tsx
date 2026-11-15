@@ -5,6 +5,7 @@ import {
   History,
   MessageCircle,
   Moon,
+  PackageOpen,
   Focus,
   RotateCcw,
   Save,
@@ -54,6 +55,7 @@ export function AtelierDesignStudioPage() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
+  const [deliveryReplayTrigger, setDeliveryReplayTrigger] = useState(0);
   const [cameraCommand, setCameraCommand] = useState<{ id: number; type: "fit" | "focus" | "reset" }>({ id: 0, type: "fit" });
   const [cutawayEnabled, setCutawayEnabled] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -141,6 +143,19 @@ export function AtelierDesignStudioPage() {
         <button type="button" className="btn btn-sm" onClick={() => setCameraCommand((current) => ({ id: current.id + 1, type: "fit" }))} title="Đưa toàn bộ phòng vào khung hình">Fit Room</button>
         <button type="button" className="btn btn-sm" disabled={!selectedEntityId} onClick={() => setCameraCommand((current) => ({ id: current.id + 1, type: "focus" }))} title="Đưa đối tượng đang chọn vào giữa khung hình"><Focus size={12} /> Focus</button>
         <button type="button" className="btn btn-sm" onClick={() => setCameraCommand((current) => ({ id: current.id + 1, type: "reset" }))} title="Khôi phục camera mặc định"><RotateCcw size={12} /> Reset</button>
+        <button
+          type="button"
+          className="btn btn-sm btn-soft"
+          data-testid="replay-delivery"
+          disabled={!project?.furniture_instances?.length}
+          onClick={() => {
+            if (viewMode === "2d") setViewMode("3d");
+            setDeliveryReplayTrigger((value) => value + 1);
+          }}
+          title="Phát mô phỏng nhân vật mang món đang chọn tới đúng vị trí"
+        >
+          <PackageOpen size={12} /> Xem thi công
+        </button>
         <span className="atelier-toolbar-spacer" />
         <button type="button" className={`btn btn-sm ${inspectorOpen ? "btn-soft" : ""}`} onClick={() => setInspectorOpen((value) => !value)}><Sliders size={12} /> Inspector</button>
         <button type="button" className={`btn btn-sm ${assistantOpen ? "btn-soft" : ""}`} onClick={() => setAssistantOpen((value) => !value)}><MessageCircle size={12} /> AI Copilot</button>
@@ -152,7 +167,7 @@ export function AtelierDesignStudioPage() {
         {project ? (
           <>
             <Suspense fallback={<div className="atelier-loading-state">Đang tải Pascal 3D BIM...</div>}>
-              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} theme={theme} />
+              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} deliveryReplayTrigger={deliveryReplayTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} theme={theme} />
             </Suspense>
 
             {inspectorOpen ? (

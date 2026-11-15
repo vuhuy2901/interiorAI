@@ -27,6 +27,14 @@ import {
   type MaterialDefinitionValue,
 } from './materialResolver'
 import { createProceduralFurniture } from './proceduralFurniture'
+import {
+  applyWalkCycle,
+  createDeliveryWorker,
+  findChangedFurniture,
+  resolveDeliveryEntry,
+  snapshotFurniture,
+  type DeliverySnapshot,
+} from './furnitureDeliveryAnimation'
 import { Eye, Sparkles, Layers } from 'lucide-react'
 
 interface StudioViewportProps {
@@ -42,6 +50,7 @@ interface StudioViewportProps {
   lowSpecMode?: boolean
   theme?: 'light' | 'dark'
   cameraResetTrigger?: number
+  deliveryReplayTrigger?: number
   cameraCommand?: { id: number; type: 'fit' | 'focus' | 'reset' }
   cutawayEnabled?: boolean
   visibleLayers?: {
@@ -123,6 +132,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     lowSpecMode = false,
     theme = 'light',
     cameraResetTrigger = 0,
+    deliveryReplayTrigger = 0,
     cameraCommand,
     cutawayEnabled = false,
     visibleLayers = {
@@ -141,6 +151,14 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     const [ssaoEnabled, setSsaoEnabled] = useState<boolean>(true)
     const [hdriLoaded, setHdriLoaded] = useState<boolean>(false)
     const [splitPercent, setSplitPercent] = useState(50)
+    const deliveryPausedRef = useRef(false)
+    const [deliveryPaused, setDeliveryPaused] = useState(false)
+    const [deliveryStatus, setDeliveryStatus] = useState<{
+      active: boolean
+      phase: 'idle' | 'moving' | 'placing' | 'returning' | 'complete'
+      progress: number
+      itemName: string
+    }>({ active: false, phase: 'idle', progress: 0, itemName: '' })
 
     const paintsById: Record<string, any> = {}
     const tilesById: Record<string, any> = {}
@@ -414,6 +432,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       const pickableMeshes: THREE.Object3D[] = []
       const gltfLoader = new GLTFLoader()
       const objectRoots = new Map<string, THREE.Object3D>()
+      const furnitureGroups = new Map<string, THREE.Group>()
       const materialDefinitions = new Map(pbrMaterials.map((material) => [material.material_id, material]))
       const initialMetrics = ((window as any).__ATELIER_MATERIAL_METRICS__ ||= {})
       initialMetrics.glbLoadCount = Number.isFinite(initialMetrics.glbLoadCount) ? initialMetrics.glbLoadCount : 0
@@ -673,6 +692,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
         group.position.set((f.x_mm ?? 2000) / 1000, (f.z_mm ?? 0) / 1000, (f.y_mm ?? 2500) / 1000)
         group.rotation.y = -((f.rotation_deg || 0) * Math.PI) / 180
+        furnitureGroups.set(f.id, group)
         scene.add(group)
       })
 
@@ -726,6 +746,119 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       cameraController.setMode(cameraPreset === 'top' || cameraPreset === 'walk' ? cameraPreset : 'orbit', true)
       cameraController.setVisible(viewMode !== '2d')
 
+      // Furniture delivery playback. This is deliberately a viewer-only layer:
+      // it never writes project data, agent state, Telegram settings or revisions.
+      let deliveryAnimationFrame: number | null = null
+      let deliveryCompletionTimer: number | null = null
+      const snapshotKey = `atelier.delivery.snapshot.${project?.project_id || project?.id || 'scene'}`
+      let previousSnapshot: DeliverySnapshot[] = []
+      try {
+        previousSnapshot = JSON.parse(window.sessionStorage.getItem(snapshotKey) || '[]')
+        window.sessionStorage.setItem(snapshotKey, JSON.stringify(snapshotFurniture(furniture)))
+      } catch {
+        previousSnapshot = []
+      }
+      const changedFurniture = findChangedFurniture(previousSnapshot, furniture)
+      const replayItem = selectedEntityId
+        ? furniture.find((item: any) => item.id === selectedEntityId)
+        : furniture[furniture.length - 1]
+      const deliveryItem = deliveryReplayTrigger > 0 ? replayItem : previousSnapshot.length ? changedFurniture.at(-1) : null
+
+      if (deliveryItem && viewMode !== '2d') {
+        const targetGroup = furnitureGroups.get(deliveryItem.id)
+        if (targetGroup) {
+          const roomCenter = new THREE.Vector3(cx, 0, cz)
+          const entry = resolveDeliveryEntry(doors, walls, roomCenter)
+          const target = new THREE.Vector3(
+            (deliveryItem.x_mm ?? 2000) / 1000,
+            0,
+            (deliveryItem.y_mm ?? 2500) / 1000,
+          )
+          const approach = target.clone()
+          const backoff = entry.clone().sub(target).setY(0)
+          if (backoff.lengthSq() > 0.001) approach.add(backoff.normalize().multiplyScalar(0.72))
+
+          const worker = createDeliveryWorker(deliveryItem)
+          worker.root.position.copy(entry)
+          scene.add(worker.root)
+          targetGroup.visible = false
+
+          const marker = new THREE.Mesh(
+            new THREE.RingGeometry(0.28, 0.38, 32),
+            new THREE.MeshBasicMaterial({ color: 0x14b8a6, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
+          )
+          marker.rotation.x = -Math.PI / 2
+          marker.position.copy(target).setY(0.018)
+          scene.add(marker)
+
+          deliveryPausedRef.current = false
+          setDeliveryPaused(false)
+          setDeliveryStatus({ active: true, phase: 'moving', progress: 0, itemName: deliveryItem.name || deliveryItem.id })
+          let elapsed = 0
+          let lastTime = performance.now()
+          let lastUiUpdate = -1
+          const totalDuration = Math.max(6.5, entry.distanceTo(target) * 1.15 + 4.2)
+
+          const animateDelivery = (now: number) => {
+            if (disposed) return
+            const delta = Math.min(0.05, (now - lastTime) / 1000)
+            lastTime = now
+            if (!deliveryPausedRef.current) elapsed += delta
+            const progress = Math.min(1, elapsed / totalDuration)
+            let phase: 'moving' | 'placing' | 'returning' | 'complete' = 'moving'
+            let moving = true
+
+            if (progress < 0.55) {
+              const t = THREE.MathUtils.smoothstep(progress / 0.55, 0, 1)
+              worker.root.position.lerpVectors(entry, approach, t)
+              worker.root.lookAt(approach.x, worker.root.position.y, approach.z)
+            } else if (progress < 0.7) {
+              phase = 'placing'
+              moving = false
+              worker.root.position.copy(approach)
+              const t = THREE.MathUtils.smoothstep((progress - 0.55) / 0.15, 0, 1)
+              worker.cargo.position.y = THREE.MathUtils.lerp(worker.cargo.position.y, 0.18, t)
+              worker.leftArm.rotation.x = worker.rightArm.rotation.x = -0.72 * t
+              marker.scale.setScalar(1 + Math.sin(t * Math.PI) * 0.5)
+              if (progress >= 0.64) {
+                targetGroup.visible = true
+                worker.cargo.visible = false
+              }
+            } else if (progress < 1) {
+              phase = 'returning'
+              const t = THREE.MathUtils.smoothstep((progress - 0.7) / 0.3, 0, 1)
+              worker.root.position.lerpVectors(approach, entry, t)
+              worker.root.lookAt(entry.x, worker.root.position.y, entry.z)
+              marker.material.opacity = Math.max(0, 0.8 * (1 - t))
+            } else {
+              phase = 'complete'
+              moving = false
+              targetGroup.visible = true
+              scene.remove(worker.root, marker)
+            }
+
+            applyWalkCycle(worker, elapsed, moving)
+            const uiProgress = Math.round(progress * 100)
+            if (uiProgress !== lastUiUpdate) {
+              lastUiUpdate = uiProgress
+              setDeliveryStatus({ active: phase !== 'complete', phase, progress: uiProgress, itemName: deliveryItem.name || deliveryItem.id })
+              ;(window as any).__ATELIER_DELIVERY_STATE__ = {
+                itemId: deliveryItem.id,
+                phase,
+                progress: uiProgress,
+                paused: deliveryPausedRef.current,
+              }
+            }
+            renderScene()
+            if (phase !== 'complete') deliveryAnimationFrame = requestAnimationFrame(animateDelivery)
+            else deliveryCompletionTimer = window.setTimeout(() => {
+              setDeliveryStatus((current) => ({ ...current, active: false }))
+            }, 3500)
+          }
+          deliveryAnimationFrame = requestAnimationFrame(animateDelivery)
+        }
+      }
+
       const resizeObs = new ResizeObserver(() => {
         if (!container) return
         const nw = container.clientWidth
@@ -743,6 +876,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         cameraControllerRef.current = null
         cutawayWallsRef.current = []
         resizeObs.disconnect()
+        if (deliveryAnimationFrame !== null) cancelAnimationFrame(deliveryAnimationFrame)
+        if (deliveryCompletionTimer !== null) window.clearTimeout(deliveryCompletionTimer)
         cameraController.dispose()
         window.removeEventListener('atelier:material-preview', onMaterialPreview)
         let disposedMaterialCount = 0
@@ -767,6 +902,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       pbrMaterials,
       ceilingVisible,
       ssaoEnabled,
+      deliveryReplayTrigger,
     ])
 
     useEffect(() => {
@@ -1133,6 +1269,30 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             />
           </div>
         )}
+
+        {deliveryStatus.phase !== 'idle' && viewMode !== '2d' ? (
+          <div className="delivery-playback-panel" data-testid="delivery-playback-panel">
+            <div className="delivery-playback-heading">
+              <span className="delivery-worker-dot" />
+              <strong>{deliveryStatus.phase === 'complete' ? 'Đã đặt đồ đúng vị trí' : 'Đang mô phỏng thi công'}</strong>
+              <span className="mono">{deliveryStatus.progress}%</span>
+            </div>
+            <div className="delivery-playback-item">{deliveryStatus.itemName}</div>
+            <div className="delivery-progress-track"><span style={{ width: `${deliveryStatus.progress}%` }} /></div>
+            {deliveryStatus.active ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  deliveryPausedRef.current = !deliveryPausedRef.current
+                  setDeliveryPaused(deliveryPausedRef.current)
+                }}
+              >
+                {deliveryPaused ? 'Tiếp tục' : 'Tạm dừng'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Bottom-Left HUD: Scene Validation, HDRI/SSAO/Ceiling Toggles, XYZ Gizmo & Active Selection Dimensions */}
         <div className="viewport-hud-bottom-left">
