@@ -104,6 +104,7 @@ from app.services.blender_mcp import (
     is_blender_available,
     list_project_render_jobs,
     probe_blender_capabilities,
+    public_render_job,
     retry_render_job,
 )
 from app.services.asset_pipeline import (
@@ -1895,6 +1896,8 @@ class RenderScenePayload(BaseModel):
     wait_for_completion: Optional[bool] = None
     simulate_delay_ms: int = 0
     force_invalid_arg: bool = False
+    expected_revision: Optional[int] = None
+    camera_snapshot: Optional[Dict[str, Any]] = None
 
 
 class RetryRenderJobPayload(BaseModel):
@@ -2060,6 +2063,14 @@ def api_build_project_scene_bridge(project_id: str, body: SceneBridgePayload = S
 @app.post("/api/v1/projects/{project_id}/render-jobs")
 def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = RenderScenePayload()):
     proj = get_project(project_id)
+    if proj and body.expected_revision is not None and int(body.expected_revision) != int(proj.revision):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Design changed from revision #{body.expected_revision} to #{proj.revision}. "
+                "Review the scene before rendering."
+            ),
+        )
     if not proj:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     cam = body.camera_id or body.camera or "eye_level"
@@ -2070,7 +2081,7 @@ def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = R
         raise HTTPException(status_code=422, detail=f"Render mode '{body.mode}' không hợp lệ")
     render_mode = "final" if body.mode == "final" else "preview"
     is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
-    return enqueue_render_job(
+    return public_render_job(enqueue_render_job(
         project_id,
         mode=render_mode,
         camera=cam,
@@ -2083,12 +2094,15 @@ def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = R
         async_exec=is_async,
         simulate_delay_ms=body.simulate_delay_ms,
         force_invalid_arg=body.force_invalid_arg,
-    )
+        expected_revision=body.expected_revision,
+        camera_snapshot=body.camera_snapshot,
+    ))
 
 
 @app.get("/api/v1/projects/{project_id}/render-jobs")
 def api_list_project_render_jobs(project_id: str, limit: int = 30):
-    return {"ok": True, "project_id": project_id, "jobs": list_project_render_jobs(project_id, limit=limit)}
+    jobs = [public_render_job(job) for job in list_project_render_jobs(project_id, limit=limit)]
+    return {"ok": True, "project_id": project_id, "jobs": jobs}
 
 
 @app.get("/api/v1/projects/{project_id}/render-gallery")
@@ -2099,7 +2113,7 @@ def api_get_project_render_gallery(project_id: str):
         "ok": True,
         "project_id": project_id,
         "count": len(completed),
-        "gallery": completed,
+        "gallery": [public_render_job(job) for job in completed],
     }
 
 
@@ -2108,13 +2122,13 @@ def api_get_render_job_detail(job_id: str):
     job = get_render_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Không tìm thấy render job")
-    return job
+    return public_render_job(job)
 
 
 @app.post("/api/v1/render-jobs/{job_id}/cancel")
 def api_cancel_render_job(job_id: str):
     try:
-        return cancel_render_job(job_id)
+        return public_render_job(cancel_render_job(job_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -2125,7 +2139,7 @@ def api_retry_render_job(job_id: str, body: Optional[RetryRenderJobPayload] = No
         is_async = False
         if body is not None:
             is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
-        return retry_render_job(job_id, async_exec=is_async)
+        return public_render_job(retry_render_job(job_id, async_exec=is_async))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

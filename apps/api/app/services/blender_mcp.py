@@ -456,6 +456,7 @@ def build_scene_bridge_manifest(
     camera: str = "eye_level",
     time_of_day: str = "day",
     out_dir: Optional[Path] = None,
+    camera_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Constructs the complete G5 Scene Bridge JSON manifest directly from CanonicalProject,
@@ -464,18 +465,32 @@ def build_scene_bridge_manifest(
     material_hash = compute_project_material_hash(project)
     registry_defs = {m.material_id: m.model_dump() for m in list_materials()}
 
-    # Resolve floor surface material override if present
-    floor_override_resolved: Optional[Dict[str, Any]] = None
-    if "floor" in project.surface_material_overrides:
-        try:
-            floor_override_resolved = resolve_material(project.surface_material_overrides["floor"])
-        except Exception:
-            floor_override_resolved = project.surface_material_overrides["floor"].model_dump()
-    elif project.rooms and project.rooms[0].floor_material_id in registry_defs:
-        m_id = project.rooms[0].floor_material_id
-        m_def = get_material(m_id)
-        if m_def:
-            floor_override_resolved = resolve_material(MaterialOverride(material_id=m_id, material_version=m_def.version))
+    # Resolve all architectural surface materials before handing the immutable scene to Blender.
+    surface_materials_resolved: Dict[str, Dict[str, Any]] = {}
+    room_surface_ids = {}
+    if project.rooms:
+        room_surface_ids = {
+            "floor": project.rooms[0].floor_material_id,
+            "wall": project.rooms[0].wall_base_material_id,
+            "ceiling": project.rooms[0].ceiling_material_id,
+        }
+    for surface_key in ("floor", "wall", "ceiling"):
+        override = project.surface_material_overrides.get(surface_key)
+        if override:
+            try:
+                surface_materials_resolved[surface_key] = resolve_material(override)
+            except Exception:
+                surface_materials_resolved[surface_key] = override.model_dump()
+            continue
+        material_id = room_surface_ids.get(surface_key)
+        if material_id and material_id in registry_defs:
+            material_def = get_material(material_id)
+            if material_def:
+                surface_materials_resolved[surface_key] = resolve_material(
+                    MaterialOverride(material_id=material_id, material_version=material_def.version)
+                )
+
+    floor_override_resolved = surface_materials_resolved.get("floor")
 
     # Prepare tile texture pair if floor uses physical tile scale with grout
     tile_textures: Dict[str, str] = {}
@@ -496,6 +511,9 @@ def build_scene_bridge_manifest(
                 "grout_width_mm": gw,
                 "tint": t_hex,
                 "grout_color": g_hex,
+                "rotation_deg": float(ps.get("rotation_deg", 0.0)),
+                "offset_x_mm": float(ps.get("offset_x_mm", 0.0)),
+                "offset_y_mm": float(ps.get("offset_y_mm", 0.0)),
             }
         else:
             # Default room tile grid (600x600 or wood plank)
@@ -508,6 +526,9 @@ def build_scene_bridge_manifest(
                 "grout_width_mm": 2.0,
                 "tint": "#DED6C8",
                 "grout_color": "#B8B1A6",
+                "rotation_deg": 0.0,
+                "offset_x_mm": 0.0,
+                "offset_y_mm": 0.0,
             }
 
     category_default_assets = {
@@ -627,6 +648,23 @@ def build_scene_bridge_manifest(
         }
 
     camera_spec = _compute_camera_spec(project, camera)
+    if camera_snapshot:
+        eye_m = camera_snapshot.get("eye_m")
+        target_m = camera_snapshot.get("target_m")
+        if (
+            isinstance(eye_m, list)
+            and len(eye_m) == 3
+            and isinstance(target_m, list)
+            and len(target_m) == 3
+            and all(isinstance(value, (int, float)) for value in [*eye_m, *target_m])
+        ):
+            camera_spec = {
+                "camera_id": "current_view",
+                "eye_m": [round(float(value), 4) for value in eye_m],
+                "target_m": [round(float(value), 4) for value in target_m],
+                "lens_mm": max(12.0, min(120.0, float(camera_snapshot.get("lens_mm") or 28.0))),
+                "hide_ceiling": bool(camera_snapshot.get("hide_ceiling", False)),
+            }
 
     return {
         "schema_version": "atelier.scene_bridge.v1",
@@ -648,6 +686,7 @@ def build_scene_bridge_manifest(
             k: v.model_dump() for k, v in project.surface_material_overrides.items()
         },
         "floor_material_resolved": floor_override_resolved,
+        "surface_materials_resolved": surface_materials_resolved,
         "tile_textures": tile_textures,
         "camera": camera_spec,
         "lights": lighting_spec,
@@ -734,6 +773,7 @@ windows = geom.get("windows", [])
 cam_spec = manifest["camera"]
 tile_tex = manifest.get("tile_textures") or {}
 floor_resolved = manifest.get("floor_material_resolved") or {}
+surface_resolved = manifest.get("surface_materials_resolved") or {}
 
 # Build Floor Material (Principled BSDF + physical scale UV tile texture)
 floor_pbr = (floor_resolved.get("pbr") or {}) if floor_resolved else {}
@@ -763,14 +803,35 @@ if tile_tex.get("diffuse_path") and os.path.isfile(tile_tex["diffuse_path"]):
         nt.links.new(bump_img_node.outputs["Color"], bump_node.inputs["Height"])
         nt.links.new(bump_node.outputs["Normal"], bsdf.inputs["Normal"])
 
-wall_mat = create_principled_material("MAT_SURFACE_WALL", hex_color="#F2EFE9", roughness=0.72, metallic=0.0)
-ceiling_mat = create_principled_material("MAT_SURFACE_CEILING", hex_color="#FAF8F5", roughness=0.85, metallic=0.0)
+wall_resolved = surface_resolved.get("wall") or {}
+wall_pbr = wall_resolved.get("pbr") or {}
+wall_mat = create_principled_material(
+    "MAT_SURFACE_WALL",
+    hex_color=wall_resolved.get("tint") or wall_pbr.get("base_color") or "#F2EFE9",
+    roughness=float(wall_pbr.get("roughness", 0.72)),
+    metallic=float(wall_pbr.get("metalness", 0.0)),
+    coat=float(wall_pbr.get("clearcoat", 0.0)),
+    coat_rough=float(wall_pbr.get("clearcoat_roughness", 0.5)),
+)
+ceiling_resolved = surface_resolved.get("ceiling") or {}
+ceiling_pbr = ceiling_resolved.get("pbr") or {}
+ceiling_mat = create_principled_material(
+    "MAT_SURFACE_CEILING",
+    hex_color=ceiling_resolved.get("tint") or ceiling_pbr.get("base_color") or "#FAF8F5",
+    roughness=float(ceiling_pbr.get("roughness", 0.85)),
+    metallic=float(ceiling_pbr.get("metalness", 0.0)),
+)
 door_frame_mat = create_principled_material("MAT_DOOR_WOOD", hex_color="#B8926A", roughness=0.45, metallic=0.0, coat=0.12)
 win_frame_mat = create_principled_material("MAT_WINDOW_FRAME", hex_color="#2C3038", roughness=0.35, metallic=0.6)
 glass_mat = create_principled_material("MAT_WINDOW_GLASS", hex_color="#FFFFFF", roughness=0.03, metallic=0.0, transmission=0.92, ior=1.52)
 
 tile_w_mm = float(tile_tex.get("width_mm", 800.0)) or 800.0
 tile_h_mm = float(tile_tex.get("height_mm", 800.0)) or 800.0
+tile_rotation_rad = math.radians(float(tile_tex.get("rotation_deg", 0.0)))
+tile_offset_x_mm = float(tile_tex.get("offset_x_mm", 0.0))
+tile_offset_y_mm = float(tile_tex.get("offset_y_mm", 0.0))
+tile_cos = math.cos(tile_rotation_rad)
+tile_sin = math.sin(tile_rotation_rad)
 
 created_rooms = []
 for idx_r, r in enumerate(rooms):
@@ -793,9 +854,11 @@ for idx_r, r in enumerate(rooms):
         face.normal_flip()
     uv_layer = bm.loops.layers.uv.new("UVMap")
     for loop in face.loops:
-        vx_mm = loop.vert.co.x * 1000.0
-        vy_mm = loop.vert.co.y * 1000.0
-        loop[uv_layer].uv = (vx_mm / tile_w_mm, vy_mm / tile_h_mm)
+        vx_mm = loop.vert.co.x * 1000.0 - tile_offset_x_mm
+        vy_mm = loop.vert.co.y * 1000.0 - tile_offset_y_mm
+        rotated_x_mm = tile_cos * vx_mm + tile_sin * vy_mm
+        rotated_y_mm = -tile_sin * vx_mm + tile_cos * vy_mm
+        loop[uv_layer].uv = (rotated_x_mm / tile_w_mm, rotated_y_mm / tile_h_mm)
     bmesh.ops.triangulate(bm, faces=bm.faces[:])
     bm.to_mesh(mesh)
     bm.free()
@@ -1163,15 +1226,39 @@ elev = math.radians(float(light_spec.get("sun_elevation_deg", 42.0)))
 sun_obj.rotation_euler = (math.pi / 2.0 - elev, 0.2, 0.65)
 scene.collection.objects.link(sun_obj)
 
-# Interior Ceiling Area Light
-area_data = bpy.data.lights.new(name="AREA_CEILING_FILL", type='AREA')
-area_data.energy = float(light_spec.get("interior_light_energy", 95.0))
+# Recreate placed lighting fixtures at their canonical positions. A restrained ceiling
+# fill is only used when the scene has no explicit light fixture.
 ic = light_spec.get("interior_light_color", [1.0, 0.96, 0.90])
-area_data.color = (ic[0], ic[1], ic[2])
-area_data.size = 2.2
-area_obj = bpy.data.objects.new(name="AREA_CEILING_FILL", object_data=area_data)
-area_obj.location = (cam_target.x, cam_target.y, 2.62)
-scene.collection.objects.link(area_obj)
+placed_lights = []
+for fixture in manifest.get("furniture_assets", []):
+    category = str(fixture.get("category") or "").lower()
+    name = str(fixture.get("name") or "").lower()
+    if not any(token in f"{category} {name}" for token in ("light", "lamp", "đèn", "den")):
+        continue
+    transform = fixture.get("transform_m") or {}
+    dims = fixture.get("dimensions_m") or [0.3, 0.3, 0.3]
+    light_data = bpy.data.lights.new(name=f"LIGHT_{fixture['id']}", type='AREA')
+    light_data.energy = float(light_spec.get("interior_light_energy", 95.0))
+    light_data.color = (ic[0], ic[1], ic[2])
+    light_data.shape = 'DISK'
+    light_data.size = max(0.15, min(1.2, float(max(dims[0], dims[1]))))
+    light_obj = bpy.data.objects.new(name=f"LIGHT_{fixture['id']}", object_data=light_data)
+    light_obj.location = (
+        float(transform.get("x_m", 0.0)),
+        float(transform.get("y_m", 0.0)),
+        float(transform.get("z_m", 0.0)) + float(dims[2]) * 0.82,
+    )
+    scene.collection.objects.link(light_obj)
+    placed_lights.append(light_obj)
+
+if not placed_lights:
+    area_data = bpy.data.lights.new(name="AREA_CEILING_FILL", type='AREA')
+    area_data.energy = float(light_spec.get("interior_light_energy", 95.0))
+    area_data.color = (ic[0], ic[1], ic[2])
+    area_data.size = 2.2
+    area_obj = bpy.data.objects.new(name="AREA_CEILING_FILL", object_data=area_data)
+    area_obj.location = (cam_target.x, cam_target.y, 2.62)
+    scene.collection.objects.link(area_obj)
 
 # 6. Setup Camera
 cam_data = bpy.data.cameras.new(name=f"CAM_{cam_spec['camera_id']}")
@@ -1470,6 +1557,15 @@ def get_render_job(job_id: str) -> Optional[Dict[str, Any]]:
     return json.loads(row["payload_json"])
 
 
+def public_render_job(job: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return render metadata without exposing the immutable canonical scene snapshot."""
+    if job is None:
+        return None
+    result = dict(job)
+    result.pop("scene_snapshot", None)
+    return result
+
+
 def list_project_render_jobs(project_id: str, limit: int = 30) -> List[Dict[str, Any]]:
     _ensure_render_jobs_table()
     conn = get_conn()
@@ -1513,7 +1609,8 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
         job["completed_at"] = _utc_iso()
         return _save_render_job(job)
 
-    project = get_project(job["project_id"])
+    scene_snapshot = job.get("scene_snapshot")
+    project = CanonicalProject.model_validate(scene_snapshot) if scene_snapshot else get_project(job["project_id"])
     if not project:
         job["status"] = "FAILED"
         job["error_code"] = "PROJECT_NOT_FOUND"
@@ -1537,7 +1634,13 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
     samples = int(job["samples"])
     seed = int(job["seed"])
 
-    manifest = build_scene_bridge_manifest(project, camera=camera_id, time_of_day=time_of_day, out_dir=job_dir)
+    manifest = build_scene_bridge_manifest(
+        project,
+        camera=camera_id,
+        time_of_day=time_of_day,
+        out_dir=job_dir,
+        camera_snapshot=job.get("camera_snapshot"),
+    )
     manifest_path = job_dir / "scene_bridge_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -1730,6 +1833,8 @@ def enqueue_render_job(
     async_exec: bool = False,
     simulate_delay_ms: int = 0,
     force_invalid_arg: bool = False,
+    expected_revision: Optional[int] = None,
+    camera_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Creates and executes (or queues in background) a real Blender Cycles render job.
@@ -1740,13 +1845,21 @@ def enqueue_render_job(
     if not project:
         raise ValueError(f"Không tìm thấy dự án {project_id}")
 
+    if expected_revision is not None and int(expected_revision) != int(project.revision):
+        raise ValueError(
+            f"REVISION_CONFLICT: Scene changed from revision #{expected_revision} "
+            f"to #{project.revision}. Review the scene before rendering."
+        )
+
     material_hash = compute_project_material_hash(project)
     resolved_mode: Literal["preview", "final"] = "final" if mode == "final" else "preview"
     w_px = width_px or (1280 if resolved_mode == "final" else 960)
     h_px = height_px or (720 if resolved_mode == "final" else 540)
     smp = samples or (64 if resolved_mode == "final" else 24)
 
-    cache_raw = f"{project_id}|rev{project.revision}|{camera}|{resolved_mode}|{time_of_day}|{material_hash}|{w_px}x{h_px}|s{smp}|seed{seed}"
+    camera_snapshot_json = json.dumps(camera_snapshot or {}, sort_keys=True, separators=(",", ":"))
+    camera_snapshot_hash = hashlib.sha256(camera_snapshot_json.encode("utf-8")).hexdigest()[:12]
+    cache_raw = f"{project_id}|rev{project.revision}|{camera}|{camera_snapshot_hash}|{resolved_mode}|{time_of_day}|{material_hash}|{w_px}x{h_px}|s{smp}|seed{seed}"
     cache_key = hashlib.sha256(cache_raw.encode("utf-8")).hexdigest()[:16]
 
     if use_cache and not force_invalid_arg and simulate_delay_ms <= 0:
@@ -1772,6 +1885,8 @@ def enqueue_render_job(
         "mode": resolved_mode,
         "camera_id": camera,
         "camera": camera,
+        "camera_snapshot": camera_snapshot,
+        "camera_snapshot_hash": camera_snapshot_hash,
         "time_of_day": time_of_day,
         "seed": seed,
         "width_px": w_px,
@@ -1792,6 +1907,8 @@ def enqueue_render_job(
         "error_code": None,
         "error_message": None,
         "created_at": _utc_iso(),
+        "scene_snapshot": project.model_dump(mode="json"),
+        "snapshot_created_at": _utc_iso(),
         "started_at": None,
         "completed_at": None,
     }

@@ -332,13 +332,21 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         viewerState.floorTileSizeMm = [floorMatInfo.tile_width_mm, floorMatInfo.tile_length_mm]
         viewerState.floorGroutMm = floorMatInfo.grout_width_mm ?? 3
         viewerState.floorMaterialId = floorMatInfo.id || room?.floor_material_id
+        const activeTarget = cameraControllerRef.current?.controls.target
         viewerState.cameraFraming = {
           position: [
             Number(camera.position.x.toFixed(3)),
             Number(camera.position.y.toFixed(3)),
             Number(camera.position.z.toFixed(3)),
           ],
-          target: [Number(cx.toFixed(3)), 0.85, Number(cz.toFixed(3))],
+          target: activeTarget
+            ? [
+                Number(activeTarget.x.toFixed(3)),
+                Number(activeTarget.y.toFixed(3)),
+                Number(activeTarget.z.toFixed(3)),
+              ]
+            : [Number(cx.toFixed(3)), 0.85, Number(cz.toFixed(3))],
+          verticalFovDeg: Number(camera.fov.toFixed(2)),
           roomExtentM: [roomW / 1000, roomD / 1000, roomHeightMm / 1000],
         }
       }

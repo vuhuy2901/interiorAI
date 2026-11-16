@@ -56,8 +56,8 @@ const AtelierFloorPlanImportRoute = lazy(() =>
   })),
 );
 const AtelierRenderCompareRoute = lazy(() =>
-  import("./features/atelier/AtelierPages").then((m) => ({
-    default: m.AtelierRenderCompareRoute,
+  import("./features/atelier/AtelierPhotorealRenderPage").then((m) => ({
+    default: m.AtelierPhotorealRenderPage,
   })),
 );
 const AtelierCostEstimationRoute = lazy(() =>

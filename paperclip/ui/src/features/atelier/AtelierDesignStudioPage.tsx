@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
+  Aperture,
   ArrowLeft,
   Download,
   History,
@@ -155,6 +156,24 @@ export function AtelierDesignStudioPage() {
           title="Phát mô phỏng nhân vật mang món đang chọn tới đúng vị trí"
         >
           <PackageOpen size={12} /> Xem thi công
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          data-testid="open-photoreal-render"
+          disabled={!project || viewMode === "2d"}
+          onClick={() => {
+            try {
+              const canvas = document.querySelector('[data-testid="viewport-3d-canvas"] canvas') as HTMLCanvasElement | null;
+              if (canvas) window.sessionStorage.setItem("atelier.render.preview", canvas.toDataURL("image/jpeg", 0.86));
+            } catch {
+              // Preview capture is optional; the immutable scene/camera snapshot remains authoritative.
+            }
+            navigate("../render-compare");
+          }}
+          title="Kết xuất ảnh chân thực từ đúng Scene và góc camera hiện tại"
+        >
+          <Aperture size={12} /> Render chân thực
         </button>
         <span className="atelier-toolbar-spacer" />
         <button type="button" className={`btn btn-sm ${inspectorOpen ? "btn-soft" : ""}`} onClick={() => setInspectorOpen((value) => !value)}><Sliders size={12} /> Inspector</button>

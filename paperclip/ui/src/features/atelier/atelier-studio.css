@@ -57,6 +57,75 @@
   --shadow-drawer: -12px 0 32px rgba(23, 23, 23, 0.08);
 }
 
+/* Photoreal render workspace */
+.photoreal-page {
+  width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column;
+  color: #f6f7f8; background: #090b0d;
+}
+.photoreal-topbar {
+  z-index: 5; min-height: 58px; padding: 8px 14px; display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(220px, 2fr) minmax(130px, 1fr);
+  align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.1);
+  background: rgba(12,14,17,.96); backdrop-filter: blur(14px);
+}
+.photoreal-title { min-width: 0; text-align: center; display: flex; flex-direction: column; gap: 2px; }
+.photoreal-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.photoreal-title span { color: #9ca3af; font-size: 11px; }
+.photoreal-icon-button {
+  width: max-content; min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center;
+  justify-content: center; gap: 8px; border: 1px solid rgba(255,255,255,.13); border-radius: 10px;
+  color: #f4f4f5; background: rgba(255,255,255,.06); text-decoration: none; cursor: pointer;
+}
+.photoreal-icon-button:last-child { justify-self: end; }
+.photoreal-icon-button:hover { background: rgba(255,255,255,.11); }
+.photoreal-icon-button.is-disabled { opacity: .38; cursor: not-allowed; }
+.photoreal-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: radial-gradient(circle at center, #25292d 0, #101316 56%, #080a0c 100%); }
+.photoreal-image-scroll { position: absolute; inset: 0; display: grid; place-items: center; overflow: auto; padding: 28px 28px 164px; }
+.photoreal-result-image { display: block; max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; transition: transform .18s ease; box-shadow: 0 24px 80px rgba(0,0,0,.5); }
+.photoreal-preview-wrap { position: absolute; }.photoreal-preview-image { opacity: .82; filter: saturate(.86); }
+.photoreal-preview-badge { position: absolute; left: 50%; bottom: 176px; transform: translateX(-50%); padding: 7px 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; color: #d4d4d8; background: rgba(10,12,14,.82); font-size: 10px; white-space: nowrap; }
+.photoreal-empty { position: absolute; inset: 0; padding: 24px 24px 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.photoreal-empty-icon { width: 62px; height: 62px; margin-bottom: 18px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.13); border-radius: 18px; color: #a7f3d0; background: rgba(16,185,129,.1); }
+.photoreal-empty strong { font-size: clamp(18px, 2vw, 28px); }
+.photoreal-empty p { max-width: 560px; margin: 9px 0 0; color: #a1a1aa; font-size: 13px; line-height: 1.55; }
+.photoreal-processing { position: absolute; top: 18px; left: 50%; z-index: 4; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: min(520px, calc(100% - 32px)); padding: 12px 15px; border: 1px solid rgba(96,165,250,.35); border-radius: 12px; background: rgba(13,20,30,.9); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.photoreal-processing div { display: flex; flex-direction: column; gap: 2px; }
+.photoreal-processing strong { font-size: 12px; }
+.photoreal-processing span { color: #9ca3af; font-size: 11px; }
+.photoreal-zoom-tools { position: absolute; right: 16px; top: 16px; z-index: 3; display: flex; align-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(12,14,17,.82); backdrop-filter: blur(12px); }
+.photoreal-zoom-tools button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-right: 1px solid rgba(255,255,255,.08); color: #f4f4f5; background: transparent; cursor: pointer; }
+.photoreal-zoom-tools button:hover { background: rgba(255,255,255,.1); }
+.photoreal-zoom-tools span { min-width: 50px; text-align: center; color: #d4d4d8; font-size: 11px; }
+.photoreal-controls { position: absolute; left: 50%; bottom: 18px; z-index: 5; width: min(1060px, calc(100% - 36px)); transform: translateX(-50%); border: 1px solid rgba(255,255,255,.13); border-radius: 16px; background: rgba(15,17,20,.93); box-shadow: 0 20px 70px rgba(0,0,0,.45); backdrop-filter: blur(18px); }
+.photoreal-controls.is-collapsed { width: auto; min-width: 180px; }
+.photoreal-controls-toggle { width: 100%; min-height: 30px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; color: #a1a1aa; background: transparent; font-size: 11px; cursor: pointer; }
+.photoreal-controls-body { padding: 0 14px 14px; display: grid; grid-template-columns: repeat(3, minmax(125px, 1fr)) minmax(210px, 1.35fr) auto; align-items: end; gap: 10px; }
+.photoreal-controls label { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: #a1a1aa; font-size: 11px; }
+.photoreal-controls select { width: 100%; min-height: 40px; padding: 0 34px 0 11px; border: 1px solid rgba(255,255,255,.13); border-radius: 9px; color: #f4f4f5; background: #181b1f; outline: none; }
+.photoreal-engine-state { min-width: 0; min-height: 40px; display: flex; align-items: center; gap: 9px; }
+.photoreal-engine-state div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.photoreal-engine-state strong, .photoreal-engine-state span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.photoreal-engine-state strong { font-size: 11px; }.photoreal-engine-state span { color: #9ca3af; font-size: 10px; }
+.photoreal-status-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.1); }
+.photoreal-status-dot.is-ready { background: #34d399; box-shadow: 0 0 0 4px rgba(52,211,153,.1); }
+.photoreal-render-button { min-height: 42px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 10px; color: #07110d; background: #6ee7b7; font-weight: 750; white-space: nowrap; cursor: pointer; }
+.photoreal-render-button:hover { background: #a7f3d0; }.photoreal-render-button:disabled { opacity: .45; cursor: not-allowed; }
+.photoreal-error, .photoreal-success { margin: 0 14px 12px; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 8px; font-size: 11px; }
+.photoreal-error { color: #fecaca; background: rgba(127,29,29,.35); }.photoreal-success { color: #bbf7d0; background: rgba(20,83,45,.35); }
+.photoreal-error button { display: inline-flex; align-items: center; gap: 5px; border: 0; color: #fff; background: transparent; font-weight: 700; cursor: pointer; }
+.spin { animation: photoreal-spin 1s linear infinite; } @keyframes photoreal-spin { to { transform: rotate(360deg); } }
+@media (max-width: 900px) {
+  .photoreal-controls-body { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 48vh; overflow-y: auto; }
+  .photoreal-engine-state { grid-column: 1 / -1; }.photoreal-render-button { grid-column: 1 / -1; }
+}
+@media (max-width: 620px) {
+  .photoreal-topbar { grid-template-columns: auto 1fr auto; padding: 7px 9px; }.photoreal-icon-button span { display: none; }
+  .photoreal-icon-button { width: 38px; padding: 0; }.photoreal-title { text-align: left; }
+  .photoreal-zoom-tools { right: 8px; top: 8px; }.photoreal-controls { bottom: 8px; width: calc(100% - 16px); }
+  .photoreal-controls-body { grid-template-columns: 1fr; }.photoreal-engine-state, .photoreal-render-button { grid-column: auto; }
+  .photoreal-image-scroll { padding: 16px 12px 230px; }
+}
+
 .delivery-playback-panel {
   position: absolute;
   top: 14px;

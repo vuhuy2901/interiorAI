@@ -147,10 +147,24 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const [productsCatalogLoaded, setProductsCatalogLoaded] = useState(false);
   const [studioAssetsLoaded, setStudioAssetsLoaded] = useState(false);
+  const [backendRetryNonce, setBackendRetryNonce] = useState(0);
   const initialProjectLoadStarted = useRef(false);
   const surfaceCatalogLoadStarted = useRef(false);
   const productCatalogLoadStarted = useRef(false);
   const studioAssetLoadStarted = useRef(false);
+  const backendRetryTimer = useRef<number | null>(null);
+
+  const scheduleBackendRetry = useCallback(() => {
+    if (backendRetryTimer.current !== null) return;
+    backendRetryTimer.current = window.setTimeout(() => {
+      backendRetryTimer.current = null;
+      setBackendRetryNonce((value) => value + 1);
+    }, 2000);
+  }, []);
+
+  useEffect(() => () => {
+    if (backendRetryTimer.current !== null) window.clearTimeout(backendRetryTimer.current);
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -194,10 +208,12 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
         }
         setErrorMessage(null);
       } catch (error) {
+        if (!pid) initialProjectLoadStarted.current = false;
+        scheduleBackendRetry();
         setErrorMessage(error instanceof Error ? error.message : "Không thể tải dữ liệu ATELIER");
       }
     },
-    [activeProjectId],
+    [activeProjectId, scheduleBackendRetry],
   );
 
   useEffect(() => {
@@ -207,7 +223,7 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
       initialProjectLoadStarted.current = true;
     }
     void refreshProjectBundle(activeProjectId);
-  }, [activeProjectId, atelierProjectRouteActive, refreshProjectBundle]);
+  }, [activeProjectId, atelierProjectRouteActive, backendRetryNonce, refreshProjectBundle]);
 
   // Section 5: Real-time Multi-Agent Chat Reconciliation Polling (every 2.5s)
   useEffect(() => {
@@ -300,12 +316,14 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
         setPbrMaterials((await pbrResponse.json()).materials || []);
         setAssetLibrary((await assetResponse.json()).assets || []);
         setStudioAssetsLoaded(true);
+        setErrorMessage(null);
       } catch (error) {
         studioAssetLoadStarted.current = false;
+        scheduleBackendRetry();
         setErrorMessage(error instanceof Error ? error.message : "Không thể tải PBR/asset library");
       }
     })();
-  }, [studioAssetRouteActive, studioAssetsLoaded]);
+  }, [backendRetryNonce, scheduleBackendRetry, studioAssetRouteActive, studioAssetsLoaded]);
 
   const handleMaterialChange = useCallback(
     async (basePaintId?: string, accentPaintId?: string, floorMatId?: string) => {
