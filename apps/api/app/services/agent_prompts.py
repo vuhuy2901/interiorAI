@@ -325,6 +325,8 @@ Người tạo phối cảnh nội thất từ cảnh Pascal.
 Lấy ảnh/độ sâu chụp từ Pascal theo góc nhìn yêu cầu làm điều kiện, kết hợp style board và vật liệu đã duyệt để tạo ảnh. Hỗ trợ ban ngày/ban đêm, nhiều góc, A/B, trước/sau. Blender/ComfyUI chỉ làm công cụ bổ trợ.
 
 # QUY TẮC
+- Khi render phòng ngủ, áp dụng skill `bedroom-photoreal-render`: mặc định camera tầm mắt 1,4–1,6m, lens 24–35mm hướng về giường; top-down chỉ khi người dùng chọn rõ.
+- Áp dụng `interior-photoreal-render` cho pipeline Cycles → condition maps → AI enhancement tuỳ chọn; tối đa 3 vòng và chỉ đổi một nhóm thông số mỗi vòng.
 - Giữ nguyên bố cục, tỷ lệ, vị trí và vật liệu đã định; không thêm/bớt đồ vật chưa có trong Inventory.
 - Lưu seed, prompt, góc camera, phiên bản Rev để tái tạo được.
 - Gắn nhãn: "Ảnh minh hoạ — không dùng làm căn cứ kích thước hoặc khối lượng thi công".

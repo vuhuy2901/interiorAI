@@ -35,7 +35,10 @@ import {
   snapshotFurniture,
   type DeliverySnapshot,
 } from './furnitureDeliveryAnimation'
+import { attachConstructionPlayback, buildConstructionItems, constructionKey, commandEvent } from './constructionHistory'
 import { Eye, Sparkles, Layers } from 'lucide-react'
+import { attachFirstPersonTour, type TourState } from './firstPersonTour'
+import { TourControls } from './TourControls'
 
 interface StudioViewportProps {
   project: any
@@ -43,6 +46,7 @@ interface StudioViewportProps {
   pbrMaterials?: MaterialDefinitionValue[]
   viewMode: 'split' | '2d' | '3d'
   cameraPreset: 'orbit' | 'top' | 'cutaway' | 'walk'
+  onCameraPresetChange?: (preset: 'orbit' | 'top' | 'cutaway' | 'walk') => void
   lightingPreset?: 'day' | 'sunset' | 'night'
   selectedEntityId: string | null
   onSelectEntity: (id: string | null) => void
@@ -131,6 +135,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     pbrMaterials = [],
     viewMode,
     cameraPreset,
+    onCameraPresetChange,
     lightingPreset = 'day',
     selectedEntityId,
     onSelectEntity,
@@ -151,6 +156,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
   }) => {
     const mountRef = useRef<HTMLDivElement | null>(null)
     const cameraControllerRef = useRef<ReturnType<typeof createStudioCameraController> | null>(null)
+    const tourRef = useRef<ReturnType<typeof attachFirstPersonTour> | null>(null)
+    const [tourState, setTourState] = useState<TourState>({mode:'inactive',floorId:1,floors:[],message:''})
     const cutawayWallsRef = useRef<Array<{ mesh: THREE.Mesh; fullHeight: number; baseHeight: number; cutaway: boolean }>>([])
     const [draggingId, setDraggingId] = useState<string | null>(null)
     const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null)
@@ -158,6 +165,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     const [ssaoEnabled, setSsaoEnabled] = useState<boolean>(true)
     const [hdriLoaded, setHdriLoaded] = useState<boolean>(false)
     const [splitPercent, setSplitPercent] = useState(50)
+    const externalPlaybackCleanupRef = useRef<(() => void) | null>(null)
     const deliveryPausedRef = useRef(false)
     const lastHandledDeliveryTriggerRef = useRef(0)
     const [deliveryPaused, setDeliveryPaused] = useState(false)
@@ -184,6 +192,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     const doors = project?.openings || []
     const windows = project?.windows || []
     const furniture = project?.furniture_instances || []
+    const sceneSignature = JSON.stringify([project?.project_id, project?.external_scene, project?.rooms, project?.walls, project?.openings, project?.windows, project?.furniture_instances])
 
     const poly = room?.polygon_mm || [
       [0, 0],
@@ -770,7 +779,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
                 parentName: mesh.parent?.name || '',
                 dimensionsMm: [meshSize.x * 1000, meshSize.z * 1000, meshSize.y * 1000],
               })
-              if (stableId === selectedEntityId) {
+              if (!hasExternalScene && stableId === selectedEntityId) {
                 const highlight = new THREE.BoxHelper(mesh, 0x14b8a6)
                 highlight.name = 'EXTERNAL_SCENE_SELECTION'
                 sourceRoot.add(highlight)
@@ -792,95 +801,48 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             camera.far = Math.max(100, sourceSize.length() * 20)
             camera.updateProjectionMatrix()
             cameraControllerRef.current?.fit(sourceBounds)
-            onExternalSceneObjects?.(externalObjects)
 
-            const selectedExternalId = selectedEntityId?.startsWith('glb:') ? selectedEntityId : null
-            const selectedExternalMesh = selectedExternalId
-              ? objectRoots.get(selectedExternalId) as THREE.Mesh | undefined
-              : undefined
-            if (shouldReplayDelivery && selectedExternalMesh) {
-              const selectedBounds = new THREE.Box3().setFromObject(selectedExternalMesh)
-              const selectedSize = selectedBounds.getSize(new THREE.Vector3())
-              const selectedCenter = selectedBounds.getCenter(new THREE.Vector3())
-              const groundY = selectedBounds.min.y
-              const target = new THREE.Vector3(selectedCenter.x, groundY, selectedCenter.z)
-              const candidates = [
-                new THREE.Vector3(sourceBounds.min.x + 0.6, groundY, target.z),
-                new THREE.Vector3(sourceBounds.max.x - 0.6, groundY, target.z),
-                new THREE.Vector3(target.x, groundY, sourceBounds.min.z + 0.6),
-                new THREE.Vector3(target.x, groundY, sourceBounds.max.z - 0.6),
-              ]
-              const entry = candidates.sort((a, b) => a.distanceToSquared(target) - b.distanceToSquared(target))[0]
-              const deliveryObject = {
-                id: selectedExternalId!,
-                name: selectedExternalMesh.name || 'Đồ vật GLB',
-                width_mm: selectedSize.x * 1000,
-                depth_mm: selectedSize.z * 1000,
-                height_mm: selectedSize.y * 1000,
-              }
-              const worker = createDeliveryWorker(deliveryObject)
-              worker.root.position.copy(entry)
-              scene.add(worker.root)
-              selectedExternalMesh.visible = false
-              const selectionHighlight = sourceRoot.getObjectByName('EXTERNAL_SCENE_SELECTION')
-              if (selectionHighlight) selectionHighlight.visible = false
-              const marker = new THREE.Mesh(
-                new THREE.RingGeometry(0.28, 0.38, 32),
-                new THREE.MeshBasicMaterial({ color: 0x14b8a6, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
-              )
-              marker.rotation.x = -Math.PI / 2
-              marker.position.copy(target).setY(groundY + 0.018)
-              scene.add(marker)
-
-              // Construction playback keeps the whole imported scene visible.
-              cameraController.fit(sourceBounds)
-              deliveryPausedRef.current = false
-              setDeliveryPaused(false)
-              setDeliveryStatus({ active: true, phase: 'moving', progress: 0, itemName: deliveryObject.name })
-              let startedAt = performance.now()
-              const duration = Math.max(6500, entry.distanceTo(target) * 850)
-              const animateExternalDelivery = (now: number) => {
-                if (disposed) return
-                if (deliveryPausedRef.current) {
-                  startedAt += 16
-                  deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
-                  return
-                }
-                const progress = Math.min(1, (now - startedAt) / duration)
-                let phase: 'moving' | 'placing' | 'returning' | 'complete' = 'moving'
-                let moving = true
-                if (progress < 0.58) {
-                  const t = THREE.MathUtils.smoothstep(progress / 0.58, 0, 1)
-                  worker.root.position.lerpVectors(entry, target, t)
-                  worker.root.lookAt(target.x, groundY, target.z)
-                } else if (progress < 0.72) {
-                  phase = 'placing'
-                  moving = false
-                  worker.root.position.copy(target)
-                  if (progress > 0.66) {
-                    worker.cargo.visible = false
-                    selectedExternalMesh.visible = true
-                  }
-                } else if (progress < 1) {
-                  phase = 'returning'
-                  const t = THREE.MathUtils.smoothstep((progress - 0.72) / 0.28, 0, 1)
-                  worker.root.position.lerpVectors(target, entry, t)
-                  worker.root.lookAt(entry.x, groundY, entry.z)
-                  ;(marker.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 * (1 - t))
-                } else {
-                  phase = 'complete'
-                  moving = false
-                  selectedExternalMesh.visible = true
-                  scene.remove(worker.root, marker)
-                }
-                applyWalkCycle(worker, (now - startedAt) / 1000, moving)
-                const uiProgress = Math.round(progress * 100)
-                setDeliveryStatus({ active: phase !== 'complete', phase, progress: uiProgress, itemName: deliveryObject.name })
-                renderScene()
-                if (phase !== 'complete') deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
-              }
-              deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
+            const grouped = buildConstructionItems(sourceRoot, externalScene.sha256)
+            for (const f of furniture) {
+              const sourceGroup = furnitureGroups.get(f.id)
+              if (!sourceGroup) continue
+              sourceGroup.updateWorldMatrix(true, true)
+              const bounds = new THREE.Box3().setFromObject(sourceGroup)
+              const size = bounds.getSize(new THREE.Vector3())
+              const upper = (f.z_mm || 0) / 1000 > 1.5
+              const floorObject = sourceRoot.getObjectByName(upper ? 'Cube' : 'Plane')
+              const meshes: THREE.Mesh[] = []
+              sourceGroup.traverse(node => { if ((node as THREE.Mesh).isMesh) meshes.push(node as THREE.Mesh) })
+              grouped.push({
+                id: 'furniture:' + f.id, name: f.name || f.id, parentName: '',
+                floor: upper ? 2 : 1, groundY: floorObject ? new THREE.Box3().setFromObject(floorObject).max.y : 0,
+                dimensionsMm: [size.x*1000, size.z*1000, size.y*1000], bounds, meshes, sourceGroup,
+                floorBounds: floorObject ? new THREE.Box3().setFromObject(floorObject) : undefined,
+              })
             }
+            onExternalSceneObjects?.(grouped)
+            externalPlaybackCleanupRef.current = attachConstructionPlayback({
+              key: constructionKey(project.project_id, externalScene.sha256),
+              projectId: project.project_id, hash: externalScene.sha256,
+              items: grouped, scene, sourceBounds, render: renderScene,
+              fit: () => {
+                // Use the open front of this source scene, below the roof line,
+                // while retaining both floors in one frame.
+                const overview = new THREE.Box3()
+                for (const name of ['Plane', 'Plane003', 'node_0010', 'Cube010']) {
+                  const node = sourceRoot.getObjectByName(name)
+                  if (node) overview.union(new THREE.Box3().setFromObject(node))
+                }
+                const bounds = overview.isEmpty() ? sourceBounds : overview
+                camera.position.copy(bounds.getCenter(new THREE.Vector3())).add(new THREE.Vector3(0, 0.5, 18))
+                cameraController.fit(bounds)
+              },
+            })
+            tourRef.current = attachFirstPersonTour({
+              source:sourceRoot, scene, camera, canvas:renderer.domElement, controller:cameraController,
+              key:constructionKey(project.project_id, externalScene.sha256), render:renderScene,
+              onState:setTourState, onExit:()=>onCameraPresetChange?.('orbit'),
+            })
             renderScene()
           },
           undefined,
@@ -960,7 +922,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         : furniture[furniture.length - 1]
       const deliveryItem = shouldReplayDelivery ? replayItem : previousSnapshot.length ? changedFurniture.at(-1) : null
 
-      if (deliveryItem && viewMode !== '2d') {
+      if (deliveryItem && !hasExternalScene && viewMode !== '2d') {
         const targetGroup = furnitureGroups.get(deliveryItem.id)
         if (targetGroup) {
           const roomCenter = new THREE.Vector3(cx, 0, cz)
@@ -1074,6 +1036,10 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
       return () => {
         disposed = true
+        tourRef.current?.dispose()
+        tourRef.current = null
+        externalPlaybackCleanupRef.current?.()
+        externalPlaybackCleanupRef.current = null
         cameraControllerRef.current = null
         cutawayWallsRef.current = []
         resizeObs.disconnect()
@@ -1094,7 +1060,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         renderer.domElement.remove()
       }
     }, [
-      project,
+      sceneSignature,
       materialsDb,
       lightingPreset,
       lowSpecMode,
@@ -1103,9 +1069,17 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       pbrMaterials,
       ceilingVisible,
       ssaoEnabled,
-      deliveryReplayTrigger,
-      selectedEntityId,
+      hasExternalScene ? null : deliveryReplayTrigger,
+      hasExternalScene ? null : selectedEntityId,
     ])
+
+    useEffect(() => {
+      if (!hasExternalScene) return
+      window.dispatchEvent(new CustomEvent(commandEvent, { detail: {
+        key: constructionKey(project.project_id, externalScene.sha256),
+        action: 'select', id: selectedEntityId,
+      }}))
+    }, [selectedEntityId, hasExternalScene, project.project_id])
 
     useEffect(() => {
       const controller = cameraControllerRef.current
@@ -1469,6 +1443,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
               data-testid="viewport-3d-canvas"
               style={{ flex: '1 1 0', width: '100%', height: '100%', minWidth: 0, minHeight: 320, overflow: 'hidden' }}
             />
+            <TourControls state={tourState} onFloor={id=>tourRef.current?.setFloor(id)} onPlace={()=>tourRef.current?.place()} onWalk={()=>tourRef.current?.walk()} onExit={()=>tourRef.current?.exit()} />
           </div>
         )}
 

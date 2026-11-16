@@ -4,6 +4,7 @@
  * 3D Asset Switcher and 2D/3D Pascal Viewport. Color and material choices are
  * delegated to the AI Copilot proposal flow instead of manual preset pickers.
  */
+import { ConstructionHistoryPanel } from './ConstructionHistoryPanel'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
@@ -510,7 +511,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
         )}
 
         {/* 2. FURNITURE LIST IN SCENE (Section 11) */}
-        <div className="inspector-section" data-testid="construction-furniture-list">
+        {externalScene ? <ConstructionHistoryPanel projectId={project.project_id} hash={externalScene.sha256} selectedId={selectedEntityId} onSelect={onSelectEntity} /> : <div className="inspector-section" data-testid="construction-furniture-list">
           <button className="inspector-section-header" onClick={() => toggleSection('furnitureList')}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Layers size={13} style={{ color: 'var(--accent)' }} />
@@ -600,7 +601,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
               )}
             </div>
           )}
-        </div>
+        </div>}
 
       </div>
     </aside>

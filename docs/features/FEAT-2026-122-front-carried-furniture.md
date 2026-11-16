@@ -1,0 +1,7 @@
+# Carry furniture in front of the character
+
+Status: FROZEN | Version: 1.0 | Owner: Codex | User authorized: 2026-11-16
+
+Scope: put the carried source-object preview and fallback cargo on the worker's local positive Z side, the facing direction used by Object3D.lookAt. Preserve animation routes, placement, visitor, source transforms, speed, history and service configuration. Affected: constructionPlayback and furnitureDeliveryAnimation cargo offsets only. Acceptance: carried object is in front of the face during incoming travel and stays attached when turning; disappears at placement as before. Verify UI typecheck and focused existing playback/worker tests. Risk: confusion between camera -Z and object +Z forward; use worker-facing convention. Rollback: restore only these cargo offset hunks. Frozen before implementation.
+
+Verification 2026-11-16: changed source-object cargo local Z from -0.65 to +0.65 and fallback cargo from -0.58 to +0.58. Both remain children of the worker, so rotation carries them with the facing direction. Focused existing tests 8/8 PASS; TypeScript PASS; git diff --check PASS (existing line-ending notices only). No new visual browser capture in this pass. Final working-tree hashes: constructionPlayback.ts `A3D7D7AE14D39E81E27F064748976150DF1D4B56597E28AA352E58ED2701504E`; furnitureDeliveryAnimation.ts `E121FD3350B030A4B20947FAA3082E3851EEDB963A0C3E8E82EC12D99ADAF731`. Status: CLOSED (local), Codex. No commit created.

@@ -18,6 +18,7 @@ import { Link, useLocation, useNavigate } from "@/lib/router";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useAtelierStudio } from "./AtelierStudioContext";
+import { commandEvent, constructionKey } from "./constructionHistory";
 import { ObjectInspector } from "./ObjectInspector";
 import { AIDesignAssistant } from "./AIDesignAssistant";
 import { RevisionHistoryDrawer } from "./RevisionHistoryDrawer";
@@ -142,7 +143,7 @@ export function AtelierDesignStudioPage() {
           <button type="button" className={`seg-btn ${lightingPreset === "night" ? "active" : ""}`} onClick={() => setLightingPreset("night")}><Moon size={12} /> Đêm</button>
         </div>
         <div className="segmented-group" aria-label="Camera">
-          {(["orbit", "top", "walk"] as const).map((preset) => <button key={preset} type="button" disabled={viewMode === "2d"} className={`seg-btn ${viewMode !== "2d" && cameraPreset === preset ? "active" : ""}`} onClick={() => setCameraPreset(preset)}>{preset === "orbit" ? "Orbit" : preset === "top" ? "Top" : "Walk"}</button>)}
+          {(["orbit", "top", "walk"] as const).map((preset) => <button key={preset} type="button" disabled={viewMode === "2d"} className={`seg-btn ${viewMode !== "2d" && cameraPreset === preset ? "active" : ""}`} onClick={() => setCameraPreset(preset)}>{preset === "orbit" ? "Orbit" : preset === "top" ? "Top" : "Tham quan"}</button>)}
           <button type="button" disabled={viewMode === "2d"} className={`seg-btn ${cutawayEnabled ? "active" : ""}`} onClick={() => setCutawayEnabled((value) => !value)}>Cutaway</button>
         </div>
         <button type="button" className="btn btn-sm" onClick={() => setCameraCommand((current) => ({ id: current.id + 1, type: "fit" }))} title="Đưa toàn bộ phòng vào khung hình">Fit Room</button>
@@ -150,13 +151,18 @@ export function AtelierDesignStudioPage() {
         <button type="button" className="btn btn-sm" onClick={() => setCameraCommand((current) => ({ id: current.id + 1, type: "reset" }))} title="Khôi phục camera mặc định"><RotateCcw size={12} /> Reset</button>
         <button
           type="button"
-          className="btn btn-sm btn-soft"
+          className="btn btn-sm btn-primary"
           data-testid="replay-delivery"
           disabled={!selectedConstructionObject}
           onClick={() => {
             if (!selectedConstructionObject) return;
             if (viewMode === "2d") setViewMode("3d");
-            setDeliveryReplayTrigger((value) => value + 1);
+            if (project?.external_scene) {
+              window.dispatchEvent(new CustomEvent(commandEvent, { detail: {
+                key: constructionKey(project.project_id, project.external_scene.sha256),
+                action: "replay", ids: [selectedEntityId],
+              }}));
+            } else setDeliveryReplayTrigger((value) => value + 1);
           }}
           title="Phát mô phỏng nhân vật mang món đang chọn tới đúng vị trí"
         >
@@ -200,7 +206,7 @@ export function AtelierDesignStudioPage() {
         {project ? (
           <>
             <Suspense fallback={<div className="atelier-loading-state">Đang tải Pascal 3D BIM...</div>}>
-              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} deliveryReplayTrigger={deliveryReplayTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} onExternalSceneObjects={setExternalSceneObjects} theme={theme} />
+              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} onCameraPresetChange={setCameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} deliveryReplayTrigger={deliveryReplayTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} onExternalSceneObjects={setExternalSceneObjects} theme={theme} />
             </Suspense>
 
             {inspectorOpen ? (

@@ -79,11 +79,12 @@ function limb(material: THREE.Material, y: number): THREE.Group {
   return pivot
 }
 
-export function createDeliveryWorker(item: DeliveryFurniture): DeliveryWorker {
+export function createDeliveryWorker(item: DeliveryFurniture, appearance?: { id: string; shirtColor: string }): DeliveryWorker {
   const root = new THREE.Group()
   root.name = 'atelier-delivery-worker'
+  if (appearance) root.userData.workerId = appearance.id
 
-  const uniform = new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.7 })
+  const uniform = new THREE.MeshStandardMaterial({ color: appearance?.shirtColor || 0x0f766e, roughness: 0.7 })
   const trousers = new THREE.MeshStandardMaterial({ color: 0x243044, roughness: 0.82 })
   const skin = new THREE.MeshStandardMaterial({ color: 0xd6a074, roughness: 0.75 })
   const safety = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.55 })
@@ -113,14 +114,6 @@ export function createDeliveryWorker(item: DeliveryFurniture): DeliveryWorker {
   rightLeg.position.set(0.12, 0.72, 0)
   root.add(leftLeg, rightLeg)
 
-  const trolley = new THREE.Mesh(
-    new THREE.BoxGeometry(0.9, 0.08, 0.55),
-    new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.45, roughness: 0.4 }),
-  )
-  trolley.position.set(0, 0.32, -0.58)
-  trolley.castShadow = true
-  root.add(trolley)
-
   const cargoWidth = Math.min(0.82, Math.max(0.25, (item.width_mm || 700) / 1800))
   const cargoDepth = Math.min(0.5, Math.max(0.2, (item.depth_mm || 500) / 1800))
   const cargoHeight = Math.min(0.62, Math.max(0.2, (item.height_mm || 600) / 1800))
@@ -128,18 +121,18 @@ export function createDeliveryWorker(item: DeliveryFurniture): DeliveryWorker {
     new THREE.BoxGeometry(cargoWidth, cargoHeight, cargoDepth),
     new THREE.MeshStandardMaterial({ color: item.color_hex || '#d6b98c', roughness: 0.65 }),
   )
-  cargo.position.set(0, 0.4 + cargoHeight / 2, -0.58)
+  cargo.position.set(0, 0.4 + cargoHeight / 2, 0.58)
   cargo.castShadow = true
   root.add(cargo)
 
   return { root, leftArm, rightArm, leftLeg, rightLeg, cargo }
 }
 
-export function applyWalkCycle(worker: DeliveryWorker, distance: number, moving: boolean) {
+export function applyWalkCycle(worker: DeliveryWorker, distance: number, moving: boolean, floorY = 0) {
   const swing = moving ? Math.sin(distance * 10) * 0.62 : 0
   worker.leftArm.rotation.x = swing
   worker.rightArm.rotation.x = -swing
   worker.leftLeg.rotation.x = -swing
   worker.rightLeg.rotation.x = swing
-  worker.root.position.y = moving ? Math.abs(Math.sin(distance * 10)) * 0.025 : 0
+  worker.root.position.y = floorY + (moving ? Math.abs(Math.sin(distance * 10)) * 0.025 : 0)
 }

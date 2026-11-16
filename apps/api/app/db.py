@@ -699,8 +699,11 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
         "version": "1.0.0",
         "confidence_threshold": 0.85,
         "system_prompt": (
-            "Chụp phối cảnh từ góc camera khóa cố định và kiểm tra đối chiếu với hình học 3D gốc để không thêm/bớt cửa sổ hoặc đổi kết cấu."
+            "Áp dụng skill interior-photoreal-render (và bedroom-photoreal-render cho QA chuyên biệt). Chụp phối cảnh từ camera khóa cố định; "
+            "phòng ngủ mặc định dùng camera tầm mắt hướng về giường, không dùng top-down nếu người dùng không chọn. "
+            "Đối chiếu hình học 3D gốc để không thêm/bớt cửa sổ, đồ vật hoặc đổi kết cấu."
         ),
+        "skills": ["interior-photoreal-render", "bedroom-photoreal-render"],
         "allowed_mcp_tools": ["get_scene", "verify_scene", "view_scene", "export_glb"],
         "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
     },
@@ -832,7 +835,7 @@ DEFAULT_WORKFLOW: Dict[str, Any] = {
         {"id": "n9_shopping", "type": "catalog_match", "label": "9. Khớp SKU Catalog Việt Nam", "agent_id": "agent_shopping", "position": {"x": 1380, "y": 60}, "enabled": True, "status": "COMPLETED", "config": {"catalog": "catalog_vn.csv"}},
         {"id": "n10_cost", "type": "deterministic_cost", "label": "10. Tính Dự Toán BOQ Xác Định", "agent_id": "agent_cost", "position": {"x": 1380, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"vat_rate": 0.08}},
         {"id": "n11_approval", "type": "human_gate", "label": "11. Cổng Duyệt Phương Án & Giá", "agent_id": "agent_chief_architect", "position": {"x": 1650, "y": 140}, "enabled": True, "status": "COMPLETED", "config": {"gate_type": "PROPOSAL_APPROVAL"}},
-        {"id": "n12_render", "type": "render_gen", "label": "12. Kết Xuất Phối Cảnh Minh Họa", "agent_id": "agent_render", "position": {"x": 1920, "y": 60}, "enabled": True, "status": "READY", "config": {"lock_camera": True}},
+        {"id": "n12_render", "type": "render_gen", "label": "12. Kết Xuất Phối Cảnh Minh Họa", "agent_id": "agent_render", "position": {"x": 1920, "y": 60}, "enabled": True, "status": "READY", "config": {"lock_camera": True, "skill": "bedroom-photoreal-render", "default_camera": "eye_level"}},
         {"id": "n13_render_qa", "type": "render_qa", "label": "13. Kiểm Định Chống Sai Lệch 3D", "agent_id": "agent_qa", "position": {"x": 1920, "y": 230}, "enabled": True, "status": "READY", "config": {"strict_geometry": True}},
         {"id": "n14_export", "type": "cad_export", "label": "14. Xuất Hồ Sơ DXF / GLB / IFC / BOQ", "agent_id": "agent_geometry", "position": {"x": 2190, "y": 140}, "enabled": True, "status": "READY", "config": {"formats": ["dxf", "glb", "ifc", "dae", "xlsx"]}},
     ],

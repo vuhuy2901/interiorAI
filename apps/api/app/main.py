@@ -96,6 +96,7 @@ from app.services.research_agent import search_real_products, VERIFIED_VIETNAM_P
 from app.services.inventory_bom import generate_project_inventory_bom, export_inventory_bom_csv
 from app.services import ide_bridge_service
 from app.services.blender_mcp import (
+    RENDERS_DIR,
     build_and_verify_blender_scene,
     cancel_render_job,
     enqueue_render_job,
@@ -107,6 +108,7 @@ from app.services.blender_mcp import (
     public_render_job,
     retry_render_job,
 )
+from app.services.comfyui_enhancer import probe_comfyui
 from app.services.asset_pipeline import (
     ASSET_LIBRARY_DIR,
     ASSET_ROOT,
@@ -208,6 +210,8 @@ app = FastAPI(
 )
 
 app.include_router(scene_furniture_router)
+from app.construction_history import router as construction_history_router
+app.include_router(construction_history_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1914,7 +1918,10 @@ def api_get_render_capabilities():
     probe = probe_blender_capabilities()
     return {
         **probe,
-        "available": bool(probe.get("blender_available") or probe.get("ok")),
+        # A binary path alone does not mean the renderer is usable. Windows
+        # Application Control can allow discovery while blocking DLL loading.
+        "available": bool(probe.get("ok") and probe.get("cycles_available")),
+        "ai_enhancement": probe_comfyui(),
     }
 
 
@@ -1943,6 +1950,28 @@ def api_get_hdri_file(filename: str):
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Không tìm thấy file HDRI")
     return FileResponse(path=str(candidate), filename=safe, media_type="application/octet-stream")
+
+
+@app.get("/api/v1/scene-assets/{asset_id}/file")
+def api_get_whole_scene_asset(asset_id: str):
+    """Serve an audited whole-scene GLB without flattening its hierarchy/materials."""
+    safe_id = Path(asset_id).name
+    if safe_id != asset_id:
+        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
+    scene_root = ASSET_ROOT / "scenes" / safe_id
+    candidates = sorted(scene_root.glob("*.glb")) if scene_root.is_dir() else []
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
+    return FileResponse(path=str(candidates[0]), filename=candidates[0].name, media_type="model/gltf-binary")
+
+
+@app.get("/api/v1/scene-assets/{asset_id}/audit")
+def api_get_whole_scene_audit(asset_id: str):
+    safe_id = Path(asset_id).name
+    audit_path = ASSET_ROOT / "scenes" / safe_id / "audit.json"
+    if safe_id != asset_id or not audit_path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo scene")
+    return json.loads(audit_path.read_text(encoding="utf-8"))
 
 
 @app.post("/api/v1/projects/{project_id}/surfaces/{surface_key}/material-proposals")
@@ -2162,7 +2191,11 @@ def api_download_render_job_image(job_id: str):
 
 @app.get("/api/v1/renders/{filename}")
 def api_get_rendered_image(filename: str):
-    file_path = ROOT_DIR / "data" / "exports" / "renders" / filename
+    # blender_mcp lives one package level deeper than this module, so deriving
+    # the directory again from main.py pointed one level above the repository.
+    if Path(filename).name != filename or Path(filename).suffix.lower() != ".png":
+        raise HTTPException(status_code=400, detail="Tên tệp render không hợp lệ")
+    file_path = RENDERS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Không tìm thấy ảnh kết xuất")
     return FileResponse(path=str(file_path), filename=filename, media_type="image/png")

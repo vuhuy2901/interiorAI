@@ -2,6 +2,13 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 export type StudioCameraMode = 'orbit' | 'top' | 'walk'
+export interface WalkNavigation {
+  spawn: () => THREE.Vector3 | null
+  resolve: (current: THREE.Vector3, candidate: THREE.Vector3) => THREE.Vector3
+  onPosition: (position: THREE.Vector3) => void
+  onModeChange: (mode: StudioCameraMode) => void
+  onEscape: () => void
+}
 
 const DEFAULT_DIRECTION = new THREE.Vector3(1, 0.82, 1.08).normalize()
 const TOP_DIRECTION = new THREE.Vector3(0, 1, 0.0001).normalize()
@@ -46,6 +53,7 @@ export function createStudioCameraController(
   const right = new THREE.Vector3()
   const motion = new THREE.Vector3()
   let mode: StudioCameraMode = 'orbit'
+  let navigation: WalkNavigation | null = null
   let visible = true
   let animationFrame = 0
   let previousTime: number | null = null
@@ -64,6 +72,10 @@ export function createStudioCameraController(
     animationFrame = 0
     previousTime = null
   }
+  const syncWalkTarget = () => {
+    camera.getWorldDirection(forward)
+    controls.target.copy(camera.position).addScaledVector(forward,3)
+  }
   const animateWalk = (time: number) => {
     animationFrame = 0
     const delta = previousTime === null ? 0 : Math.min((time - previousTime) / 1000, 0.05)
@@ -76,13 +88,19 @@ export function createStudioCameraController(
     const lateral = Number(pressedKeys.has('KeyD')) - Number(pressedKeys.has('KeyA'))
     if (delta && (longitudinal || lateral)) {
       motion.copy(forward).multiplyScalar(longitudinal).addScaledVector(right, lateral).normalize()
-      camera.position.addScaledVector(motion, delta * 2.5)
+      const candidate = camera.position.clone().addScaledVector(motion, delta * 2)
+      camera.position.copy(navigation ? navigation.resolve(camera.position, candidate) : candidate)
+      navigation?.onPosition(camera.position)
+      syncWalkTarget()
       render()
     }
     if (pressedKeys.size) animationFrame = requestAnimationFrame(animateWalk)
     else previousTime = null
   }
   const onKeyDown = (event: KeyboardEvent) => {
+    if (visible && mode === 'walk' && event.code === 'Escape') {
+      event.preventDefault(); stopWalk(); navigation?.onEscape(); return
+    }
     if (!visible || mode !== 'walk' || !['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(event.code)) return
     event.preventDefault()
     pressedKeys.add(event.code)
@@ -107,11 +125,12 @@ export function createStudioCameraController(
     walkEuler.y -= dx * 0.004
     walkEuler.x = THREE.MathUtils.clamp(walkEuler.x - dy * 0.004, -1.54, 1.54)
     camera.quaternion.setFromEuler(walkEuler)
+    syncWalkTarget()
     render()
   }
   const onPointerEnd = (event: PointerEvent) => {
     if (pointer?.id !== event.pointerId) return
-    const shouldPick = event.type === 'pointerup' && pointer.button === 0 && pointer.distance < 5
+    const shouldPick = mode !== 'walk' && event.type === 'pointerup' && pointer.button === 0 && pointer.distance < 5
     pointer = null
     if (shouldPick) pick(event)
   }
@@ -133,6 +152,11 @@ export function createStudioCameraController(
     controls,
     render,
     fit,
+    getMode: () => mode,
+    setWalkNavigation(value: WalkNavigation | null) { navigation = value },
+    setWalkPosition(position: THREE.Vector3) {
+      stopWalk(); camera.position.copy(position); navigation?.onPosition(camera.position); syncWalkTarget(); render()
+    },
     setMode(nextMode: StudioCameraMode, reset = false) {
       if (mode === nextMode && !reset) return
       const previousMode = mode
@@ -143,12 +167,17 @@ export function createStudioCameraController(
       controls.mouseButtons.LEFT = mode === 'top' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
       if (mode === 'walk') {
         const center = sceneBounds.getCenter(new THREE.Vector3())
-        camera.position.set(center.x, Math.min(1.65, sceneBounds.max.y * 0.65), sceneBounds.max.z - 0.4)
+        const spawn = navigation?.spawn()
+        if (spawn) camera.position.copy(spawn)
+        else camera.position.set(center.x, Math.min(1.65, sceneBounds.max.y * 0.65), sceneBounds.max.z - 0.4)
         camera.lookAt(center.x, camera.position.y, sceneBounds.min.z)
+        navigation?.onPosition(camera.position)
         render()
       } else {
         fit(sceneBounds, nextMode === 'orbit' && (reset || previousMode === 'top') ? DEFAULT_DIRECTION : undefined)
       }
+      navigation?.onModeChange(mode)
+      if(mode==='walk'){syncWalkTarget();render()}
     },
     setVisible(nextVisible: boolean) {
       visible = nextVisible

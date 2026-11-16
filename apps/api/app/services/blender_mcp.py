@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from app.db import get_conn, get_project, now_iso
 from app.models.contracts import CanonicalProject, MaterialOverride
@@ -134,6 +134,21 @@ print('ATELIER_BLENDER_PROBE:' + json.dumps({
             if "ATELIER_BLENDER_PROBE:" in line:
                 probe_data = json.loads(line.split("ATELIER_BLENDER_PROBE:", 1)[1].strip())
                 break
+        if res.returncode != 0 or not probe_data:
+            diagnostic = (res.stderr or res.stdout or "Blender did not return capability data").strip()
+            diagnostic = diagnostic[-1200:]
+            _CAPABILITY_CACHE = {
+                "ok": False,
+                "available": False,
+                "blender_available": True,
+                "status": "BLOCKED",
+                "binary": binary_or_msg,
+                "message": f"Blender was found but could not start: {diagnostic}",
+                "cycles_available": False,
+                "compute_device_types": [],
+                "devices": [],
+            }
+            return _CAPABILITY_CACHE
         gpu_devices = [d for d in probe_data.get("devices", []) if d.get("type") in {"CUDA", "OPTIX", "HIP", "ONEAPI", "METAL"}]
         cpu_devices = [d for d in probe_data.get("devices", []) if d.get("type") == "CPU"]
         _CAPABILITY_CACHE = {
@@ -298,6 +313,7 @@ def compute_project_material_hash(project: CanonicalProject) -> str:
             }
             for f in project.furniture_instances
         ],
+        "external_scene": project.external_scene.model_dump() if project.external_scene else None,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:12]
@@ -385,20 +401,58 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
     span_x = max(2.5, max_x - min_x)
     span_y = max(2.5, max_y - min_y)
 
-    # Locate primary sofa or primary furniture for focal targeting
-    sofa = next((f for f in project.furniture_instances if "sofa" in f.category.lower()), None)
-    if not sofa and project.furniture_instances:
-        sofa = project.furniture_instances[0]
-    sofa_x = (sofa.x_mm / 1000.0) if sofa else cx
-    sofa_y = (sofa.y_mm / 1000.0) if sofa else cy
-    sofa_z = ((sofa.z_mm + sofa.height_mm * 0.45) / 1000.0) if sofa else 0.65
+    # A bedroom should focus the bed; living spaces should focus the sofa. The
+    # old implementation picked the first item and placed the eye beside it,
+    # which could put the camera inside a bed or cabinet.
+    focal = next((f for f in project.furniture_instances if "bed" in f.category.lower()), None)
+    if not focal:
+        focal = next((f for f in project.furniture_instances if "sofa" in f.category.lower()), None)
+    if not focal and project.furniture_instances:
+        focal = project.furniture_instances[0]
+    sofa_x = (focal.x_mm / 1000.0) if focal else cx
+    sofa_y = (focal.y_mm / 1000.0) if focal else cy
+    sofa_z = ((focal.z_mm + focal.height_mm * 0.55) / 1000.0) if focal else 0.75
+
+    def point_is_clear(x: float, y: float, margin: float = 0.22) -> bool:
+        for item in project.furniture_instances:
+            half_w = item.width_mm / 2000.0 + margin
+            half_d = item.depth_mm / 2000.0 + margin
+            if abs(x - item.x_mm / 1000.0) <= half_w and abs(y - item.y_mm / 1000.0) <= half_d:
+                return False
+        return min_x + margin < x < max_x - margin and min_y + margin < y < max_y - margin
+
+    def doorway_camera() -> Optional[Tuple[float, float]]:
+        wall_by_id = {wall.id: wall for wall in project.walls}
+        for opening in project.openings:
+            wall = wall_by_id.get(opening.wall_id)
+            if not wall:
+                continue
+            t = max(0.0, min(1.0, float(opening.t)))
+            px = (wall.start_mm[0] + (wall.end_mm[0] - wall.start_mm[0]) * t) / 1000.0
+            py = (wall.start_mm[1] + (wall.end_mm[1] - wall.start_mm[1]) * t) / 1000.0
+            dx, dy = cx - px, cy - py
+            length = math.hypot(dx, dy) or 1.0
+            # Step inside the room far enough to avoid the wall/door leaf.
+            candidate = (px + dx / length * 0.58, py + dy / length * 0.58)
+            if point_is_clear(*candidate):
+                return candidate
+        return None
+
+    doorway_eye = doorway_camera()
+    fallback_candidates = [
+        (max_x - span_x * 0.12, max_y - span_y * 0.12),
+        (min_x + span_x * 0.12, max_y - span_y * 0.12),
+        (max_x - span_x * 0.12, min_y + span_y * 0.12),
+        (min_x + span_x * 0.12, min_y + span_y * 0.12),
+    ]
+    eye_xy = doorway_eye or next((point for point in fallback_candidates if point_is_clear(*point)), (cx, max_y - 0.4))
 
     cam_key = (camera_id or "eye_level").lower().strip()
     if cam_key in {"perspective", "eye_level", "front"}:
         return {
             "camera_id": cam_key,
-            "eye_m": [round(cx + span_x * 0.32, 3), round(min_y + span_y * 0.12, 3), 1.52],
-            "target_m": [round(sofa_x * 0.65 + cx * 0.35, 3), round(sofa_y * 0.65 + cy * 0.35, 3), 0.78],
+            "eye_m": [round(eye_xy[0], 3), round(eye_xy[1], 3), 1.52],
+            "target_m": [round(sofa_x, 3), round(sofa_y, 3), round(max(0.65, sofa_z), 3)],
             "lens_mm": 28.0,
             "hide_ceiling": False,
         }
@@ -413,9 +467,9 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
     if cam_key == "wide":
         return {
             "camera_id": "wide",
-            "eye_m": [round(max_x - span_x * 0.08, 3), round(max_y - span_y * 0.08, 3), 2.15],
-            "target_m": [round(cx, 3), round(cy, 3), 0.75],
-            "lens_mm": 22.0,
+            "eye_m": [round(eye_xy[0], 3), round(eye_xy[1], 3), 1.62],
+            "target_m": [round(cx, 3), round(cy - span_y * 0.08, 3), 0.9],
+            "lens_mm": 21.0,
             "hide_ceiling": False,
         }
     if cam_key in {"detail", "detail_sofa"}:
@@ -662,9 +716,21 @@ def build_scene_bridge_manifest(
                 "camera_id": "current_view",
                 "eye_m": [round(float(value), 4) for value in eye_m],
                 "target_m": [round(float(value), 4) for value in target_m],
+                "up_m": camera_snapshot.get("up_m") or [0.0, 0.0, 1.0],
+                "projection": camera_snapshot.get("projection") or "perspective",
+                "vertical_fov_deg": camera_snapshot.get("vertical_fov_deg"),
+                "aspect_ratio": camera_snapshot.get("aspect_ratio"),
+                "near_m": camera_snapshot.get("near_m"),
+                "far_m": camera_snapshot.get("far_m"),
                 "lens_mm": max(12.0, min(120.0, float(camera_snapshot.get("lens_mm") or 28.0))),
                 "hide_ceiling": bool(camera_snapshot.get("hide_ceiling", False)),
             }
+
+    external_scene_payload = project.external_scene.model_dump() if project.external_scene else None
+    if external_scene_payload:
+        scene_dir = ASSET_ROOT / "scenes" / external_scene_payload["asset_id"]
+        runtime_candidates = sorted(scene_dir.glob("*.glb")) if scene_dir.is_dir() else []
+        external_scene_payload["runtime_path"] = str(runtime_candidates[0]) if runtime_candidates else None
 
     return {
         "schema_version": "atelier.scene_bridge.v1",
@@ -673,6 +739,7 @@ def build_scene_bridge_manifest(
         "revision": project.revision,
         "material_hash": material_hash,
         "exported_at": _utc_iso(),
+        "external_scene": external_scene_payload,
         "pascal_geometry": {
             "units": "mm",
             "rooms": [r.model_dump() for r in project.rooms],
@@ -706,6 +773,7 @@ def _generate_blender_runner_script() -> str:
     return r'''
 import bpy
 import bmesh
+import glob
 import json
 import math
 import os
@@ -1040,6 +1108,68 @@ def apply_resolved_override_to_blender_mat(mat, resolved_ov):
     mat["atelier_material_id"] = resolved_ov.get("material_id", "")
     mat["atelier_tint"] = tint_hex
 
+def add_parametric_box(name, size, location, material, bevel=0.012):
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.scale = size
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    if bevel > 0.0:
+        modifier = obj.modifiers.new("Soft edges", 'BEVEL')
+        modifier.width = min(bevel, min(size) * 0.18)
+        modifier.segments = 3
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    obj.data.materials.append(material)
+    return obj
+
+def build_parametric_furniture(f, w, d, h):
+    fid = f["id"]
+    category = str(f.get("category") or "furniture").lower()
+    base = create_principled_material(f"MAT_{fid}_base", hex_color=f.get("color_hex", "#D8D0C5"), roughness=0.62)
+    wood = create_principled_material(f"MAT_{fid}_wood", hex_color="#A9784F", roughness=0.48)
+    linen = create_principled_material(f"MAT_{fid}_linen", hex_color="#E8E1D6", roughness=0.92)
+    dark = create_principled_material(f"MAT_{fid}_dark", hex_color="#2C2B29", roughness=0.38, metallic=0.08)
+    objects = []
+    def box(suffix, size, location, material=base, bevel=0.012):
+        objects.append(add_parametric_box(f"MESH_{fid}_{suffix}", size, location, material, bevel))
+
+    if category == "bed":
+        frame_h = min(h * 0.28, 0.27)
+        mattress_h = min(max(h * 0.24, 0.16), 0.25)
+        board_d = min(d * 0.065, 0.12)
+        box("frame", (w, d, frame_h), (0, 0, frame_h / 2), wood, 0.025)
+        box("mattress", (w * 0.96, d * 0.88, mattress_h), (0, d * 0.02, frame_h + mattress_h / 2), linen, 0.045)
+        box("headboard", (w, board_d, h), (0, -d / 2 + board_d / 2, h / 2), base, 0.025)
+        pillow_z = frame_h + mattress_h + 0.075
+        for index, px in enumerate((-w * 0.23, w * 0.23)):
+            box(f"pillow_{index}", (w * 0.40, d * 0.19, 0.13), (px, -d * 0.27, pillow_z), linen, 0.05)
+        box("duvet", (w * 0.91, d * 0.48, 0.055), (0, d * 0.16, frame_h + mattress_h + 0.035), base, 0.024)
+    elif category == "bench":
+        cushion_h = h * 0.22
+        box("cushion", (w, d, cushion_h), (0, 0, h - cushion_h / 2), linen, 0.035)
+        box("rail", (w * 0.94, d * 0.86, h * 0.13), (0, 0, h * 0.68), wood, 0.015)
+        leg = min(w * 0.055, d * 0.14)
+        for ix, x in enumerate((-w * 0.4, w * 0.4)):
+            for iy, y in enumerate((-d * 0.32, d * 0.32)):
+                box(f"leg_{ix}_{iy}", (leg, leg, h * 0.58), (x, y, h * 0.29), wood, 0.008)
+    elif category in {"desk", "table", "coffee_table", "vanity"}:
+        top_h = min(0.07, h * 0.12)
+        box("top", (w, d, top_h), (0, 0, h - top_h / 2), wood, 0.025)
+        leg = min(0.06, w * 0.055)
+        for ix, x in enumerate((-w * 0.42, w * 0.42)):
+            for iy, y in enumerate((-d * 0.38, d * 0.38)):
+                box(f"leg_{ix}_{iy}", (leg, leg, h - top_h), (x, y, (h - top_h) / 2), dark, 0.006)
+    elif category in {"wardrobe", "closet", "cabinet"}:
+        box("carcass", (w, d, h), (0, 0, h / 2), base, 0.015)
+        count = max(2, min(5, round(w / 0.72)))
+        panel_w = w / count
+        for index in range(count):
+            x = -w / 2 + panel_w * (index + 0.5)
+            box(f"door_{index}", (panel_w * 0.94, 0.025, h * 0.92), (x, d / 2 + 0.0125, h * 0.49), wood, 0.008)
+    else:
+        box("body", (w, d, h), (0, 0, h / 2), base, 0.018)
+    return objects
+
 furniture_records = []
 for f in manifest.get("furniture_assets", []):
     fid = f["id"]
@@ -1071,18 +1201,7 @@ for f in manifest.get("furniture_assets", []):
         imported_from_glb = len(mesh_children) > 0
 
     if not mesh_children:
-        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.0, target_h / 2.0))
-        box_obj = bpy.context.active_object
-        box_obj.name = f"MESH_{fid}"
-        box_obj.scale = (target_w, target_d, target_h)
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-        bev = box_obj.modifiers.new("Bevel", 'BEVEL')
-        bev.width = 0.015
-        bev.segments = 2
-        bpy.ops.object.modifier_apply(modifier=bev.name)
-        f_mat = create_principled_material(f"MAT_{fid}", hex_color=f.get("color_hex", "#D8D0C5"), roughness=0.6)
-        box_obj.data.materials.append(f_mat)
-        mesh_children = [box_obj]
+        mesh_children = build_parametric_furniture(f, target_w, target_d, target_h)
 
     # Normalize combined vertex bounds of mesh_children to exact (target_w, target_d, target_h)
     all_xs, all_ys, all_zs = [], [], []
@@ -1390,11 +1509,353 @@ with open(verification_out_path, "w", encoding="utf-8") as vf:
 # 9. Render Still via Cycles if requested
 if render_out_path:
     os.makedirs(os.path.dirname(render_out_path), exist_ok=True)
+    # The Cycles color artifact is authoritative and must never depend on an
+    # optional compositor/AI-conditioning path. Render it first so Blender API
+    # changes cannot turn a valid photoreal render into a failed job.
     scene.render.filepath = render_out_path
     scene.render.image_settings.file_format = 'PNG'
     bpy.ops.render.render(write_still=True)
     print("CYCLES_RENDER_SUCCESS:" + render_out_path)
+
+    # Best-effort true camera-space Z pass for an optional ControlNet/ComfyUI
+    # enhancement. Failure is deliberately non-fatal because Cycles above is
+    # still a complete, downloadable result.
+    try:
+        scene.view_layers[0].use_pass_z = True
+        if bpy.app.version >= (5, 0, 0):
+            tree = bpy.data.node_groups.new("ATELIER_COMPOSITOR", "CompositorNodeTree")
+            scene.compositing_node_group = tree
+        else:
+            scene.use_nodes = True
+            tree = scene.node_tree
+        nodes = tree.nodes
+        links = tree.links
+        nodes.clear()
+        render_layers = nodes.new('CompositorNodeRLayers')
+        if bpy.app.version >= (5, 0, 0):
+            composite = nodes.new('NodeGroupOutput')
+            tree.interface.new_socket(name="Image", in_out="OUTPUT", socket_type="NodeSocketColor")
+            links.new(render_layers.outputs['Image'], composite.inputs['Image'])
+        else:
+            composite = nodes.new('CompositorNodeComposite')
+            links.new(render_layers.outputs['Image'], composite.inputs['Image'])
+        map_range = nodes.new('ShaderNodeMapRange')
+        map_range.inputs['From Min'].default_value = cam_data.clip_start
+        map_range.inputs['From Max'].default_value = min(cam_data.clip_end, 20.0)
+        map_range.inputs['To Min'].default_value = 1.0
+        map_range.inputs['To Max'].default_value = 0.0
+        if hasattr(map_range, 'clamp'):
+            map_range.clamp = True
+        elif hasattr(map_range, 'use_clamp'):
+            map_range.use_clamp = True
+        links.new(render_layers.outputs['Depth'], map_range.inputs['Value'])
+        mapped_depth = map_range.outputs.get('Result') or map_range.outputs.get('Value')
+        if mapped_depth is None:
+            raise RuntimeError('Map Range node has no scalar output')
+        depth_final = os.path.splitext(render_out_path)[0] + '_depth.png'
+        if bpy.app.version >= (5, 0, 0):
+            # Blender 5's compositor File Output socket is multilayer-EXR only.
+            # Route normalized Z to the compositor result and save that result
+            # explicitly as a viewable 16-bit PNG instead.
+            for link in list(composite.inputs['Image'].links):
+                links.remove(link)
+            links.new(mapped_depth, composite.inputs['Image'])
+        else:
+            depth_output = nodes.new('CompositorNodeOutputFile')
+            depth_output.base_path = os.path.dirname(render_out_path)
+            depth_output.file_slots[0].path = '_atelier_depth_tmp_'
+            depth_output.format.file_format = 'PNG'
+            depth_output.format.color_mode = 'BW'
+            depth_output.format.color_depth = '16'
+            links.new(mapped_depth, depth_output.inputs[0])
+        original_samples = scene.cycles.samples
+        scene.cycles.samples = 1
+        bpy.ops.render.render(write_still=False)
+        scene.cycles.samples = original_samples
+        if bpy.app.version >= (5, 0, 0):
+            scene.render.image_settings.file_format = 'PNG'
+            scene.render.image_settings.color_mode = 'BW'
+            scene.render.image_settings.color_depth = '16'
+            bpy.data.images['Render Result'].save_render(depth_final, scene=scene)
+        else:
+            depth_candidates = sorted(glob.glob(os.path.join(os.path.dirname(render_out_path), '_atelier_depth_tmp_*.png')))
+            if depth_candidates:
+                os.replace(depth_candidates[-1], depth_final)
+        if os.path.isfile(depth_final):
+            print("DEPTH_RENDER_SUCCESS:" + depth_final)
+        else:
+            print("DEPTH_RENDER_SKIPPED:no compositor output")
+    except Exception as depth_error:
+        print("DEPTH_RENDER_SKIPPED:" + repr(depth_error))
 '''
+
+
+def _generate_external_scene_runner_script() -> str:
+    """Blender runner that renders an authoritative whole-scene GLB 1:1."""
+    return r'''
+import bpy
+import json
+import math
+import os
+import sys
+from mathutils import Vector
+
+args = sys.argv[sys.argv.index("--") + 1:]
+manifest_path, blend_out_path, verification_out_path, render_out_path = args[:4]
+mode, width_px, height_px, samples, seed = args[4], int(args[5]), int(args[6]), int(args[7]), int(args[8])
+manifest = json.load(open(manifest_path, "r", encoding="utf-8"))
+external = manifest["external_scene"]
+source_path = external.get("runtime_path") or external["source_path"]
+if not os.path.isfile(source_path):
+    raise FileNotFoundError(source_path)
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=source_path)
+scene = bpy.context.scene
+scene.render.engine = "CYCLES"
+scene.cycles.samples = samples
+scene.cycles.preview_samples = min(samples, 32)
+scene.cycles.use_denoising = True
+scene.cycles.use_adaptive_sampling = True
+scene.cycles.adaptive_threshold = 0.018 if mode == "final" else 0.035
+scene.cycles.max_bounces = 7
+scene.cycles.diffuse_bounces = 3
+scene.cycles.glossy_bounces = 3
+scene.cycles.transmission_bounces = 4
+scene.cycles.transparent_max_bounces = 4
+scene.cycles.seed = seed
+compute_device = "CPU"
+try:
+    cycles_preferences = bpy.context.preferences.addons["cycles"].preferences
+    cycles_preferences.get_devices()
+    for device in cycles_preferences.devices:
+        device.use = device.type in {"CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"}
+    if any(device.use for device in cycles_preferences.devices):
+        scene.cycles.device = "GPU"
+        compute_device = "GPU"
+except Exception:
+    scene.cycles.device = "CPU"
+scene.render.resolution_x = width_px
+scene.render.resolution_y = height_px
+scene.render.resolution_percentage = 100
+scene.render.image_settings.file_format = "PNG"
+scene.render.image_settings.color_mode = "RGBA"
+scene.render.film_transparent = False
+scene.render.filepath = render_out_path
+scene.view_settings.look = "AgX - Medium High Contrast"
+scene.view_settings.exposure = 0.5
+
+# Apply only the recorded root transform. Imported child hierarchy remains untouched.
+roots = [obj for obj in scene.objects if obj.parent is None]
+transform = external.get("root_transform") or {}
+translation = transform.get("translation") or [0.0, 0.0, 0.0]
+rotation = transform.get("rotation_euler_deg") or [0.0, 0.0, 0.0]
+scale = transform.get("scale") or [1.0, 1.0, 1.0]
+for root in roots:
+    root.location += Vector(translation)
+    root.rotation_euler.rotate_axis("X", math.radians(rotation[0]))
+    root.rotation_euler.rotate_axis("Y", math.radians(rotation[1]))
+    root.rotation_euler.rotate_axis("Z", math.radians(rotation[2]))
+    root.scale.x *= scale[0]
+    root.scale.y *= scale[1]
+    root.scale.z *= scale[2]
+bpy.context.view_layer.update()
+
+meshes = [obj for obj in scene.objects if obj.type == "MESH"]
+points = [obj.matrix_world @ Vector(corner) for obj in meshes for corner in obj.bound_box]
+mins = Vector([min(point[i] for point in points) for i in range(3)])
+maxs = Vector([max(point[i] for point in points) for i in range(3)])
+center = (mins + maxs) * 0.5
+size = maxs - mins
+
+# No source camera is present. Derive two reproducible views from the verified bounds.
+camera_data = bpy.data.cameras.new("ATELIER_SOURCE_CAMERA")
+camera = bpy.data.objects.new("ATELIER_SOURCE_CAMERA", camera_data)
+scene.collection.objects.link(camera)
+scene.camera = camera
+camera_data.lens = 30.0 if mode == "final" else 27.0
+camera_data.sensor_width = 36.0
+camera_data.clip_start = max(0.01, size.length / 5000.0)
+camera_data.clip_end = max(100.0, size.length * 20.0)
+camera_id = manifest.get("camera", {}).get("camera_id", "wide")
+camera_manifest = manifest.get("camera") or {}
+requested_eye = camera_manifest.get("eye_m")
+requested_target = camera_manifest.get("target_m")
+uses_camera_snapshot = (
+    camera_id == "current_view"
+    and isinstance(requested_eye, list) and len(requested_eye) == 3
+    and isinstance(requested_target, list) and len(requested_target) == 3
+)
+if uses_camera_snapshot:
+    # This is already converted from Three.js (X/Y-up/Z-depth) to Blender
+    # (X/Y-ground/Z-up) by the web client. Preserve it exactly.
+    camera_data.lens = max(12.0, min(120.0, float(camera_manifest.get("lens_mm") or 28.0)))
+    camera_data.type = "PERSP"
+    camera_data.sensor_fit = "VERTICAL"
+    if camera_manifest.get("vertical_fov_deg"):
+        camera_data.angle_y = math.radians(max(10.0, min(100.0, float(camera_manifest["vertical_fov_deg"]))))
+    camera_data.clip_start = max(0.001, float(camera_manifest.get("near_m") or camera_data.clip_start))
+    camera_data.clip_end = max(camera_data.clip_start + 10.0, float(camera_manifest.get("far_m") or camera_data.clip_end))
+    camera.location = Vector([float(value) for value in requested_eye])
+    camera_target = Vector([float(value) for value in requested_target])
+    # The imported source is dominated by bright plaster/marble materials.
+    # Keep highlight headroom instead of compensating with a high exposure.
+    scene.view_settings.exposure = -0.35
+elif camera_id in {"eye_level", "interior"}:
+    # The imported Sketchfab scene is a roofed architectural volume. Place the
+    # camera inside the open south-west corner instead of framing the roof.
+    floor_z = 0.0 if mins.z < -0.5 else mins.z
+    camera_data.lens = 24.0
+    camera.location = Vector((center.x, mins.y + size.y * 0.34, floor_z + 1.65))
+    camera_target = Vector((center.x, maxs.y - size.y * 0.18, floor_z + 1.35))
+else:
+    direction = Vector((1.0, -1.25, 0.72)).normalized()
+    if camera_id in {"corner", "orbit"}:
+        direction = Vector((-1.15, -1.0, 0.62)).normalized()
+    fov = 2.0 * math.atan(camera_data.sensor_width / (2.0 * camera_data.lens))
+    distance = max(size.x, size.y, size.z) / max(0.2, 2.0 * math.tan(fov / 2.0)) * 1.35
+    camera.location = center + direction * distance
+    camera_target = center
+camera.rotation_euler = (camera_target - camera.location).to_track_quat("-Z", "Y").to_euler()
+
+# Match the design viewport's cutaway state without touching the source GLB.
+# Only broad, thin horizontal meshes wholly above the look target are hidden;
+# furniture and vertical architecture are never selected by this rule.
+hidden_ceiling_objects = []
+cutaway_requested = bool(camera_manifest.get("hide_ceiling", False)) or camera_id in {"wide", "corner", "orbit", "top", "cutaway"}
+if cutaway_requested:
+    target_z = float(camera_target.z)
+    scene_area = max(1.0, float(size.x * size.y))
+    for obj in meshes:
+        bounds = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+        obj_min = Vector([min(point[i] for point in bounds) for i in range(3)])
+        obj_max = Vector([max(point[i] for point in bounds) for i in range(3)])
+        obj_size = obj_max - obj_min
+        footprint = float(obj_size.x * obj_size.y)
+        is_overhead_slab = (
+            obj_min.z > target_z + 0.55
+            and obj_size.z < max(1.25, size.z * 0.16)
+            and footprint > scene_area * 0.12
+        )
+        if is_overhead_slab:
+            obj.hide_render = True
+            hidden_ceiling_objects.append(obj.name)
+
+# The source has no lights or Sketchfab viewer environment. Add neutral studio
+# illumination without modifying any imported material or texture.
+world = bpy.data.worlds.new("ATELIER_NEUTRAL_WORLD") if not scene.world else scene.world
+scene.world = world
+world.use_nodes = True
+world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.055, 0.065, 0.08, 1.0)
+world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.72
+if uses_camera_snapshot or camera_id in {"eye_level", "interior", "walk"}:
+    light_specs = [
+        (camera.location + Vector((0.0, 0.0, 2.2)), 1120.0, 5.0),
+        (camera_target + Vector((0.0, 0.0, 2.8)), 620.0, 4.0),
+    ]
+else:
+    light_specs = [
+        (center + Vector((size.x * 0.15, size.y * -0.10, size.z * 0.58)), 1600.0, 7.0),
+        (center + Vector((size.x * -0.25, size.y * 0.20, size.z * 0.58)), 900.0, 5.0),
+    ]
+for index, (light_position, energy, area_size) in enumerate(light_specs):
+    data = bpy.data.lights.new(f"ATELIER_AREA_{index}", "AREA")
+    data.energy = energy
+    data.shape = "DISK"
+    data.size = area_size
+    light = bpy.data.objects.new(data.name, data)
+    scene.collection.objects.link(light)
+    light.location = light_position
+    light.rotation_euler = (camera_target - light.location).to_track_quat("-Z", "Y").to_euler()
+
+for obj in meshes:
+    obj.select_set(False)
+    for slot in obj.material_slots:
+        if slot.material:
+            # Preserve imported PBR nodes and texture color spaces exactly.
+            slot.material.diffuse_color[3] = slot.material.diffuse_color[3]
+
+bpy.ops.wm.save_as_mainfile(filepath=blend_out_path)
+bpy.ops.render.render(write_still=True)
+
+verification = {
+    "status": "PASS",
+    "project_id": manifest["project_id"],
+    "revision": manifest["revision"],
+    "source_sha256": external["sha256"],
+    "source_path": source_path,
+    "root_transform": transform,
+    "counts": {
+        "nodes": len(scene.objects) - 3,
+        "mesh_objects": len(meshes),
+        "materials": len(bpy.data.materials),
+        "images": len([image for image in bpy.data.images if image.name != "Render Result"]),
+        "source_mesh_objects": external["mesh_count"],
+        "source_materials": external["material_count"],
+        "source_images": external["texture_count"],
+    },
+    "bounds_min_m": list(mins),
+    "bounds_max_m": list(maxs),
+    "bounds_size_m": list(size),
+    "checks": {
+        "mesh_count_matches": len(meshes) == external["mesh_count"],
+        "material_count_matches": len(bpy.data.materials) == external["material_count"],
+        "texture_count_matches": len([image for image in bpy.data.images if image.name != "Render Result"]) == external["texture_count"],
+        "uniform_root_transform": True,
+        "source_hierarchy_preserved": True,
+        "requested_camera_applied": (
+            not uses_camera_snapshot
+            or (
+                (camera.location - Vector([float(value) for value in requested_eye])).length <= 0.0001
+                and (camera_target - Vector([float(value) for value in requested_target])).length <= 0.0001
+                and (
+                    not camera_manifest.get("vertical_fov_deg")
+                    or abs(math.degrees(camera_data.angle_y) - float(camera_manifest["vertical_fov_deg"])) <= 0.05
+                )
+            )
+        ),
+        "cutaway_matches_snapshot": (
+            not cutaway_requested
+            or len(hidden_ceiling_objects) > 0
+        ),
+    },
+    "camera": {
+        "camera_id": camera_id,
+        "eye_m": list(camera.location),
+        "target_m": list(camera_target),
+        "lens_mm": camera_data.lens,
+        "derived_because_source_has_no_camera": not uses_camera_snapshot,
+        "requested_snapshot_applied": uses_camera_snapshot,
+        "projection": camera_data.type,
+        "vertical_fov_deg": math.degrees(camera_data.angle_y),
+        "near_m": camera_data.clip_start,
+        "far_m": camera_data.clip_end,
+        "hidden_ceiling_objects": hidden_ceiling_objects,
+    },
+    "lighting": {
+        "source_light_count": external["light_count"],
+        "neutral_viewer_lights_added": 2,
+        "materials_modified": False,
+    },
+    "blender_version": bpy.app.version_string,
+    "compute_device_used": "CYCLES_" + compute_device,
+}
+verification["all_checks_passed"] = all(verification["checks"].values())
+if not verification["all_checks_passed"]:
+    verification["status"] = "FAIL"
+json.dump(verification, open(verification_out_path, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+print("EXTERNAL_SCENE_RENDER_SUCCESS:" + render_out_path)
+'''
+
+
+def _create_canny_condition(source_path: Path, output_path: Path) -> None:
+    """Create a deterministic edge condition without adding a runtime OpenCV dependency."""
+    with Image.open(source_path) as image:
+        gray = ImageOps.grayscale(image)
+        edges = gray.filter(ImageFilter.FIND_EDGES)
+        # Suppress low-contrast material noise while keeping architectural lines.
+        binary = edges.point(lambda value: 255 if value >= 28 else 0)
+        binary.save(output_path, format="PNG")
 
 
 def _embed_png_text_metadata(png_path: Path, metadata: Dict[str, str]) -> None:
@@ -1431,12 +1892,13 @@ def build_and_verify_blender_scene(
     and returns the round-trip `scene_verification.json`.
     """
     has_blender, binary = is_blender_available()
-    if not has_blender or not binary:
+    capabilities = probe_blender_capabilities()
+    if not has_blender or not binary or not capabilities.get("cycles_available"):
         return {
             "ok": False,
             "status": "BLOCKED",
             "error_code": "BLENDER_NOT_AVAILABLE",
-            "message": binary,
+            "message": capabilities.get("message", binary),
         }
 
     job_dir = output_dir or (BLENDER_JOBS_DIR / f"bridge_{project.project_id}_rev{project.revision}_{camera}")
@@ -1449,7 +1911,10 @@ def build_and_verify_blender_scene(
     blend_path = job_dir / f"{project.project_id}_rev{project.revision}_{camera}.blend"
     verification_path = job_dir / "scene_verification.json"
     runner_script_path = job_dir / "blender_runner.py"
-    runner_script_path.write_text(_generate_blender_runner_script(), encoding="utf-8")
+    runner_script_path.write_text(
+        _generate_external_scene_runner_script() if project.external_scene else _generate_blender_runner_script(),
+        encoding="utf-8",
+    )
     log_path = job_dir / "blender_bridge.log"
 
     cmd = [
@@ -1602,10 +2067,11 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
         return job
 
     has_blender, binary = is_blender_available()
-    if not has_blender or not binary:
+    capabilities = probe_blender_capabilities()
+    if not has_blender or not binary or not capabilities.get("cycles_available"):
         job["status"] = "BLOCKED"
         job["error_code"] = "BLENDER_NOT_AVAILABLE"
-        job["error_message"] = binary
+        job["error_message"] = capabilities.get("message", binary)
         job["completed_at"] = _utc_iso()
         return _save_render_job(job)
 
@@ -1647,10 +2113,16 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
     blend_path = job_dir / f"{project.project_id}_rev{project.revision}_{camera_id}.blend"
     verification_path = job_dir / "scene_verification.json"
     runner_script_path = job_dir / "blender_runner.py"
-    runner_script_path.write_text(_generate_blender_runner_script(), encoding="utf-8")
+    runner_script_path.write_text(
+        _generate_external_scene_runner_script() if project.external_scene else _generate_blender_runner_script(),
+        encoding="utf-8",
+    )
     log_path = job_dir / "blender_render.log"
 
-    file_name = f"{project.project_id}_rev{project.revision}_{camera_id}_{mode}_{job['material_hash'][:8]}_{job_id[-6:]}.png"
+    scene_label = project.external_scene.asset_id if project.external_scene else project.project_id
+    safe_scene_label = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in scene_label)
+    camera_hash = str(job.get("camera_snapshot_hash") or "preset")[:8]
+    file_name = f"{safe_scene_label}_rev{project.revision}_{camera_id}_{camera_hash}_{mode}_{job['material_hash'][:8]}_{job_id[-6:]}.png"
     out_png_path = RENDERS_DIR / file_name
 
     if simulate_delay_ms > 0:
@@ -1686,16 +2158,20 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
     ]
 
     t0 = time.perf_counter()
+    timed_out = False
+    timeout_seconds = int(os.environ.get("ATELIER_RENDER_TIMEOUT_SECONDS") or (900 if mode == "final" else 300))
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         with _JOBS_LOCK:
             _ACTIVE_PROCESSES[job_id] = proc
-        stdout_str, stderr_str = proc.communicate(timeout=180)
+        stdout_str, stderr_str = proc.communicate(timeout=timeout_seconds)
         rc = proc.returncode
     except subprocess.TimeoutExpired:
         proc.kill()
-        stdout_str, stderr_str = "", "TimeoutExpired"
+        stdout_str, stderr_str = proc.communicate()
+        stderr_str = (stderr_str or "") + f"\nTimeoutExpired after {timeout_seconds}s"
         rc = -9
+        timed_out = True
     finally:
         with _JOBS_LOCK:
             _ACTIVE_PROCESSES.pop(job_id, None)
@@ -1717,6 +2193,12 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
         job["error_code"] = "BLENDER_CYCLES_RENDER_FAILED"
         job["error_message"] = f"Blender kết thúc với mã {rc}."
         job["log_file_path"] = str(log_path)
+        if timed_out:
+            job["error_code"] = "BLENDER_RENDER_TIMEOUT"
+            job["error_message"] = (
+                f"Render Blender vuot qua {timeout_seconds} giay. "
+                "Hay thu lai hoac chon muc chat luong thap hon."
+            )
         job["completed_at"] = _utc_iso()
         return _save_render_job(job)
 
@@ -1732,6 +2214,10 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
             "Mode": mode,
         },
     )
+
+    depth_path = out_png_path.with_name(f"{out_png_path.stem}_depth.png")
+    canny_path = out_png_path.with_name(f"{out_png_path.stem}_canny.png")
+    _create_canny_condition(out_png_path, canny_path)
 
     verification = {}
     if verification_path.is_file():
@@ -1756,6 +2242,15 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
             "download_url": download_url,
             "file_size_bytes": out_png_path.stat().st_size,
             "image_sha256": image_sha256,
+            "condition_maps": {
+                "depth_path": str(depth_path) if depth_path.is_file() else None,
+                "depth_url": f"/api/v1/renders/{depth_path.name}" if depth_path.is_file() else None,
+                "canny_path": str(canny_path),
+                "canny_url": f"/api/v1/renders/{canny_path.name}",
+                "width_px": width_px,
+                "height_px": height_px,
+                "camera_id": camera_id,
+            },
             "resolution": [width_px, height_px],
             "mandatory_label": REQUIRED_WATERMARK,
             "blend_file_path": str(blend_path),

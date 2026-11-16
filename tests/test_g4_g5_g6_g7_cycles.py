@@ -180,7 +180,9 @@ def test_g5_scene_bridge_and_g6_cycles_render_pipeline():
             cap = r_cap.json()
             assert cap["available"] is True
             assert cap["cycles_available"] is True
-            assert "4.2.3" in cap["version"]
+            # The renderer supports current Blender/Cycles releases; do not pin
+            # runtime verification to the historical 4.2.3 installation.
+            assert cap["version"] and cap["version"] != "unknown"
 
             # 2. Verify G5 Scene Bridge round-trip in Blender
             r_bridge = client.post(f"/api/v1/projects/{proj.project_id}/scene-bridge/verify")
