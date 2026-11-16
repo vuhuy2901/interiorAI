@@ -1,0 +1,145 @@
+export const DEFAULT_CLAUDE_LOCAL_MODEL = "claude-opus-5-5";
+/** Resolve Paperclip's default without replacing an explicit provider model. */
+export function resolveClaudeModel(model, env = {}) {
+	const configured = typeof model === "string" ? model.trim() : "";
+	if (configured) return configured;
+	const environmentModel = typeof env.ANTHROPIC_MODEL === "string" ? env.ANTHROPIC_MODEL.trim() : "";
+	if (environmentModel) return environmentModel;
+	// These providers use their own model IDs and region-specific defaults.
+	const providerFlag = (value) => value === "1" || value === "true";
+	if (providerFlag(env.CLAUDE_CODE_USE_BEDROCK) || providerFlag(env.CLAUDE_CODE_USE_VERTEX) || typeof env.ANTHROPIC_BEDROCK_BASE_URL === "string" && env.ANTHROPIC_BEDROCK_BASE_URL.trim()) {
+		return "";
+	}
+	return DEFAULT_CLAUDE_LOCAL_MODEL;
+}
+export const type = "claude_local";
+export function claudeLocalReasoningEffortsForModel(model) {
+	const id = model.trim().replace(/\[1m\]$/, "").replace(/^(?:(?:us|eu|apac|global)\.)?anthropic\./, "");
+	if (/^claude-haiku-/.test(id)) return [];
+	if (/^claude-(?:opus-5(?:-5)?|opus-4-[78]|sonnet-5(?:-5)?|fable-5(?:-1)?)$/.test(id)) {
+		return [
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max"
+		];
+	}
+	if (/^claude-(?:opus|sonnet)-4-6(?:-v1)?$/.test(id)) return [
+		"low",
+		"medium",
+		"high",
+		"max"
+	];
+	return [
+		"low",
+		"medium",
+		"high"
+	];
+}
+export const label = "Claude Code";
+export const SANDBOX_INSTALL_COMMAND = "npm install -g @anthropic-ai/claude-code";
+// Ordered the way the Claude app orders models (#14877): the newest release of each family
+// first, by decreasing capability, then older releases grouped by family. The server applies the
+// same order to discovered models (server/model-order.ts); the picker keeps it.
+export const models = [
+	{
+		id: "claude-fable-5-1",
+		label: "Claude Fable 5.1"
+	},
+	{
+		id: "claude-mythos-5",
+		label: "Claude Mythos 5"
+	},
+	{
+		id: "claude-opus-5-5",
+		label: "Claude Opus 5.5"
+	},
+	{
+		id: "claude-sonnet-5-5",
+		label: "Claude Sonnet 5.5"
+	},
+	{
+		id: "claude-haiku-4-5",
+		label: "Claude Haiku 4.5"
+	},
+	{
+		id: "claude-fable-5",
+		label: "Claude Fable 5"
+	},
+	{
+		id: "claude-opus-5",
+		label: "Claude Opus 5"
+	},
+	{
+		id: "claude-opus-4-8",
+		label: "Claude Opus 4.8"
+	},
+	{
+		id: "claude-opus-4-7",
+		label: "Claude Opus 4.7"
+	},
+	{
+		id: "claude-opus-4-6",
+		label: "Claude Opus 4.6"
+	},
+	{
+		id: "claude-sonnet-5",
+		label: "Claude Sonnet 5"
+	},
+	{
+		id: "claude-sonnet-4-6",
+		label: "Claude Sonnet 4.6"
+	},
+	{
+		id: "claude-sonnet-4-5",
+		label: "Claude Sonnet 4.5"
+	}
+];
+export const agentConfigurationDoc = `# claude_local agent configuration
+
+Adapter: claude_local
+
+Core fields:
+- engine (string, optional): defaults to ACP, including legacy unset/"auto" values. Missing prerequisites and execution failures fail the run without changing engines. Set "cli" to explicitly select the CLI engine.
+- cwd (string, optional): default absolute working directory fallback for the agent process (created if missing when possible)
+- instructionsFilePath (string, optional): absolute path to a markdown instructions file injected at runtime
+- model (string, optional): Claude model id. Missing or blank defaults to ${DEFAULT_CLAUDE_LOCAL_MODEL} in both CLI and ACP, including existing agents. Explicit model IDs and ANTHROPIC_MODEL overrides are preserved. Bedrock/Vertex without an explicit model retain their provider default.
+- effort (string, optional): model-specific reasoning effort passed via --effort (low|medium|high; current Opus, Sonnet 5/5.5, and Fable models also support xhigh|max)
+- chrome (boolean, optional): pass --chrome when running Claude
+- promptTemplate (string, optional): run prompt template
+- maxTurnsPerRun (number, optional): max turns for one run
+- dangerouslySkipPermissions (boolean, optional, default true): allow non-interactive Claude runs to proceed without approval prompts. Local and remote targets receive --dangerously-skip-permissions for all built-in and connected tools. Managed sandbox targets also identify themselves to Claude so root container launches support bypass. Non-sandbox root processes must run Claude as a non-root user; Paperclip does not silently downgrade the requested mode.
+- command (string, optional): defaults to "claude"
+- extraArgs (string[], optional): additional CLI args
+- env (object, optional): KEY=VALUE environment variables
+- workspaceStrategy (object, optional): execution workspace strategy; currently supports { type: "git_worktree", baseRef?, branchTemplate?, worktreeParentDir? }
+- workspaceRuntime (object, optional): reserved for workspace runtime metadata; workspace runtime services are manually controlled from the workspace UI and are not auto-started by heartbeats
+- filesystemScope (string, optional): set to "workspace" to confine local CLI filesystem access with Bubblewrap. Off by default. The workspace and Claude config remain writable; other host paths are hidden.
+- filesystemExtraPaths (array, optional): additional absolute host paths exposed inside the workspace sandbox. String entries are read-only; object entries use { path: "/absolute/path", access: "ro" | "rw" }.
+- filesystemSandboxCommand (string, optional): Bubblewrap executable name or absolute path; defaults to "bwrap". Linux only.
+- networkScope (string, optional): "deny" blocks all network egress; "allowlist" permits only networkAllowlist targets through Paperclip's HTTP(S) proxy. Off by default.
+- networkAllowlist (string[], optional): exact hostnames, hostname:port entries, or origin URLs. Include the configured Claude provider origin, such as "api.anthropic.com", Bedrock/Vertex endpoints, or a custom gateway.
+
+ACP fields (only when engine="acp"):
+- agentCommand (string, optional): override for the Claude ACP server command; defaults to the package-local claude-agent-acp binary
+- mode (string, optional, default "persistent"): ACP session mode ("persistent" or "oneshot")
+- stateDir (string, optional): ACP session state directory; defaults to Paperclip-managed company/agent scoped storage
+- nonInteractivePermissions (string, optional, default "deny"): fallback when the ACP agent asks for input outside an interactive session
+- warmHandleIdleMs (number, optional, default 0): keep the ACP process warm for this many ms after a successful run
+- stalledToolTimeoutSec (number, optional, default 1800): end the turn as failed ("acpx_tool_stalled") when a pending tool call gets no ACP update for this many seconds; 0 disables it. The default stays at least 15 minutes above MCP_TOOL_TIMEOUT and BASH_MAX_TIMEOUT_MS
+
+Operational fields:
+- timeoutSec (number, optional): run timeout in seconds
+- graceSec (number, optional): SIGTERM grace period in seconds
+
+Notes:
+- Claude Opus 5.5 uses model ID \`claude-opus-5-5\` and requires Claude Code v2.1.280 or later.
+- Claude Sonnet 5.5 uses model ID \`claude-sonnet-5-5\` and requires Claude Code v2.1.284 or later.
+- filesystemScope and networkScope are spawn-level confinement and are orthogonal to Claude permission flags. Both require Bubblewrap on the host and explicit engine="cli"; default or explicit ACP is rejected because ACP confinement is not yet supported. networkScope="allowlist" injects HTTP_PROXY/HTTPS_PROXY for the CLI while its private network namespace blocks direct sockets, so every required provider/API hostname must be listed explicitly.
+- The Claude ACP lane requires Node >=24.11.0 and @agentclientprotocol/claude-agent-acp to be installed with this adapter package. Missing prerequisites fail both default and explicit ACP runs with an actionable setup error; the adapter never switches engines automatically.
+- For ACP runs, model selection is passed through ANTHROPIC_MODEL at ACP server startup; Paperclip-managed Claude permissions and ephemeral skill materialization are handled by the shared ACP engine.
+- When Paperclip realizes a workspace/runtime for a run, it injects PAPERCLIP_WORKSPACE_* and PAPERCLIP_RUNTIME_* env vars for agent-side tooling.
+`;
+
+//# sourceMappingURL=data:application/json;base64,eyJtYXBwaW5ncyI6IkFBQUEsT0FBTyxNQUFNLDZCQUE2Qjs7QUFHMUMsT0FBTyxTQUFTLG1CQUNkLE9BQ0EsTUFBK0IsQ0FBQyxHQUN4QjtDQUNSLE1BQU0sYUFBYSxPQUFPLFVBQVUsV0FBVyxNQUFNLEtBQUssSUFBSTtDQUM5RCxJQUFJLFlBQVksT0FBTztDQUN2QixNQUFNLG1CQUFtQixPQUFPLElBQUksb0JBQW9CLFdBQVcsSUFBSSxnQkFBZ0IsS0FBSyxJQUFJO0NBQ2hHLElBQUksa0JBQWtCLE9BQU87O0NBRTdCLE1BQU0sZ0JBQWdCLFVBQW1CLFVBQVUsT0FBTyxVQUFVO0NBQ3BFLElBQ0UsYUFBYSxJQUFJLHVCQUF1QixLQUNyQyxhQUFhLElBQUksc0JBQXNCLEtBQ3RDLE9BQU8sSUFBSSwrQkFBK0IsWUFBWSxJQUFJLDJCQUEyQixLQUFLLEdBQzlGO0VBQ0EsT0FBTztDQUNUO0NBQ0EsT0FBTztBQUNUO0FBRUEsT0FBTyxNQUFNLE9BQU87QUFFcEIsT0FBTyxTQUFTLG9DQUFvQyxPQUFrQztDQUNwRixNQUFNLEtBQUssTUFBTSxLQUFLLENBQUMsQ0FBQyxRQUFRLFdBQVcsRUFBRSxDQUFDLENBQUMsUUFBUSw0Q0FBNEMsRUFBRTtDQUNyRyxJQUFJLGlCQUFpQixLQUFLLEVBQUUsR0FBRyxPQUFPLENBQUM7Q0FDdkMsSUFBSSx3RUFBd0UsS0FBSyxFQUFFLEdBQUc7RUFDcEYsT0FBTztHQUFDO0dBQU87R0FBVTtHQUFRO0dBQVM7RUFBSztDQUNqRDtDQUNBLElBQUksdUNBQXVDLEtBQUssRUFBRSxHQUFHLE9BQU87RUFBQztFQUFPO0VBQVU7RUFBUTtDQUFLO0NBQzNGLE9BQU87RUFBQztFQUFPO0VBQVU7Q0FBTTtBQUNqQztBQUNBLE9BQU8sTUFBTSxRQUFRO0FBRXJCLE9BQU8sTUFBTSwwQkFBMEI7Ozs7QUFLdkMsT0FBTyxNQUFNLFNBQVM7Q0FDcEI7RUFBRSxJQUFJO0VBQW9CLE9BQU87Q0FBbUI7Q0FDcEQ7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQXFCLE9BQU87Q0FBb0I7Q0FDdEQ7RUFBRSxJQUFJO0VBQW9CLE9BQU87Q0FBbUI7Q0FDcEQ7RUFBRSxJQUFJO0VBQWtCLE9BQU87Q0FBaUI7Q0FDaEQ7RUFBRSxJQUFJO0VBQWlCLE9BQU87Q0FBZ0I7Q0FDOUM7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQW1CLE9BQU87Q0FBa0I7Q0FDbEQ7RUFBRSxJQUFJO0VBQXFCLE9BQU87Q0FBb0I7Q0FDdEQ7RUFBRSxJQUFJO0VBQXFCLE9BQU87Q0FBb0I7QUFDeEQ7QUFFQSxPQUFPLE1BQU0sd0JBQXdCOzs7Ozs7Ozs0RUFRdUMsMkJBQTJCIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbImluZGV4LnRzIl0sInZlcnNpb24iOjMsInNvdXJjZXNDb250ZW50IjpbImV4cG9ydCBjb25zdCBERUZBVUxUX0NMQVVERV9MT0NBTF9NT0RFTCA9IFwiY2xhdWRlLW9wdXMtNS01XCI7XHJcblxyXG4vKiogUmVzb2x2ZSBQYXBlcmNsaXAncyBkZWZhdWx0IHdpdGhvdXQgcmVwbGFjaW5nIGFuIGV4cGxpY2l0IHByb3ZpZGVyIG1vZGVsLiAqL1xyXG5leHBvcnQgZnVuY3Rpb24gcmVzb2x2ZUNsYXVkZU1vZGVsKFxyXG4gIG1vZGVsOiB1bmtub3duLFxyXG4gIGVudjogUmVjb3JkPHN0cmluZywgdW5rbm93bj4gPSB7fSxcclxuKTogc3RyaW5nIHtcclxuICBjb25zdCBjb25maWd1cmVkID0gdHlwZW9mIG1vZGVsID09PSBcInN0cmluZ1wiID8gbW9kZWwudHJpbSgpIDogXCJcIjtcclxuICBpZiAoY29uZmlndXJlZCkgcmV0dXJuIGNvbmZpZ3VyZWQ7XHJcbiAgY29uc3QgZW52aXJvbm1lbnRNb2RlbCA9IHR5cGVvZiBlbnYuQU5USFJPUElDX01PREVMID09PSBcInN0cmluZ1wiID8gZW52LkFOVEhST1BJQ19NT0RFTC50cmltKCkgOiBcIlwiO1xyXG4gIGlmIChlbnZpcm9ubWVudE1vZGVsKSByZXR1cm4gZW52aXJvbm1lbnRNb2RlbDtcclxuICAvLyBUaGVzZSBwcm92aWRlcnMgdXNlIHRoZWlyIG93biBtb2RlbCBJRHMgYW5kIHJlZ2lvbi1zcGVjaWZpYyBkZWZhdWx0cy5cclxuICBjb25zdCBwcm92aWRlckZsYWcgPSAodmFsdWU6IHVua25vd24pID0+IHZhbHVlID09PSBcIjFcIiB8fCB2YWx1ZSA9PT0gXCJ0cnVlXCI7XHJcbiAgaWYgKFxyXG4gICAgcHJvdmlkZXJGbGFnKGVudi5DTEFVREVfQ09ERV9VU0VfQkVEUk9DSylcclxuICAgIHx8IHByb3ZpZGVyRmxhZyhlbnYuQ0xBVURFX0NPREVfVVNFX1ZFUlRFWClcclxuICAgIHx8ICh0eXBlb2YgZW52LkFOVEhST1BJQ19CRURST0NLX0JBU0VfVVJMID09PSBcInN0cmluZ1wiICYmIGVudi5BTlRIUk9QSUNfQkVEUk9DS19CQVNFX1VSTC50cmltKCkpXHJcbiAgKSB7XHJcbiAgICByZXR1cm4gXCJcIjtcclxuICB9XHJcbiAgcmV0dXJuIERFRkFVTFRfQ0xBVURFX0xPQ0FMX01PREVMO1xyXG59XHJcblxyXG5leHBvcnQgY29uc3QgdHlwZSA9IFwiY2xhdWRlX2xvY2FsXCI7XHJcblxyXG5leHBvcnQgZnVuY3Rpb24gY2xhdWRlTG9jYWxSZWFzb25pbmdFZmZvcnRzRm9yTW9kZWwobW9kZWw6IHN0cmluZyk6IHJlYWRvbmx5IHN0cmluZ1tdIHtcclxuICBjb25zdCBpZCA9IG1vZGVsLnRyaW0oKS5yZXBsYWNlKC9cXFsxbVxcXSQvLCBcIlwiKS5yZXBsYWNlKC9eKD86KD86dXN8ZXV8YXBhY3xnbG9iYWwpXFwuKT9hbnRocm9waWNcXC4vLCBcIlwiKTtcclxuICBpZiAoL15jbGF1ZGUtaGFpa3UtLy50ZXN0KGlkKSkgcmV0dXJuIFtdO1xyXG4gIGlmICgvXmNsYXVkZS0oPzpvcHVzLTUoPzotNSk/fG9wdXMtNC1bNzhdfHNvbm5ldC01KD86LTUpP3xmYWJsZS01KD86LTEpPykkLy50ZXN0KGlkKSkge1xyXG4gICAgcmV0dXJuIFtcImxvd1wiLCBcIm1lZGl1bVwiLCBcImhpZ2hcIiwgXCJ4aGlnaFwiLCBcIm1heFwiXTtcclxuICB9XHJcbiAgaWYgKC9eY2xhdWRlLSg/Om9wdXN8c29ubmV0KS00LTYoPzotdjEpPyQvLnRlc3QoaWQpKSByZXR1cm4gW1wibG93XCIsIFwibWVkaXVtXCIsIFwiaGlnaFwiLCBcIm1heFwiXTtcclxuICByZXR1cm4gW1wibG93XCIsIFwibWVkaXVtXCIsIFwiaGlnaFwiXTtcclxufVxyXG5leHBvcnQgY29uc3QgbGFiZWwgPSBcIkNsYXVkZSBDb2RlXCI7XHJcblxyXG5leHBvcnQgY29uc3QgU0FOREJPWF9JTlNUQUxMX0NPTU1BTkQgPSBcIm5wbSBpbnN0YWxsIC1nIEBhbnRocm9waWMtYWkvY2xhdWRlLWNvZGVcIjtcclxuXHJcbi8vIE9yZGVyZWQgdGhlIHdheSB0aGUgQ2xhdWRlIGFwcCBvcmRlcnMgbW9kZWxzICgjMTQ4NzcpOiB0aGUgbmV3ZXN0IHJlbGVhc2Ugb2YgZWFjaCBmYW1pbHlcclxuLy8gZmlyc3QsIGJ5IGRlY3JlYXNpbmcgY2FwYWJpbGl0eSwgdGhlbiBvbGRlciByZWxlYXNlcyBncm91cGVkIGJ5IGZhbWlseS4gVGhlIHNlcnZlciBhcHBsaWVzIHRoZVxyXG4vLyBzYW1lIG9yZGVyIHRvIGRpc2NvdmVyZWQgbW9kZWxzIChzZXJ2ZXIvbW9kZWwtb3JkZXIudHMpOyB0aGUgcGlja2VyIGtlZXBzIGl0LlxyXG5leHBvcnQgY29uc3QgbW9kZWxzID0gW1xyXG4gIHsgaWQ6IFwiY2xhdWRlLWZhYmxlLTUtMVwiLCBsYWJlbDogXCJDbGF1ZGUgRmFibGUgNS4xXCIgfSxcclxuICB7IGlkOiBcImNsYXVkZS1teXRob3MtNVwiLCBsYWJlbDogXCJDbGF1ZGUgTXl0aG9zIDVcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLW9wdXMtNS01XCIsIGxhYmVsOiBcIkNsYXVkZSBPcHVzIDUuNVwiIH0sXHJcbiAgeyBpZDogXCJjbGF1ZGUtc29ubmV0LTUtNVwiLCBsYWJlbDogXCJDbGF1ZGUgU29ubmV0IDUuNVwiIH0sXHJcbiAgeyBpZDogXCJjbGF1ZGUtaGFpa3UtNC01XCIsIGxhYmVsOiBcIkNsYXVkZSBIYWlrdSA0LjVcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLWZhYmxlLTVcIiwgbGFiZWw6IFwiQ2xhdWRlIEZhYmxlIDVcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLW9wdXMtNVwiLCBsYWJlbDogXCJDbGF1ZGUgT3B1cyA1XCIgfSxcclxuICB7IGlkOiBcImNsYXVkZS1vcHVzLTQtOFwiLCBsYWJlbDogXCJDbGF1ZGUgT3B1cyA0LjhcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLW9wdXMtNC03XCIsIGxhYmVsOiBcIkNsYXVkZSBPcHVzIDQuN1wiIH0sXHJcbiAgeyBpZDogXCJjbGF1ZGUtb3B1cy00LTZcIiwgbGFiZWw6IFwiQ2xhdWRlIE9wdXMgNC42XCIgfSxcclxuICB7IGlkOiBcImNsYXVkZS1zb25uZXQtNVwiLCBsYWJlbDogXCJDbGF1ZGUgU29ubmV0IDVcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLXNvbm5ldC00LTZcIiwgbGFiZWw6IFwiQ2xhdWRlIFNvbm5ldCA0LjZcIiB9LFxyXG4gIHsgaWQ6IFwiY2xhdWRlLXNvbm5ldC00LTVcIiwgbGFiZWw6IFwiQ2xhdWRlIFNvbm5ldCA0LjVcIiB9LFxyXG5dO1xyXG5cclxuZXhwb3J0IGNvbnN0IGFnZW50Q29uZmlndXJhdGlvbkRvYyA9IGAjIGNsYXVkZV9sb2NhbCBhZ2VudCBjb25maWd1cmF0aW9uXHJcblxyXG5BZGFwdGVyOiBjbGF1ZGVfbG9jYWxcclxuXHJcbkNvcmUgZmllbGRzOlxyXG4tIGVuZ2luZSAoc3RyaW5nLCBvcHRpb25hbCk6IGRlZmF1bHRzIHRvIEFDUCwgaW5jbHVkaW5nIGxlZ2FjeSB1bnNldC9cImF1dG9cIiB2YWx1ZXMuIE1pc3NpbmcgcHJlcmVxdWlzaXRlcyBhbmQgZXhlY3V0aW9uIGZhaWx1cmVzIGZhaWwgdGhlIHJ1biB3aXRob3V0IGNoYW5naW5nIGVuZ2luZXMuIFNldCBcImNsaVwiIHRvIGV4cGxpY2l0bHkgc2VsZWN0IHRoZSBDTEkgZW5naW5lLlxyXG4tIGN3ZCAoc3RyaW5nLCBvcHRpb25hbCk6IGRlZmF1bHQgYWJzb2x1dGUgd29ya2luZyBkaXJlY3RvcnkgZmFsbGJhY2sgZm9yIHRoZSBhZ2VudCBwcm9jZXNzIChjcmVhdGVkIGlmIG1pc3Npbmcgd2hlbiBwb3NzaWJsZSlcclxuLSBpbnN0cnVjdGlvbnNGaWxlUGF0aCAoc3RyaW5nLCBvcHRpb25hbCk6IGFic29sdXRlIHBhdGggdG8gYSBtYXJrZG93biBpbnN0cnVjdGlvbnMgZmlsZSBpbmplY3RlZCBhdCBydW50aW1lXHJcbi0gbW9kZWwgKHN0cmluZywgb3B0aW9uYWwpOiBDbGF1ZGUgbW9kZWwgaWQuIE1pc3Npbmcgb3IgYmxhbmsgZGVmYXVsdHMgdG8gJHtERUZBVUxUX0NMQVVERV9MT0NBTF9NT0RFTH0gaW4gYm90aCBDTEkgYW5kIEFDUCwgaW5jbHVkaW5nIGV4aXN0aW5nIGFnZW50cy4gRXhwbGljaXQgbW9kZWwgSURzIGFuZCBBTlRIUk9QSUNfTU9ERUwgb3ZlcnJpZGVzIGFyZSBwcmVzZXJ2ZWQuIEJlZHJvY2svVmVydGV4IHdpdGhvdXQgYW4gZXhwbGljaXQgbW9kZWwgcmV0YWluIHRoZWlyIHByb3ZpZGVyIGRlZmF1bHQuXHJcbi0gZWZmb3J0IChzdHJpbmcsIG9wdGlvbmFsKTogbW9kZWwtc3BlY2lmaWMgcmVhc29uaW5nIGVmZm9ydCBwYXNzZWQgdmlhIC0tZWZmb3J0IChsb3d8bWVkaXVtfGhpZ2g7IGN1cnJlbnQgT3B1cywgU29ubmV0IDUvNS41LCBhbmQgRmFibGUgbW9kZWxzIGFsc28gc3VwcG9ydCB4aGlnaHxtYXgpXHJcbi0gY2hyb21lIChib29sZWFuLCBvcHRpb25hbCk6IHBhc3MgLS1jaHJvbWUgd2hlbiBydW5uaW5nIENsYXVkZVxyXG4tIHByb21wdFRlbXBsYXRlIChzdHJpbmcsIG9wdGlvbmFsKTogcnVuIHByb21wdCB0ZW1wbGF0ZVxyXG4tIG1heFR1cm5zUGVyUnVuIChudW1iZXIsIG9wdGlvbmFsKTogbWF4IHR1cm5zIGZvciBvbmUgcnVuXHJcbi0gZGFuZ2Vyb3VzbHlTa2lwUGVybWlzc2lvbnMgKGJvb2xlYW4sIG9wdGlvbmFsLCBkZWZhdWx0IHRydWUpOiBhbGxvdyBub24taW50ZXJhY3RpdmUgQ2xhdWRlIHJ1bnMgdG8gcHJvY2VlZCB3aXRob3V0IGFwcHJvdmFsIHByb21wdHMuIExvY2FsIGFuZCByZW1vdGUgdGFyZ2V0cyByZWNlaXZlIC0tZGFuZ2Vyb3VzbHktc2tpcC1wZXJtaXNzaW9ucyBmb3IgYWxsIGJ1aWx0LWluIGFuZCBjb25uZWN0ZWQgdG9vbHMuIE1hbmFnZWQgc2FuZGJveCB0YXJnZXRzIGFsc28gaWRlbnRpZnkgdGhlbXNlbHZlcyB0byBDbGF1ZGUgc28gcm9vdCBjb250YWluZXIgbGF1bmNoZXMgc3VwcG9ydCBieXBhc3MuIE5vbi1zYW5kYm94IHJvb3QgcHJvY2Vzc2VzIG11c3QgcnVuIENsYXVkZSBhcyBhIG5vbi1yb290IHVzZXI7IFBhcGVyY2xpcCBkb2VzIG5vdCBzaWxlbnRseSBkb3duZ3JhZGUgdGhlIHJlcXVlc3RlZCBtb2RlLlxyXG4tIGNvbW1hbmQgKHN0cmluZywgb3B0aW9uYWwpOiBkZWZhdWx0cyB0byBcImNsYXVkZVwiXHJcbi0gZXh0cmFBcmdzIChzdHJpbmdbXSwgb3B0aW9uYWwpOiBhZGRpdGlvbmFsIENMSSBhcmdzXHJcbi0gZW52IChvYmplY3QsIG9wdGlvbmFsKTogS0VZPVZBTFVFIGVudmlyb25tZW50IHZhcmlhYmxlc1xyXG4tIHdvcmtzcGFjZVN0cmF0ZWd5IChvYmplY3QsIG9wdGlvbmFsKTogZXhlY3V0aW9uIHdvcmtzcGFjZSBzdHJhdGVneTsgY3VycmVudGx5IHN1cHBvcnRzIHsgdHlwZTogXCJnaXRfd29ya3RyZWVcIiwgYmFzZVJlZj8sIGJyYW5jaFRlbXBsYXRlPywgd29ya3RyZWVQYXJlbnREaXI/IH1cclxuLSB3b3Jrc3BhY2VSdW50aW1lIChvYmplY3QsIG9wdGlvbmFsKTogcmVzZXJ2ZWQgZm9yIHdvcmtzcGFjZSBydW50aW1lIG1ldGFkYXRhOyB3b3Jrc3BhY2UgcnVudGltZSBzZXJ2aWNlcyBhcmUgbWFudWFsbHkgY29udHJvbGxlZCBmcm9tIHRoZSB3b3Jrc3BhY2UgVUkgYW5kIGFyZSBub3QgYXV0by1zdGFydGVkIGJ5IGhlYXJ0YmVhdHNcclxuLSBmaWxlc3lzdGVtU2NvcGUgKHN0cmluZywgb3B0aW9uYWwpOiBzZXQgdG8gXCJ3b3Jrc3BhY2VcIiB0byBjb25maW5lIGxvY2FsIENMSSBmaWxlc3lzdGVtIGFjY2VzcyB3aXRoIEJ1YmJsZXdyYXAuIE9mZiBieSBkZWZhdWx0LiBUaGUgd29ya3NwYWNlIGFuZCBDbGF1ZGUgY29uZmlnIHJlbWFpbiB3cml0YWJsZTsgb3RoZXIgaG9zdCBwYXRocyBhcmUgaGlkZGVuLlxyXG4tIGZpbGVzeXN0ZW1FeHRyYVBhdGhzIChhcnJheSwgb3B0aW9uYWwpOiBhZGRpdGlvbmFsIGFic29sdXRlIGhvc3QgcGF0aHMgZXhwb3NlZCBpbnNpZGUgdGhlIHdvcmtzcGFjZSBzYW5kYm94LiBTdHJpbmcgZW50cmllcyBhcmUgcmVhZC1vbmx5OyBvYmplY3QgZW50cmllcyB1c2UgeyBwYXRoOiBcIi9hYnNvbHV0ZS9wYXRoXCIsIGFjY2VzczogXCJyb1wiIHwgXCJyd1wiIH0uXHJcbi0gZmlsZXN5c3RlbVNhbmRib3hDb21tYW5kIChzdHJpbmcsIG9wdGlvbmFsKTogQnViYmxld3JhcCBleGVjdXRhYmxlIG5hbWUgb3IgYWJzb2x1dGUgcGF0aDsgZGVmYXVsdHMgdG8gXCJid3JhcFwiLiBMaW51eCBvbmx5LlxyXG4tIG5ldHdvcmtTY29wZSAoc3RyaW5nLCBvcHRpb25hbCk6IFwiZGVueVwiIGJsb2NrcyBhbGwgbmV0d29yayBlZ3Jlc3M7IFwiYWxsb3dsaXN0XCIgcGVybWl0cyBvbmx5IG5ldHdvcmtBbGxvd2xpc3QgdGFyZ2V0cyB0aHJvdWdoIFBhcGVyY2xpcCdzIEhUVFAoUykgcHJveHkuIE9mZiBieSBkZWZhdWx0LlxyXG4tIG5ldHdvcmtBbGxvd2xpc3QgKHN0cmluZ1tdLCBvcHRpb25hbCk6IGV4YWN0IGhvc3RuYW1lcywgaG9zdG5hbWU6cG9ydCBlbnRyaWVzLCBvciBvcmlnaW4gVVJMcy4gSW5jbHVkZSB0aGUgY29uZmlndXJlZCBDbGF1ZGUgcHJvdmlkZXIgb3JpZ2luLCBzdWNoIGFzIFwiYXBpLmFudGhyb3BpYy5jb21cIiwgQmVkcm9jay9WZXJ0ZXggZW5kcG9pbnRzLCBvciBhIGN1c3RvbSBnYXRld2F5LlxyXG5cclxuQUNQIGZpZWxkcyAob25seSB3aGVuIGVuZ2luZT1cImFjcFwiKTpcclxuLSBhZ2VudENvbW1hbmQgKHN0cmluZywgb3B0aW9uYWwpOiBvdmVycmlkZSBmb3IgdGhlIENsYXVkZSBBQ1Agc2VydmVyIGNvbW1hbmQ7IGRlZmF1bHRzIHRvIHRoZSBwYWNrYWdlLWxvY2FsIGNsYXVkZS1hZ2VudC1hY3AgYmluYXJ5XHJcbi0gbW9kZSAoc3RyaW5nLCBvcHRpb25hbCwgZGVmYXVsdCBcInBlcnNpc3RlbnRcIik6IEFDUCBzZXNzaW9uIG1vZGUgKFwicGVyc2lzdGVudFwiIG9yIFwib25lc2hvdFwiKVxyXG4tIHN0YXRlRGlyIChzdHJpbmcsIG9wdGlvbmFsKTogQUNQIHNlc3Npb24gc3RhdGUgZGlyZWN0b3J5OyBkZWZhdWx0cyB0byBQYXBlcmNsaXAtbWFuYWdlZCBjb21wYW55L2FnZW50IHNjb3BlZCBzdG9yYWdlXHJcbi0gbm9uSW50ZXJhY3RpdmVQZXJtaXNzaW9ucyAoc3RyaW5nLCBvcHRpb25hbCwgZGVmYXVsdCBcImRlbnlcIik6IGZhbGxiYWNrIHdoZW4gdGhlIEFDUCBhZ2VudCBhc2tzIGZvciBpbnB1dCBvdXRzaWRlIGFuIGludGVyYWN0aXZlIHNlc3Npb25cclxuLSB3YXJtSGFuZGxlSWRsZU1zIChudW1iZXIsIG9wdGlvbmFsLCBkZWZhdWx0IDApOiBrZWVwIHRoZSBBQ1AgcHJvY2VzcyB3YXJtIGZvciB0aGlzIG1hbnkgbXMgYWZ0ZXIgYSBzdWNjZXNzZnVsIHJ1blxyXG4tIHN0YWxsZWRUb29sVGltZW91dFNlYyAobnVtYmVyLCBvcHRpb25hbCwgZGVmYXVsdCAxODAwKTogZW5kIHRoZSB0dXJuIGFzIGZhaWxlZCAoXCJhY3B4X3Rvb2xfc3RhbGxlZFwiKSB3aGVuIGEgcGVuZGluZyB0b29sIGNhbGwgZ2V0cyBubyBBQ1AgdXBkYXRlIGZvciB0aGlzIG1hbnkgc2Vjb25kczsgMCBkaXNhYmxlcyBpdC4gVGhlIGRlZmF1bHQgc3RheXMgYXQgbGVhc3QgMTUgbWludXRlcyBhYm92ZSBNQ1BfVE9PTF9USU1FT1VUIGFuZCBCQVNIX01BWF9USU1FT1VUX01TXHJcblxyXG5PcGVyYXRpb25hbCBmaWVsZHM6XHJcbi0gdGltZW91dFNlYyAobnVtYmVyLCBvcHRpb25hbCk6IHJ1biB0aW1lb3V0IGluIHNlY29uZHNcclxuLSBncmFjZVNlYyAobnVtYmVyLCBvcHRpb25hbCk6IFNJR1RFUk0gZ3JhY2UgcGVyaW9kIGluIHNlY29uZHNcclxuXHJcbk5vdGVzOlxyXG4tIENsYXVkZSBPcHVzIDUuNSB1c2VzIG1vZGVsIElEIFxcYGNsYXVkZS1vcHVzLTUtNVxcYCBhbmQgcmVxdWlyZXMgQ2xhdWRlIENvZGUgdjIuMS4yODAgb3IgbGF0ZXIuXHJcbi0gQ2xhdWRlIFNvbm5ldCA1LjUgdXNlcyBtb2RlbCBJRCBcXGBjbGF1ZGUtc29ubmV0LTUtNVxcYCBhbmQgcmVxdWlyZXMgQ2xhdWRlIENvZGUgdjIuMS4yODQgb3IgbGF0ZXIuXHJcbi0gZmlsZXN5c3RlbVNjb3BlIGFuZCBuZXR3b3JrU2NvcGUgYXJlIHNwYXduLWxldmVsIGNvbmZpbmVtZW50IGFuZCBhcmUgb3J0aG9nb25hbCB0byBDbGF1ZGUgcGVybWlzc2lvbiBmbGFncy4gQm90aCByZXF1aXJlIEJ1YmJsZXdyYXAgb24gdGhlIGhvc3QgYW5kIGV4cGxpY2l0IGVuZ2luZT1cImNsaVwiOyBkZWZhdWx0IG9yIGV4cGxpY2l0IEFDUCBpcyByZWplY3RlZCBiZWNhdXNlIEFDUCBjb25maW5lbWVudCBpcyBub3QgeWV0IHN1cHBvcnRlZC4gbmV0d29ya1Njb3BlPVwiYWxsb3dsaXN0XCIgaW5qZWN0cyBIVFRQX1BST1hZL0hUVFBTX1BST1hZIGZvciB0aGUgQ0xJIHdoaWxlIGl0cyBwcml2YXRlIG5ldHdvcmsgbmFtZXNwYWNlIGJsb2NrcyBkaXJlY3Qgc29ja2V0cywgc28gZXZlcnkgcmVxdWlyZWQgcHJvdmlkZXIvQVBJIGhvc3RuYW1lIG11c3QgYmUgbGlzdGVkIGV4cGxpY2l0bHkuXHJcbi0gVGhlIENsYXVkZSBBQ1AgbGFuZSByZXF1aXJlcyBOb2RlID49MjQuMTEuMCBhbmQgQGFnZW50Y2xpZW50cHJvdG9jb2wvY2xhdWRlLWFnZW50LWFjcCB0byBiZSBpbnN0YWxsZWQgd2l0aCB0aGlzIGFkYXB0ZXIgcGFja2FnZS4gTWlzc2luZyBwcmVyZXF1aXNpdGVzIGZhaWwgYm90aCBkZWZhdWx0IGFuZCBleHBsaWNpdCBBQ1AgcnVucyB3aXRoIGFuIGFjdGlvbmFibGUgc2V0dXAgZXJyb3I7IHRoZSBhZGFwdGVyIG5ldmVyIHN3aXRjaGVzIGVuZ2luZXMgYXV0b21hdGljYWxseS5cclxuLSBGb3IgQUNQIHJ1bnMsIG1vZGVsIHNlbGVjdGlvbiBpcyBwYXNzZWQgdGhyb3VnaCBBTlRIUk9QSUNfTU9ERUwgYXQgQUNQIHNlcnZlciBzdGFydHVwOyBQYXBlcmNsaXAtbWFuYWdlZCBDbGF1ZGUgcGVybWlzc2lvbnMgYW5kIGVwaGVtZXJhbCBza2lsbCBtYXRlcmlhbGl6YXRpb24gYXJlIGhhbmRsZWQgYnkgdGhlIHNoYXJlZCBBQ1AgZW5naW5lLlxyXG4tIFdoZW4gUGFwZXJjbGlwIHJlYWxpemVzIGEgd29ya3NwYWNlL3J1bnRpbWUgZm9yIGEgcnVuLCBpdCBpbmplY3RzIFBBUEVSQ0xJUF9XT1JLU1BBQ0VfKiBhbmQgUEFQRVJDTElQX1JVTlRJTUVfKiBlbnYgdmFycyBmb3IgYWdlbnQtc2lkZSB0b29saW5nLlxyXG5gO1xyXG4iXX0=

@@ -1,0 +1,303 @@
+import { PAPERCLIP_RUNNER_DEFAULT_MODELS } from "/@fs/C:/QLDAPM-final/interiorAI/paperclip/packages/adapter-utils/src/index.ts";
+import { PAPERCLIP_RUNNER_MINIMUM_GLIBC_VERSION } from "/@fs/C:/QLDAPM-final/interiorAI/paperclip/packages/shared/src/index.ts";
+export const type = "codex_local";
+export const label = "Codex";
+export const SANDBOX_INSTALL_COMMAND = "npm install -g @openai/codex";
+// The default is `gpt-6.1-sol`: the reviewed OpenAI rate card in server/src/services/codex-pricing.ts
+// prices it at half of `gpt-5.6-sol`. It applies only to agents without an explicit model; a stored
+// model is never rewritten. Always use a concrete slug rather than a bare family alias such as
+// `gpt-5.6`: OpenAI ships no model metadata for bare slugs, so the Codex CLI warns and falls back to
+// generic context limits.
+export const DEFAULT_CODEX_LOCAL_MODEL = PAPERCLIP_RUNNER_DEFAULT_MODELS.codex;
+// The floor-free model a remote Codex CLI too old for the requested model falls back to. It stays
+// `gpt-5.6-sol` because the default `gpt-6.1-sol` itself needs Codex 0.159.0 or newer.
+export const CODEX_LOCAL_COMPATIBILITY_FALLBACK_MODEL = "gpt-5.6-sol";
+export const DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX = true;
+export function resolveCodexLocalCliPolicy(config, options = {}) {
+	const record = typeof config === "object" && config !== null && !Array.isArray(config) ? config : {};
+	const stringArgs = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+	const configuredExtraArgs = stringArgs(record.extraArgs);
+	const extraArgs = configuredExtraArgs.length > 0 ? configuredExtraArgs : stringArgs(record.args);
+	const explicitSandbox = extraArgs.some((arg) => /^(--sandbox(?:=|$)|-s|--profile(?:=|$)|-p|--full-auto$|--yolo$|--dangerously-bypass-approvals-and-sandbox$)/.test(arg) || /^(?:(?:--config=|-c=?)\s*)?(?:sandbox_mode|profile)\s*=/.test(arg));
+	const explicitPermissionRestriction = extraArgs.some((arg) => /^(?:(?:--config=|-c=?)\s*)?(?:approval_policy\s*=|sandbox_workspace_write\.network_access\s*=\s*false)/.test(arg));
+	const defaultBypass = !explicitSandbox && !explicitPermissionRestriction && options.networkAccess !== false && DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX;
+	const bypass = typeof record.dangerouslyBypassApprovalsAndSandbox === "boolean" ? record.dangerouslyBypassApprovalsAndSandbox : typeof record.dangerouslyBypassSandbox === "boolean" ? record.dangerouslyBypassSandbox : defaultBypass;
+	return {
+		extraArgs,
+		explicitSandbox,
+		bypass
+	};
+}
+export const CODEX_LOCAL_FAST_MODE_SUPPORTED_MODELS = [
+	"antigravity-ide-bridge",
+	"gpt-6-astra",
+	"gpt-6.1-sol",
+	"gpt-6-sol",
+	"gpt-6-luna",
+	"gpt-5.6-sol",
+	"gpt-5.6-terra",
+	"gpt-5.6-luna",
+	"gpt-5.5",
+	"gpt-5.4"
+];
+function normalizeModelId(model) {
+	return typeof model === "string" ? model.trim() : "";
+}
+// Legacy model aliases with no OpenAI-published metadata are rewritten to the concrete slug the
+// Codex CLI actually knows. Without this, agents still configured with the bare `gpt-5.6` alias
+// (the old default) keep triggering "Model metadata for `gpt-5.6` not found" warnings and Codex
+// falls back to generic context-window limits, even on a Codex build that ships the 5.6 family.
+const CODEX_LOCAL_MODEL_ALIASES = { "gpt-5.6": "gpt-5.6-sol" };
+const CODEX_LOCAL_DEFAULT_REASONING_EFFORTS = [
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh"
+];
+const CODEX_LOCAL_MAX_REASONING_EFFORTS = [
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max"
+];
+const CODEX_LOCAL_ULTRA_REASONING_EFFORTS = [...CODEX_LOCAL_MAX_REASONING_EFFORTS, "ultra"];
+export function normalizeCodexModel(model) {
+	const normalizedModel = normalizeModelId(model);
+	return CODEX_LOCAL_MODEL_ALIASES[normalizedModel] ?? normalizedModel;
+}
+export function codexLocalReasoningEffortsForModel(model) {
+	const normalizedModel = normalizeCodexModel(model);
+	switch (normalizedModel) {
+		case "gpt-6-astra":
+		case "gpt-6.1-sol":
+		case "gpt-6-sol":
+		case "gpt-5.6-sol":
+		case "gpt-5.6-terra": return CODEX_LOCAL_ULTRA_REASONING_EFFORTS;
+		case "gpt-6-luna":
+		case "gpt-5.6-luna": return CODEX_LOCAL_MAX_REASONING_EFFORTS;
+		default: return CODEX_LOCAL_DEFAULT_REASONING_EFFORTS;
+	}
+}
+// The Codex backend accepts a model for ChatGPT sign-in only from a client that identifies as a
+// recent enough CLI (the request carries the CLI version). An older `codex` fails every turn with
+// "The '<model>' model is not supported when using Codex with a ChatGPT account.", which reads
+// like an account problem when it is really a stale install, typically a sandbox image baked
+// before the catalog gained the model. Record the oldest stable release verified to work so the
+// Test and the remote runner can name the actual gap. Omit models with no verified floor; the
+// install pin in the runner and images is always at or above every floor listed here.
+const CODEX_LOCAL_MODEL_MINIMUM_CLI_VERSIONS = {
+	// 0.156.1 and older are rejected (openai/codex#49396); 0.159.0 and 0.159.2 are accepted
+	// (openai/codex#49464). No stable release between those was verified either way.
+	"gpt-6.1-sol": "0.159.0",
+	// Codex 0.157.0 release notes: "Add GPT-6 Sol and Luna to the model catalog".
+	"gpt-6-sol": "0.157.0",
+	"gpt-6-luna": "0.157.0"
+};
+export function minimumCodexCliVersionForModel(model) {
+	return CODEX_LOCAL_MODEL_MINIMUM_CLI_VERSIONS[normalizeCodexModel(model)] ?? null;
+}
+// Models OpenAI retired from Codex with ChatGPT sign-in (https://learn.chatgpt.com/docs/models).
+// The OpenAI API and API-key Codex sessions still serve them, so they stay in the picker; the
+// Test names the retirement instead of suggesting a stale CLI or a plan restriction.
+const CODEX_LOCAL_CHATGPT_RETIRED_MODELS = {
+	"gpt-5.5": {
+		retiredOn: "2026-10-14",
+		replacement: "gpt-6.1-sol (gpt-6-luna on Free and Go plans)"
+	},
+	"gpt-5.4": {
+		retiredOn: "2026-08-31",
+		replacement: "gpt-6-sol"
+	},
+	"gpt-5.4-mini": {
+		retiredOn: "2026-08-31",
+		replacement: "gpt-6-luna"
+	}
+};
+export function codexChatGptRetirementForModel(model) {
+	return CODEX_LOCAL_CHATGPT_RETIRED_MODELS[normalizeCodexModel(model)] ?? null;
+}
+/** Test hint for a ChatGPT-account rejection of a retired model; shared by the legacy and native Tests. */
+export function codexChatGptRetirementHint(model) {
+	const retirement = codexChatGptRetirementForModel(model);
+	if (!retirement) return null;
+	return `OpenAI retired ${normalizeCodexModel(model)} from Codex with ChatGPT sign-in on ${retirement.retiredOn}. Choose ${retirement.replacement}, or use an OpenAI API key; API-key sessions are not affected.`;
+}
+const STABLE_CODEX_CLI_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+function stableCodexCliVersionParts(version) {
+	const match = STABLE_CODEX_CLI_VERSION.exec(version.trim());
+	if (!match) return null;
+	const parts = match.slice(1).map(Number);
+	return parts.every(Number.isSafeInteger) ? parts : null;
+}
+/** Read the version from `codex --version` output; prerelease or ambiguous output yields null. */
+export function parseCodexCliVersionOutput(output) {
+	const versions = output.split(/\r?\n/).map((line) => /^codex-cli (\S+)$/.exec(line.trim())?.[1]).filter((version) => version !== undefined);
+	if (versions.length !== 1 || !stableCodexCliVersionParts(versions[0])) return null;
+	return versions[0];
+}
+export function codexCliVersionAtLeast(version, minimum) {
+	const parsedVersion = stableCodexCliVersionParts(version);
+	const parsedMinimum = stableCodexCliVersionParts(minimum);
+	if (!parsedVersion || !parsedMinimum) return false;
+	for (let index = 0; index < parsedMinimum.length; index += 1) {
+		if (parsedVersion[index] !== parsedMinimum[index]) {
+			return parsedVersion[index] > parsedMinimum[index];
+		}
+	}
+	return true;
+}
+export const CODEX_CHATGPT_MODEL_REJECTION_RE = /The '([^']+)' model is not supported when using Codex with a ChatGPT account\./;
+export function isCodexLocalKnownModel(model) {
+	const normalizedModel = normalizeModelId(model);
+	if (!normalizedModel) return false;
+	return models.some((entry) => entry.id === normalizedModel);
+}
+export function isCodexLocalManualModel(model) {
+	const normalizedModel = normalizeModelId(model);
+	return Boolean(normalizedModel) && !isCodexLocalKnownModel(normalizedModel);
+}
+export function isCodexLocalFastModeSupported(model) {
+	if (isCodexLocalManualModel(model)) return true;
+	const normalizedModel = typeof model === "string" ? model.trim() : "";
+	// Empty means we're omitting --model so the Codex CLI picks its own default.
+	// Manual model IDs are also treated as supported: pass the fast-mode overrides
+	// through and let the CLI reject them if the chosen model can't use them.
+	if (!normalizedModel) return true;
+	return CODEX_LOCAL_FAST_MODE_SUPPORTED_MODELS.includes(normalizedModel);
+}
+// Ordered the way the ChatGPT app orders Codex models (#14878): newest model version first,
+// then by decreasing capability inside each version, older models at the end. The server
+// returns this list as written and the model dropdown keeps its order.
+export const models = [
+	{
+		id: "antigravity-ide-bridge",
+		label: "Antigravity IDE Bridge (Zero-Cost)"
+	},
+	{
+		id: "gpt-6.1-sol",
+		label: "gpt-6.1-sol"
+	},
+	{
+		id: "gpt-6-astra",
+		label: "gpt-6-astra"
+	},
+	{
+		id: "gpt-6-sol",
+		label: "gpt-6-sol"
+	},
+	{
+		id: "gpt-6-luna",
+		label: "gpt-6-luna"
+	},
+	{
+		id: "gpt-5.6-sol",
+		label: "gpt-5.6-sol"
+	},
+	{
+		id: "gpt-5.6-terra",
+		label: "gpt-5.6-terra"
+	},
+	{
+		id: "gpt-5.6-luna",
+		label: "gpt-5.6-luna"
+	},
+	{
+		id: "gpt-5.5",
+		label: "gpt-5.5"
+	},
+	{
+		id: "gpt-5.4",
+		label: "gpt-5.4"
+	},
+	{
+		id: "gpt-5.4-mini",
+		label: "gpt-5.4-mini"
+	},
+	{
+		id: "gpt-5",
+		label: "gpt-5"
+	},
+	{
+		id: "gpt-5-mini",
+		label: "gpt-5-mini"
+	},
+	{
+		id: "gpt-5-nano",
+		label: "gpt-5-nano"
+	},
+	{
+		id: "o3",
+		label: "o3"
+	},
+	{
+		id: "o4-mini",
+		label: "o4-mini"
+	},
+	{
+		id: "o3-mini",
+		label: "o3-mini"
+	},
+	{
+		id: "codex-mini-latest",
+		label: "Codex Mini"
+	}
+];
+export const agentConfigurationDoc = `# codex_local agent configuration
+
+New agents select the Codex harness with adapterType: codex_local and an optional request-level runner: auto, paperclip, or legacy. Automatic selection uses Paperclip Runner on qualified Linux x64/ARM64 targets with GNU libc ${PAPERCLIP_RUNNER_MINIMUM_GLIBC_VERSION} or newer and macOS arm64/x64 targets. It stores adapterType: paperclip_runner with provider: codex. Windows, 32-bit ARM, Alpine/musl, and older or unknown Linux libc retain automatic legacy selection. Qualification and artifact checks use the selected execution environment, including its architecture, rather than the controller's platform. Other harness defaults are unchanged.
+
+Set runner: legacy to retain this adapter's execution and custom settings. Explicit runner: paperclip requires a qualified target. Existing agents and reviewed pending hires retain their saved runner; authentication, model, dependency, and runtime errors never silently switch runners. The fields below describe legacy codex_local execution. Native creation translates supported settings and rejects unsupported settings with the explicit Legacy runner option.
+
+Adapter: codex_local
+
+Core fields:
+- engine (string, optional): defaults to ACP, including legacy unset/"auto" values. Missing prerequisites and execution failures fail the run without changing engines. Set "cli" to explicitly select the CLI engine.
+- cwd (string, optional): default absolute working directory fallback for the agent process (created if missing when possible)
+- instructionsFilePath (string, optional): absolute path to a markdown instructions file prepended to stdin prompt at runtime
+- model (string, optional): Codex model id
+- modelReasoningEffort (string, optional): reasoning effort override passed via -c model_reasoning_effort=...; GPT-6 Astra, GPT-6.1 Sol, GPT-6 Sol, and GPT-5.6 Sol/Terra support low|medium|high|xhigh|max|ultra; GPT-6 Luna and GPT-5.6 Luna support low|medium|high|xhigh|max
+- promptTemplate (string, optional): run prompt template
+- search (boolean, optional): run codex with --search
+- fastMode (boolean, optional): enable Codex Fast mode; supported on GPT-6 (astra/sol/luna), GPT-6.1 Sol, GPT-5.6 (sol/terra/luna), GPT-5.5, GPT-5.4 and passed through for manual model IDs
+- dangerouslyBypassApprovalsAndSandbox (boolean, optional): run with bypass flag
+- command (string, optional): defaults to "codex"
+- extraArgs (string[], optional): additional CLI args
+- env (object, optional): KEY=VALUE environment variables
+- workspaceStrategy (object, optional): execution workspace strategy; currently supports { type: "git_worktree", baseRef?, branchTemplate?, worktreeParentDir? }
+- workspaceRuntime (object, optional): reserved for workspace runtime metadata; workspace runtime services are manually controlled from the workspace UI and are not auto-started by heartbeats
+- filesystemScope (string, optional): set to "workspace" to confine local CLI filesystem access with Bubblewrap. Off by default. The workspace and managed CODEX_HOME remain writable; other host paths are hidden.
+- filesystemExtraPaths (array, optional): additional absolute host paths exposed inside the workspace sandbox. String entries are read-only; object entries use { path: "/absolute/path", access: "ro" | "rw" }.
+- filesystemSandboxCommand (string, optional): Bubblewrap executable name or absolute path; defaults to "bwrap". Linux only.
+- networkScope (string, optional): "deny" blocks all network egress; "allowlist" permits only networkAllowlist targets through Paperclip's HTTP(S) proxy. Off by default.
+- networkAllowlist (string[], optional): exact hostnames, hostname:port entries, or origin URLs. Include the configured Codex provider origin, such as "api.openai.com" or a custom model provider gateway.
+
+Operational fields:
+- timeoutSec (number, optional): run timeout in seconds
+- graceSec (number, optional): SIGTERM grace period in seconds
+- outputInactivityTimeoutMs (number | null, optional): inactivity monitor around the codex child. Resets whenever the child emits stdout/stderr bytes or, on Linux, its process group shows meaningful CPU, disk I/O, or child-process churn during a silent build. Defaults to 30 * 60_000 ms when unset or non-positive. Set to \`null\` to disable the monitor entirely (only do this for known-slow tasks; the platform-level 1h silent-run safety net still applies). On fire, the adapter sends SIGTERM to the process group, waits 5s, then SIGKILL, and surfaces the run as failed with errorMessage "monitor: no codex activity (output or process) for {N}m {S}s".
+- agentCommand (string, optional): ACP server command override used only when engine="acp"; defaults to the package-local codex-acp binary
+- mode (string, optional): ACP session mode when engine="acp"; persistent or oneshot
+- nonInteractivePermissions (string, optional): ACP non-interactive permission fallback when engine="acp"; deny or fail
+- stateDir (string, optional): ACP state directory override when engine="acp"
+- warmHandleIdleMs (number, optional): warm ACP process idle timeout when engine="acp"; defaults to 0
+
+Notes:
+- filesystemScope and networkScope are spawn-level confinement and are orthogonal to Codex approval/sandbox flags. Both require Bubblewrap on the host and explicit engine="cli"; default or explicit ACP is rejected because ACP confinement is not yet supported. networkScope="allowlist" injects HTTP_PROXY/HTTPS_PROXY for the CLI while its private network namespace blocks direct sockets, so every required provider/API hostname must be listed explicitly.
+- Prompts are piped via stdin (Codex receives "-" prompt argument).
+- If instructionsFilePath is configured, Paperclip prepends that file's contents to the stdin prompt on every run.
+- Codex exec automatically applies repo-scoped AGENTS.md instructions from the active workspace. Paperclip cannot suppress that discovery in exec mode, so repo AGENTS.md files may still apply even when you only configured an explicit instructionsFilePath.
+- Paperclip injects desired local skills into the effective CODEX_HOME/skills/ directory at execution time so Codex can discover "$paperclip" and related skills without polluting the project working directory. For new and updated agents, Paperclip assigns an isolated managed home at ~/.paperclip/instances/<id>/companies/<companyId>/agents/<agentId>/codex-home/skills/; when CODEX_HOME is explicitly overridden in adapter config, that override is used instead.
+- New and updated codex_local agents persist an empty OPENAI_API_KEY override by default so a host-level OPENAI_API_KEY cannot leak into Codex runs through process inheritance. Explicit CODEX_HOME overrides must not point at the shared company codex-home, $CODEX_HOME, or ~/.codex.
+- Some model/tool combinations reject certain effort levels (for example minimal with web search enabled).
+- OpenAI retired gpt-5.5 (October 14, 2026), gpt-5.4 and gpt-5.4-mini (August 31, 2026) from Codex with ChatGPT sign-in. They remain selectable for OpenAI API-key sessions; with ChatGPT sign-in the Test names the retirement and its replacement.
+- With ChatGPT sign-in, model availability depends on the installed Codex capabilities. Legacy setup reports known model/version mismatches. Native setup tests the actual app-server and selected model; a version number alone does not reject or replace an installed CLI. If the provider rejects the model, select an available model or update Codex in the execution environment.
+- Fast mode is supported on GPT-6 (astra/sol/luna), GPT-6.1 Sol, GPT-5.6 (sol/terra/luna), GPT-5.5, GPT-5.4 and manual model IDs. When enabled for those models, Paperclip applies \`service_tier="fast"\` and \`features.fast_mode=true\`.
+- When Paperclip realizes a workspace/runtime for a run, it injects PAPERCLIP_WORKSPACE_* and PAPERCLIP_RUNTIME_* env vars for agent-side tooling.
+- The ACP engine keeps its workspace sandbox and enables network access on each turn. Explicit sandbox_workspace_write.network_access overrides in extraArgs (or env.PAPERCLIP_CODEX_ACP_NETWORK_ACCESS="false") disable it; execution-target network denial wins. The bundled ACP patch is needed because upstream mode presets override Codex config.toml on every turn.
+- The CLI engine defaults to a writable workspace sandbox with network access for unattended work and Paperclip API calls. It does not enable the dangerous bypass flag. Explicit sandbox modes/profiles and network overrides in extraArgs retain their meaning. An execution-target network denial remains enforced.
+- Codex ACP is the preferred auto lane when Node >=24.11.0 and the Codex ACP server are available. It reuses shared ACP prompt/runtime guidance, selected skill materialization into CODEX_HOME/skills, model/reasoning/fast-mode session config, and existing quota-window reporting. Missing ACP prerequisites fail both default and explicit ACP runs with an actionable setup error; the adapter never switches engines automatically.
+`;
+
+//# sourceMappingURL=data:application/json;base64,eyJtYXBwaW5ncyI6IkFBQUEsU0FDRSx1Q0FDSztBQUNQLFNBQVMsOENBQThDO0FBRXZELE9BQU8sTUFBTSxPQUFPO0FBQ3BCLE9BQU8sTUFBTSxRQUFRO0FBRXJCLE9BQU8sTUFBTSwwQkFBMEI7Ozs7OztBQU92QyxPQUFPLE1BQU0sNEJBQTRCLGdDQUFnQzs7O0FBR3pFLE9BQU8sTUFBTSwyQ0FBMkM7QUFDeEQsT0FBTyxNQUFNLG1EQUFtRDtBQUVoRSxPQUFPLFNBQVMsMkJBQTJCLFFBQWlCLFVBQXVDLENBQUMsR0FBRztDQUNyRyxNQUFNLFNBQVMsT0FBTyxXQUFXLFlBQVksV0FBVyxRQUFRLENBQUMsTUFBTSxRQUFRLE1BQU0sSUFDakYsU0FBb0MsQ0FBQztDQUN6QyxNQUFNLGNBQWMsVUFBNkIsTUFBTSxRQUFRLEtBQUssSUFDaEUsTUFBTSxRQUFRLFNBQXlCLE9BQU8sU0FBUyxRQUFRLElBQUksQ0FBQztDQUN4RSxNQUFNLHNCQUFzQixXQUFXLE9BQU8sU0FBUztDQUN2RCxNQUFNLFlBQVksb0JBQW9CLFNBQVMsSUFBSSxzQkFBc0IsV0FBVyxPQUFPLElBQUk7Q0FDL0YsTUFBTSxrQkFBa0IsVUFBVSxNQUFNLFFBQ3RDLDhHQUE4RyxLQUFLLEdBQUcsS0FDbkgsMERBQTBELEtBQUssR0FBRyxDQUN2RTtDQUNBLE1BQU0sZ0NBQWdDLFVBQVUsTUFBTSxRQUNwRCx5R0FBeUcsS0FBSyxHQUFHLENBQ25IO0NBQ0EsTUFBTSxnQkFBZ0IsQ0FBQyxtQkFBbUIsQ0FBQyxpQ0FDdEMsUUFBUSxrQkFBa0IsU0FBUztDQUN4QyxNQUFNLFNBQVMsT0FBTyxPQUFPLHlDQUF5QyxZQUNsRSxPQUFPLHVDQUNQLE9BQU8sT0FBTyw2QkFBNkIsWUFBWSxPQUFPLDJCQUEyQjtDQUM3RixPQUFPO0VBQUU7RUFBVztFQUFpQjtDQUFPO0FBQzlDO0FBRUEsT0FBTyxNQUFNLHlDQUF5QztDQUNwRDtDQUNBO0NBQ0E7Q0FDQTtDQUNBO0NBQ0E7Q0FDQTtDQUNBO0NBQ0E7Q0FDQTtBQUNGO0FBRUEsU0FBUyxpQkFBaUIsT0FBMEM7Q0FDbEUsT0FBTyxPQUFPLFVBQVUsV0FBVyxNQUFNLEtBQUssSUFBSTtBQUNwRDs7Ozs7QUFNQSxNQUFNLDRCQUE4RCxFQUNsRSxXQUFXLGNBQ2I7QUFFQSxNQUFNLHdDQUF3QztDQUM1QztDQUNBO0NBQ0E7Q0FDQTtDQUNBO0FBQ0Y7QUFFQSxNQUFNLG9DQUFvQztDQUN4QztDQUNBO0NBQ0E7Q0FDQTtDQUNBO0FBQ0Y7QUFFQSxNQUFNLHNDQUFzQyxDQUMxQyxHQUFHLG1DQUNILE9BQ0Y7QUFNQSxPQUFPLFNBQVMsb0JBQW9CLE9BQTBDO0NBQzVFLE1BQU0sa0JBQWtCLGlCQUFpQixLQUFLO0NBQzlDLE9BQU8sMEJBQTBCLG9CQUFvQjtBQUN2RDtBQUVBLE9BQU8sU0FBUyxtQ0FDZCxPQUNzQztDQUN0QyxNQUFNLGtCQUFrQixvQkFBb0IsS0FBSztDQUNqRCxRQUFRLGlCQUFSO0VBQ0UsS0FBSztFQUNMLEtBQUs7RUFDTCxLQUFLO0VBQ0wsS0FBSztFQUNMLEtBQUssaUJBQ0gsT0FBTztFQUNULEtBQUs7RUFDTCxLQUFLLGdCQUNILE9BQU87RUFDVCxTQUNFLE9BQU87Q0FDWDtBQUNGOzs7Ozs7OztBQVNBLE1BQU0seUNBQTJFOzs7Q0FHL0UsZUFBZTs7Q0FFZixhQUFhO0NBQ2IsY0FBYztBQUNoQjtBQUVBLE9BQU8sU0FBUywrQkFBK0IsT0FBaUQ7Q0FDOUYsT0FBTyx1Q0FBdUMsb0JBQW9CLEtBQUssTUFBTTtBQUMvRTs7OztBQVVBLE1BQU0scUNBQXVGO0NBQzNGLFdBQVc7RUFBRSxXQUFXO0VBQWMsYUFBYTtDQUFnRDtDQUNuRyxXQUFXO0VBQUUsV0FBVztFQUFjLGFBQWE7Q0FBWTtDQUMvRCxnQkFBZ0I7RUFBRSxXQUFXO0VBQWMsYUFBYTtDQUFhO0FBQ3ZFO0FBRUEsT0FBTyxTQUFTLCtCQUErQixPQUFpRTtDQUM5RyxPQUFPLG1DQUFtQyxvQkFBb0IsS0FBSyxNQUFNO0FBQzNFOztBQUdBLE9BQU8sU0FBUywyQkFBMkIsT0FBaUQ7Q0FDMUYsTUFBTSxhQUFhLCtCQUErQixLQUFLO0NBQ3ZELElBQUksQ0FBQyxZQUFZLE9BQU87Q0FDeEIsT0FBTyxrQkFBa0Isb0JBQW9CLEtBQUssRUFBRSxzQ0FBc0MsV0FBVyxVQUFVLFdBQVcsV0FBVyxZQUFZO0FBQ25KO0FBRUEsTUFBTSwyQkFBMkI7QUFFakMsU0FBUywyQkFBMkIsU0FBa0M7Q0FDcEUsTUFBTSxRQUFRLHlCQUF5QixLQUFLLFFBQVEsS0FBSyxDQUFDO0NBQzFELElBQUksQ0FBQyxPQUFPLE9BQU87Q0FDbkIsTUFBTSxRQUFRLE1BQU0sTUFBTSxDQUFDLENBQUMsQ0FBQyxJQUFJLE1BQU07Q0FDdkMsT0FBTyxNQUFNLE1BQU0sT0FBTyxhQUFhLElBQUksUUFBUTtBQUNyRDs7QUFHQSxPQUFPLFNBQVMsMkJBQTJCLFFBQStCO0NBQ3hFLE1BQU0sV0FBVyxPQUNkLE1BQU0sT0FBTyxDQUFDLENBQ2QsS0FBSyxTQUFTLG9CQUFvQixLQUFLLEtBQUssS0FBSyxDQUFDLENBQUMsR0FBRyxFQUFFLENBQUMsQ0FDekQsUUFBUSxZQUErQixZQUFZLFNBQVM7Q0FDL0QsSUFBSSxTQUFTLFdBQVcsS0FBSyxDQUFDLDJCQUEyQixTQUFTLEVBQUcsR0FBRyxPQUFPO0NBQy9FLE9BQU8sU0FBUztBQUNsQjtBQUVBLE9BQU8sU0FBUyx1QkFBdUIsU0FBaUIsU0FBMEI7Q0FDaEYsTUFBTSxnQkFBZ0IsMkJBQTJCLE9BQU87Q0FDeEQsTUFBTSxnQkFBZ0IsMkJBQTJCLE9BQU87Q0FDeEQsSUFBSSxDQUFDLGlCQUFpQixDQUFDLGVBQWUsT0FBTztDQUM3QyxLQUFLLElBQUksUUFBUSxHQUFHLFFBQVEsY0FBYyxRQUFRLFNBQVMsR0FBRztFQUM1RCxJQUFJLGNBQWMsV0FBVyxjQUFjLFFBQVE7R0FDakQsT0FBTyxjQUFjLFNBQVUsY0FBYztFQUMvQztDQUNGO0NBQ0EsT0FBTztBQUNUO0FBRUEsT0FBTyxNQUFNLG1DQUNYO0FBRUYsT0FBTyxTQUFTLHVCQUF1QixPQUEyQztDQUNoRixNQUFNLGtCQUFrQixpQkFBaUIsS0FBSztDQUM5QyxJQUFJLENBQUMsaUJBQWlCLE9BQU87Q0FDN0IsT0FBTyxPQUFPLE1BQU0sVUFBVSxNQUFNLE9BQU8sZUFBZTtBQUM1RDtBQUVBLE9BQU8sU0FBUyx3QkFBd0IsT0FBMkM7Q0FDakYsTUFBTSxrQkFBa0IsaUJBQWlCLEtBQUs7Q0FDOUMsT0FBTyxRQUFRLGVBQWUsS0FBSyxDQUFDLHVCQUF1QixlQUFlO0FBQzVFO0FBRUEsT0FBTyxTQUFTLDhCQUE4QixPQUEyQztDQUN2RixJQUFJLHdCQUF3QixLQUFLLEdBQUcsT0FBTztDQUMzQyxNQUFNLGtCQUFrQixPQUFPLFVBQVUsV0FBVyxNQUFNLEtBQUssSUFBSTs7OztDQUluRSxJQUFJLENBQUMsaUJBQWlCLE9BQU87Q0FDN0IsT0FBTyx1Q0FBdUMsU0FDNUMsZUFDRjtBQUNGOzs7O0FBS0EsT0FBTyxNQUFNLFNBQVM7Q0FDcEI7RUFBRSxJQUFJO0VBQTBCLE9BQU87Q0FBcUM7Q0FDNUU7RUFBRSxJQUFJO0VBQWUsT0FBTztDQUFjO0NBQzFDO0VBQUUsSUFBSTtFQUFlLE9BQU87Q0FBYztDQUMxQztFQUFFLElBQUk7RUFBYSxPQUFPO0NBQVk7Q0FDdEM7RUFBRSxJQUFJO0VBQWMsT0FBTztDQUFhO0NBQ3hDO0VBQUUsSUFBSTtFQUFlLE9BQU87Q0FBYztDQUMxQztFQUFFLElBQUk7RUFBaUIsT0FBTztDQUFnQjtDQUM5QztFQUFFLElBQUk7RUFBZ0IsT0FBTztDQUFlO0NBQzVDO0VBQUUsSUFBSTtFQUFXLE9BQU87Q0FBVTtDQUNsQztFQUFFLElBQUk7RUFBVyxPQUFPO0NBQVU7Q0FDbEM7RUFBRSxJQUFJO0VBQWdCLE9BQU87Q0FBZTtDQUM1QztFQUFFLElBQUk7RUFBUyxPQUFPO0NBQVE7Q0FDOUI7RUFBRSxJQUFJO0VBQWMsT0FBTztDQUFhO0NBQ3hDO0VBQUUsSUFBSTtFQUFjLE9BQU87Q0FBYTtDQUN4QztFQUFFLElBQUk7RUFBTSxPQUFPO0NBQUs7Q0FDeEI7RUFBRSxJQUFJO0VBQVcsT0FBTztDQUFVO0NBQ2xDO0VBQUUsSUFBSTtFQUFXLE9BQU87Q0FBVTtDQUNsQztFQUFFLElBQUk7RUFBcUIsT0FBTztDQUFhO0FBQ2pEO0FBRUEsT0FBTyxNQUFNLHdCQUF3Qjs7bU9BRThMLHVDQUF1QyIsIm5hbWVzIjpbXSwic291cmNlcyI6WyJpbmRleC50cyJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQge1xyXG4gIFBBUEVSQ0xJUF9SVU5ORVJfREVGQVVMVF9NT0RFTFMsXHJcbn0gZnJvbSBcIkBwYXBlcmNsaXBhaS9hZGFwdGVyLXV0aWxzXCI7XHJcbmltcG9ydCB7IFBBUEVSQ0xJUF9SVU5ORVJfTUlOSU1VTV9HTElCQ19WRVJTSU9OIH0gZnJvbSBcIkBwYXBlcmNsaXBhaS9zaGFyZWRcIjtcclxuXHJcbmV4cG9ydCBjb25zdCB0eXBlID0gXCJjb2RleF9sb2NhbFwiO1xyXG5leHBvcnQgY29uc3QgbGFiZWwgPSBcIkNvZGV4XCI7XHJcblxyXG5leHBvcnQgY29uc3QgU0FOREJPWF9JTlNUQUxMX0NPTU1BTkQgPSBcIm5wbSBpbnN0YWxsIC1nIEBvcGVuYWkvY29kZXhcIjtcclxuXHJcbi8vIFRoZSBkZWZhdWx0IGlzIGBncHQtNi4xLXNvbGA6IHRoZSByZXZpZXdlZCBPcGVuQUkgcmF0ZSBjYXJkIGluIHNlcnZlci9zcmMvc2VydmljZXMvY29kZXgtcHJpY2luZy50c1xyXG4vLyBwcmljZXMgaXQgYXQgaGFsZiBvZiBgZ3B0LTUuNi1zb2xgLiBJdCBhcHBsaWVzIG9ubHkgdG8gYWdlbnRzIHdpdGhvdXQgYW4gZXhwbGljaXQgbW9kZWw7IGEgc3RvcmVkXHJcbi8vIG1vZGVsIGlzIG5ldmVyIHJld3JpdHRlbi4gQWx3YXlzIHVzZSBhIGNvbmNyZXRlIHNsdWcgcmF0aGVyIHRoYW4gYSBiYXJlIGZhbWlseSBhbGlhcyBzdWNoIGFzXHJcbi8vIGBncHQtNS42YDogT3BlbkFJIHNoaXBzIG5vIG1vZGVsIG1ldGFkYXRhIGZvciBiYXJlIHNsdWdzLCBzbyB0aGUgQ29kZXggQ0xJIHdhcm5zIGFuZCBmYWxscyBiYWNrIHRvXHJcbi8vIGdlbmVyaWMgY29udGV4dCBsaW1pdHMuXHJcbmV4cG9ydCBjb25zdCBERUZBVUxUX0NPREVYX0xPQ0FMX01PREVMID0gUEFQRVJDTElQX1JVTk5FUl9ERUZBVUxUX01PREVMUy5jb2RleDtcclxuLy8gVGhlIGZsb29yLWZyZWUgbW9kZWwgYSByZW1vdGUgQ29kZXggQ0xJIHRvbyBvbGQgZm9yIHRoZSByZXF1ZXN0ZWQgbW9kZWwgZmFsbHMgYmFjayB0by4gSXQgc3RheXNcclxuLy8gYGdwdC01LjYtc29sYCBiZWNhdXNlIHRoZSBkZWZhdWx0IGBncHQtNi4xLXNvbGAgaXRzZWxmIG5lZWRzIENvZGV4IDAuMTU5LjAgb3IgbmV3ZXIuXHJcbmV4cG9ydCBjb25zdCBDT0RFWF9MT0NBTF9DT01QQVRJQklMSVRZX0ZBTExCQUNLX01PREVMID0gXCJncHQtNS42LXNvbFwiO1xyXG5leHBvcnQgY29uc3QgREVGQVVMVF9DT0RFWF9MT0NBTF9CWVBBU1NfQVBQUk9WQUxTX0FORF9TQU5EQk9YID0gdHJ1ZTtcclxuXHJcbmV4cG9ydCBmdW5jdGlvbiByZXNvbHZlQ29kZXhMb2NhbENsaVBvbGljeShjb25maWc6IHVua25vd24sIG9wdGlvbnM6IHsgbmV0d29ya0FjY2Vzcz86IGJvb2xlYW4gfSA9IHt9KSB7XHJcbiAgY29uc3QgcmVjb3JkID0gdHlwZW9mIGNvbmZpZyA9PT0gXCJvYmplY3RcIiAmJiBjb25maWcgIT09IG51bGwgJiYgIUFycmF5LmlzQXJyYXkoY29uZmlnKVxyXG4gICAgPyBjb25maWcgYXMgUmVjb3JkPHN0cmluZywgdW5rbm93bj4gOiB7fTtcclxuICBjb25zdCBzdHJpbmdBcmdzID0gKHZhbHVlOiB1bmtub3duKTogc3RyaW5nW10gPT4gQXJyYXkuaXNBcnJheSh2YWx1ZSlcclxuICAgID8gdmFsdWUuZmlsdGVyKChpdGVtKTogaXRlbSBpcyBzdHJpbmcgPT4gdHlwZW9mIGl0ZW0gPT09IFwic3RyaW5nXCIpIDogW107XHJcbiAgY29uc3QgY29uZmlndXJlZEV4dHJhQXJncyA9IHN0cmluZ0FyZ3MocmVjb3JkLmV4dHJhQXJncyk7XHJcbiAgY29uc3QgZXh0cmFBcmdzID0gY29uZmlndXJlZEV4dHJhQXJncy5sZW5ndGggPiAwID8gY29uZmlndXJlZEV4dHJhQXJncyA6IHN0cmluZ0FyZ3MocmVjb3JkLmFyZ3MpO1xyXG4gIGNvbnN0IGV4cGxpY2l0U2FuZGJveCA9IGV4dHJhQXJncy5zb21lKChhcmcpID0+XHJcbiAgICAvXigtLXNhbmRib3goPzo9fCQpfC1zfC0tcHJvZmlsZSg/Oj18JCl8LXB8LS1mdWxsLWF1dG8kfC0teW9sbyR8LS1kYW5nZXJvdXNseS1ieXBhc3MtYXBwcm92YWxzLWFuZC1zYW5kYm94JCkvLnRlc3QoYXJnKVxyXG4gICAgfHwgL14oPzooPzotLWNvbmZpZz18LWM9PylcXHMqKT8oPzpzYW5kYm94X21vZGV8cHJvZmlsZSlcXHMqPS8udGVzdChhcmcpLFxyXG4gICk7XHJcbiAgY29uc3QgZXhwbGljaXRQZXJtaXNzaW9uUmVzdHJpY3Rpb24gPSBleHRyYUFyZ3Muc29tZSgoYXJnKSA9PlxyXG4gICAgL14oPzooPzotLWNvbmZpZz18LWM9PylcXHMqKT8oPzphcHByb3ZhbF9wb2xpY3lcXHMqPXxzYW5kYm94X3dvcmtzcGFjZV93cml0ZVxcLm5ldHdvcmtfYWNjZXNzXFxzKj1cXHMqZmFsc2UpLy50ZXN0KGFyZyksXHJcbiAgKTtcclxuICBjb25zdCBkZWZhdWx0QnlwYXNzID0gIWV4cGxpY2l0U2FuZGJveCAmJiAhZXhwbGljaXRQZXJtaXNzaW9uUmVzdHJpY3Rpb25cclxuICAgICYmIG9wdGlvbnMubmV0d29ya0FjY2VzcyAhPT0gZmFsc2UgJiYgREVGQVVMVF9DT0RFWF9MT0NBTF9CWVBBU1NfQVBQUk9WQUxTX0FORF9TQU5EQk9YO1xyXG4gIGNvbnN0IGJ5cGFzcyA9IHR5cGVvZiByZWNvcmQuZGFuZ2Vyb3VzbHlCeXBhc3NBcHByb3ZhbHNBbmRTYW5kYm94ID09PSBcImJvb2xlYW5cIlxyXG4gICAgPyByZWNvcmQuZGFuZ2Vyb3VzbHlCeXBhc3NBcHByb3ZhbHNBbmRTYW5kYm94XHJcbiAgICA6IHR5cGVvZiByZWNvcmQuZGFuZ2Vyb3VzbHlCeXBhc3NTYW5kYm94ID09PSBcImJvb2xlYW5cIiA/IHJlY29yZC5kYW5nZXJvdXNseUJ5cGFzc1NhbmRib3ggOiBkZWZhdWx0QnlwYXNzO1xyXG4gIHJldHVybiB7IGV4dHJhQXJncywgZXhwbGljaXRTYW5kYm94LCBieXBhc3MgfTtcclxufVxyXG5cclxuZXhwb3J0IGNvbnN0IENPREVYX0xPQ0FMX0ZBU1RfTU9ERV9TVVBQT1JURURfTU9ERUxTID0gW1xyXG4gIFwiYW50aWdyYXZpdHktaWRlLWJyaWRnZVwiLFxyXG4gIFwiZ3B0LTYtYXN0cmFcIixcclxuICBcImdwdC02LjEtc29sXCIsXHJcbiAgXCJncHQtNi1zb2xcIixcclxuICBcImdwdC02LWx1bmFcIixcclxuICBcImdwdC01LjYtc29sXCIsXHJcbiAgXCJncHQtNS42LXRlcnJhXCIsXHJcbiAgXCJncHQtNS42LWx1bmFcIixcclxuICBcImdwdC01LjVcIixcclxuICBcImdwdC01LjRcIixcclxuXSBhcyBjb25zdDtcclxuXHJcbmZ1bmN0aW9uIG5vcm1hbGl6ZU1vZGVsSWQobW9kZWw6IHN0cmluZyB8IG51bGwgfCB1bmRlZmluZWQpOiBzdHJpbmcge1xyXG4gIHJldHVybiB0eXBlb2YgbW9kZWwgPT09IFwic3RyaW5nXCIgPyBtb2RlbC50cmltKCkgOiBcIlwiO1xyXG59XHJcblxyXG4vLyBMZWdhY3kgbW9kZWwgYWxpYXNlcyB3aXRoIG5vIE9wZW5BSS1wdWJsaXNoZWQgbWV0YWRhdGEgYXJlIHJld3JpdHRlbiB0byB0aGUgY29uY3JldGUgc2x1ZyB0aGVcclxuLy8gQ29kZXggQ0xJIGFjdHVhbGx5IGtub3dzLiBXaXRob3V0IHRoaXMsIGFnZW50cyBzdGlsbCBjb25maWd1cmVkIHdpdGggdGhlIGJhcmUgYGdwdC01LjZgIGFsaWFzXHJcbi8vICh0aGUgb2xkIGRlZmF1bHQpIGtlZXAgdHJpZ2dlcmluZyBcIk1vZGVsIG1ldGFkYXRhIGZvciBgZ3B0LTUuNmAgbm90IGZvdW5kXCIgd2FybmluZ3MgYW5kIENvZGV4XHJcbi8vIGZhbGxzIGJhY2sgdG8gZ2VuZXJpYyBjb250ZXh0LXdpbmRvdyBsaW1pdHMsIGV2ZW4gb24gYSBDb2RleCBidWlsZCB0aGF0IHNoaXBzIHRoZSA1LjYgZmFtaWx5LlxyXG5jb25zdCBDT0RFWF9MT0NBTF9NT0RFTF9BTElBU0VTOiBSZWFkb25seTxSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+PiA9IHtcclxuICBcImdwdC01LjZcIjogXCJncHQtNS42LXNvbFwiLFxyXG59O1xyXG5cclxuY29uc3QgQ09ERVhfTE9DQUxfREVGQVVMVF9SRUFTT05JTkdfRUZGT1JUUyA9IFtcclxuICBcIm1pbmltYWxcIixcclxuICBcImxvd1wiLFxyXG4gIFwibWVkaXVtXCIsXHJcbiAgXCJoaWdoXCIsXHJcbiAgXCJ4aGlnaFwiLFxyXG5dIGFzIGNvbnN0O1xyXG5cclxuY29uc3QgQ09ERVhfTE9DQUxfTUFYX1JFQVNPTklOR19FRkZPUlRTID0gW1xyXG4gIFwibG93XCIsXHJcbiAgXCJtZWRpdW1cIixcclxuICBcImhpZ2hcIixcclxuICBcInhoaWdoXCIsXHJcbiAgXCJtYXhcIixcclxuXSBhcyBjb25zdDtcclxuXHJcbmNvbnN0IENPREVYX0xPQ0FMX1VMVFJBX1JFQVNPTklOR19FRkZPUlRTID0gW1xyXG4gIC4uLkNPREVYX0xPQ0FMX01BWF9SRUFTT05JTkdfRUZGT1JUUyxcclxuICBcInVsdHJhXCIsXHJcbl0gYXMgY29uc3Q7XHJcblxyXG5leHBvcnQgdHlwZSBDb2RleExvY2FsUmVhc29uaW5nRWZmb3J0ID1cclxuICB8ICh0eXBlb2YgQ09ERVhfTE9DQUxfREVGQVVMVF9SRUFTT05JTkdfRUZGT1JUUylbbnVtYmVyXVxyXG4gIHwgKHR5cGVvZiBDT0RFWF9MT0NBTF9VTFRSQV9SRUFTT05JTkdfRUZGT1JUUylbbnVtYmVyXTtcclxuXHJcbmV4cG9ydCBmdW5jdGlvbiBub3JtYWxpemVDb2RleE1vZGVsKG1vZGVsOiBzdHJpbmcgfCBudWxsIHwgdW5kZWZpbmVkKTogc3RyaW5nIHtcclxuICBjb25zdCBub3JtYWxpemVkTW9kZWwgPSBub3JtYWxpemVNb2RlbElkKG1vZGVsKTtcclxuICByZXR1cm4gQ09ERVhfTE9DQUxfTU9ERUxfQUxJQVNFU1tub3JtYWxpemVkTW9kZWxdID8/IG5vcm1hbGl6ZWRNb2RlbDtcclxufVxyXG5cclxuZXhwb3J0IGZ1bmN0aW9uIGNvZGV4TG9jYWxSZWFzb25pbmdFZmZvcnRzRm9yTW9kZWwoXHJcbiAgbW9kZWw6IHN0cmluZyB8IG51bGwgfCB1bmRlZmluZWQsXHJcbik6IHJlYWRvbmx5IENvZGV4TG9jYWxSZWFzb25pbmdFZmZvcnRbXSB7XHJcbiAgY29uc3Qgbm9ybWFsaXplZE1vZGVsID0gbm9ybWFsaXplQ29kZXhNb2RlbChtb2RlbCk7XHJcbiAgc3dpdGNoIChub3JtYWxpemVkTW9kZWwpIHtcclxuICAgIGNhc2UgXCJncHQtNi1hc3RyYVwiOlxyXG4gICAgY2FzZSBcImdwdC02LjEtc29sXCI6XHJcbiAgICBjYXNlIFwiZ3B0LTYtc29sXCI6XHJcbiAgICBjYXNlIFwiZ3B0LTUuNi1zb2xcIjpcclxuICAgIGNhc2UgXCJncHQtNS42LXRlcnJhXCI6XHJcbiAgICAgIHJldHVybiBDT0RFWF9MT0NBTF9VTFRSQV9SRUFTT05JTkdfRUZGT1JUUztcclxuICAgIGNhc2UgXCJncHQtNi1sdW5hXCI6XHJcbiAgICBjYXNlIFwiZ3B0LTUuNi1sdW5hXCI6XHJcbiAgICAgIHJldHVybiBDT0RFWF9MT0NBTF9NQVhfUkVBU09OSU5HX0VGRk9SVFM7XHJcbiAgICBkZWZhdWx0OlxyXG4gICAgICByZXR1cm4gQ09ERVhfTE9DQUxfREVGQVVMVF9SRUFTT05JTkdfRUZGT1JUUztcclxuICB9XHJcbn1cclxuXHJcbi8vIFRoZSBDb2RleCBiYWNrZW5kIGFjY2VwdHMgYSBtb2RlbCBmb3IgQ2hhdEdQVCBzaWduLWluIG9ubHkgZnJvbSBhIGNsaWVudCB0aGF0IGlkZW50aWZpZXMgYXMgYVxyXG4vLyByZWNlbnQgZW5vdWdoIENMSSAodGhlIHJlcXVlc3QgY2FycmllcyB0aGUgQ0xJIHZlcnNpb24pLiBBbiBvbGRlciBgY29kZXhgIGZhaWxzIGV2ZXJ5IHR1cm4gd2l0aFxyXG4vLyBcIlRoZSAnPG1vZGVsPicgbW9kZWwgaXMgbm90IHN1cHBvcnRlZCB3aGVuIHVzaW5nIENvZGV4IHdpdGggYSBDaGF0R1BUIGFjY291bnQuXCIsIHdoaWNoIHJlYWRzXHJcbi8vIGxpa2UgYW4gYWNjb3VudCBwcm9ibGVtIHdoZW4gaXQgaXMgcmVhbGx5IGEgc3RhbGUgaW5zdGFsbCwgdHlwaWNhbGx5IGEgc2FuZGJveCBpbWFnZSBiYWtlZFxyXG4vLyBiZWZvcmUgdGhlIGNhdGFsb2cgZ2FpbmVkIHRoZSBtb2RlbC4gUmVjb3JkIHRoZSBvbGRlc3Qgc3RhYmxlIHJlbGVhc2UgdmVyaWZpZWQgdG8gd29yayBzbyB0aGVcclxuLy8gVGVzdCBhbmQgdGhlIHJlbW90ZSBydW5uZXIgY2FuIG5hbWUgdGhlIGFjdHVhbCBnYXAuIE9taXQgbW9kZWxzIHdpdGggbm8gdmVyaWZpZWQgZmxvb3I7IHRoZVxyXG4vLyBpbnN0YWxsIHBpbiBpbiB0aGUgcnVubmVyIGFuZCBpbWFnZXMgaXMgYWx3YXlzIGF0IG9yIGFib3ZlIGV2ZXJ5IGZsb29yIGxpc3RlZCBoZXJlLlxyXG5jb25zdCBDT0RFWF9MT0NBTF9NT0RFTF9NSU5JTVVNX0NMSV9WRVJTSU9OUzogUmVhZG9ubHk8UmVjb3JkPHN0cmluZywgc3RyaW5nPj4gPSB7XHJcbiAgLy8gMC4xNTYuMSBhbmQgb2xkZXIgYXJlIHJlamVjdGVkIChvcGVuYWkvY29kZXgjNDkzOTYpOyAwLjE1OS4wIGFuZCAwLjE1OS4yIGFyZSBhY2NlcHRlZFxyXG4gIC8vIChvcGVuYWkvY29kZXgjNDk0NjQpLiBObyBzdGFibGUgcmVsZWFzZSBiZXR3ZWVuIHRob3NlIHdhcyB2ZXJpZmllZCBlaXRoZXIgd2F5LlxyXG4gIFwiZ3B0LTYuMS1zb2xcIjogXCIwLjE1OS4wXCIsXHJcbiAgLy8gQ29kZXggMC4xNTcuMCByZWxlYXNlIG5vdGVzOiBcIkFkZCBHUFQtNiBTb2wgYW5kIEx1bmEgdG8gdGhlIG1vZGVsIGNhdGFsb2dcIi5cclxuICBcImdwdC02LXNvbFwiOiBcIjAuMTU3LjBcIixcclxuICBcImdwdC02LWx1bmFcIjogXCIwLjE1Ny4wXCIsXHJcbn07XHJcblxyXG5leHBvcnQgZnVuY3Rpb24gbWluaW11bUNvZGV4Q2xpVmVyc2lvbkZvck1vZGVsKG1vZGVsOiBzdHJpbmcgfCBudWxsIHwgdW5kZWZpbmVkKTogc3RyaW5nIHwgbnVsbCB7XHJcbiAgcmV0dXJuIENPREVYX0xPQ0FMX01PREVMX01JTklNVU1fQ0xJX1ZFUlNJT05TW25vcm1hbGl6ZUNvZGV4TW9kZWwobW9kZWwpXSA/PyBudWxsO1xyXG59XHJcblxyXG5leHBvcnQgaW50ZXJmYWNlIENvZGV4Q2hhdEdwdFJldGlyZW1lbnQge1xyXG4gIHJldGlyZWRPbjogc3RyaW5nO1xyXG4gIHJlcGxhY2VtZW50OiBzdHJpbmc7XHJcbn1cclxuXHJcbi8vIE1vZGVscyBPcGVuQUkgcmV0aXJlZCBmcm9tIENvZGV4IHdpdGggQ2hhdEdQVCBzaWduLWluIChodHRwczovL2xlYXJuLmNoYXRncHQuY29tL2RvY3MvbW9kZWxzKS5cclxuLy8gVGhlIE9wZW5BSSBBUEkgYW5kIEFQSS1rZXkgQ29kZXggc2Vzc2lvbnMgc3RpbGwgc2VydmUgdGhlbSwgc28gdGhleSBzdGF5IGluIHRoZSBwaWNrZXI7IHRoZVxyXG4vLyBUZXN0IG5hbWVzIHRoZSByZXRpcmVtZW50IGluc3RlYWQgb2Ygc3VnZ2VzdGluZyBhIHN0YWxlIENMSSBvciBhIHBsYW4gcmVzdHJpY3Rpb24uXHJcbmNvbnN0IENPREVYX0xPQ0FMX0NIQVRHUFRfUkVUSVJFRF9NT0RFTFM6IFJlYWRvbmx5PFJlY29yZDxzdHJpbmcsIENvZGV4Q2hhdEdwdFJldGlyZW1lbnQ+PiA9IHtcclxuICBcImdwdC01LjVcIjogeyByZXRpcmVkT246IFwiMjAyNi0xMC0xNFwiLCByZXBsYWNlbWVudDogXCJncHQtNi4xLXNvbCAoZ3B0LTYtbHVuYSBvbiBGcmVlIGFuZCBHbyBwbGFucylcIiB9LFxyXG4gIFwiZ3B0LTUuNFwiOiB7IHJldGlyZWRPbjogXCIyMDI2LTA4LTMxXCIsIHJlcGxhY2VtZW50OiBcImdwdC02LXNvbFwiIH0sXHJcbiAgXCJncHQtNS40LW1pbmlcIjogeyByZXRpcmVkT246IFwiMjAyNi0wOC0zMVwiLCByZXBsYWNlbWVudDogXCJncHQtNi1sdW5hXCIgfSxcclxufTtcclxuXHJcbmV4cG9ydCBmdW5jdGlvbiBjb2RleENoYXRHcHRSZXRpcmVtZW50Rm9yTW9kZWwobW9kZWw6IHN0cmluZyB8IG51bGwgfCB1bmRlZmluZWQpOiBDb2RleENoYXRHcHRSZXRpcmVtZW50IHwgbnVsbCB7XHJcbiAgcmV0dXJuIENPREVYX0xPQ0FMX0NIQVRHUFRfUkVUSVJFRF9NT0RFTFNbbm9ybWFsaXplQ29kZXhNb2RlbChtb2RlbCldID8/IG51bGw7XHJcbn1cclxuXHJcbi8qKiBUZXN0IGhpbnQgZm9yIGEgQ2hhdEdQVC1hY2NvdW50IHJlamVjdGlvbiBvZiBhIHJldGlyZWQgbW9kZWw7IHNoYXJlZCBieSB0aGUgbGVnYWN5IGFuZCBuYXRpdmUgVGVzdHMuICovXHJcbmV4cG9ydCBmdW5jdGlvbiBjb2RleENoYXRHcHRSZXRpcmVtZW50SGludChtb2RlbDogc3RyaW5nIHwgbnVsbCB8IHVuZGVmaW5lZCk6IHN0cmluZyB8IG51bGwge1xyXG4gIGNvbnN0IHJldGlyZW1lbnQgPSBjb2RleENoYXRHcHRSZXRpcmVtZW50Rm9yTW9kZWwobW9kZWwpO1xyXG4gIGlmICghcmV0aXJlbWVudCkgcmV0dXJuIG51bGw7XHJcbiAgcmV0dXJuIGBPcGVuQUkgcmV0aXJlZCAke25vcm1hbGl6ZUNvZGV4TW9kZWwobW9kZWwpfSBmcm9tIENvZGV4IHdpdGggQ2hhdEdQVCBzaWduLWluIG9uICR7cmV0aXJlbWVudC5yZXRpcmVkT259LiBDaG9vc2UgJHtyZXRpcmVtZW50LnJlcGxhY2VtZW50fSwgb3IgdXNlIGFuIE9wZW5BSSBBUEkga2V5OyBBUEkta2V5IHNlc3Npb25zIGFyZSBub3QgYWZmZWN0ZWQuYDtcclxufVxyXG5cclxuY29uc3QgU1RBQkxFX0NPREVYX0NMSV9WRVJTSU9OID0gL14oMHxbMS05XVxcZCopXFwuKDB8WzEtOV1cXGQqKVxcLigwfFsxLTldXFxkKikkLztcclxuXHJcbmZ1bmN0aW9uIHN0YWJsZUNvZGV4Q2xpVmVyc2lvblBhcnRzKHZlcnNpb246IHN0cmluZyk6IG51bWJlcltdIHwgbnVsbCB7XHJcbiAgY29uc3QgbWF0Y2ggPSBTVEFCTEVfQ09ERVhfQ0xJX1ZFUlNJT04uZXhlYyh2ZXJzaW9uLnRyaW0oKSk7XHJcbiAgaWYgKCFtYXRjaCkgcmV0dXJuIG51bGw7XHJcbiAgY29uc3QgcGFydHMgPSBtYXRjaC5zbGljZSgxKS5tYXAoTnVtYmVyKTtcclxuICByZXR1cm4gcGFydHMuZXZlcnkoTnVtYmVyLmlzU2FmZUludGVnZXIpID8gcGFydHMgOiBudWxsO1xyXG59XHJcblxyXG4vKiogUmVhZCB0aGUgdmVyc2lvbiBmcm9tIGBjb2RleCAtLXZlcnNpb25gIG91dHB1dDsgcHJlcmVsZWFzZSBvciBhbWJpZ3VvdXMgb3V0cHV0IHlpZWxkcyBudWxsLiAqL1xyXG5leHBvcnQgZnVuY3Rpb24gcGFyc2VDb2RleENsaVZlcnNpb25PdXRwdXQob3V0cHV0OiBzdHJpbmcpOiBzdHJpbmcgfCBudWxsIHtcclxuICBjb25zdCB2ZXJzaW9ucyA9IG91dHB1dFxyXG4gICAgLnNwbGl0KC9cXHI/XFxuLylcclxuICAgIC5tYXAoKGxpbmUpID0+IC9eY29kZXgtY2xpIChcXFMrKSQvLmV4ZWMobGluZS50cmltKCkpPy5bMV0pXHJcbiAgICAuZmlsdGVyKCh2ZXJzaW9uKTogdmVyc2lvbiBpcyBzdHJpbmcgPT4gdmVyc2lvbiAhPT0gdW5kZWZpbmVkKTtcclxuICBpZiAodmVyc2lvbnMubGVuZ3RoICE9PSAxIHx8ICFzdGFibGVDb2RleENsaVZlcnNpb25QYXJ0cyh2ZXJzaW9uc1swXSEpKSByZXR1cm4gbnVsbDtcclxuICByZXR1cm4gdmVyc2lvbnNbMF0hO1xyXG59XHJcblxyXG5leHBvcnQgZnVuY3Rpb24gY29kZXhDbGlWZXJzaW9uQXRMZWFzdCh2ZXJzaW9uOiBzdHJpbmcsIG1pbmltdW06IHN0cmluZyk6IGJvb2xlYW4ge1xyXG4gIGNvbnN0IHBhcnNlZFZlcnNpb24gPSBzdGFibGVDb2RleENsaVZlcnNpb25QYXJ0cyh2ZXJzaW9uKTtcclxuICBjb25zdCBwYXJzZWRNaW5pbXVtID0gc3RhYmxlQ29kZXhDbGlWZXJzaW9uUGFydHMobWluaW11bSk7XHJcbiAgaWYgKCFwYXJzZWRWZXJzaW9uIHx8ICFwYXJzZWRNaW5pbXVtKSByZXR1cm4gZmFsc2U7XHJcbiAgZm9yIChsZXQgaW5kZXggPSAwOyBpbmRleCA8IHBhcnNlZE1pbmltdW0ubGVuZ3RoOyBpbmRleCArPSAxKSB7XHJcbiAgICBpZiAocGFyc2VkVmVyc2lvbltpbmRleF0gIT09IHBhcnNlZE1pbmltdW1baW5kZXhdKSB7XHJcbiAgICAgIHJldHVybiBwYXJzZWRWZXJzaW9uW2luZGV4XSEgPiBwYXJzZWRNaW5pbXVtW2luZGV4XSE7XHJcbiAgICB9XHJcbiAgfVxyXG4gIHJldHVybiB0cnVlO1xyXG59XHJcblxyXG5leHBvcnQgY29uc3QgQ09ERVhfQ0hBVEdQVF9NT0RFTF9SRUpFQ1RJT05fUkUgPVxyXG4gIC9UaGUgJyhbXiddKyknIG1vZGVsIGlzIG5vdCBzdXBwb3J0ZWQgd2hlbiB1c2luZyBDb2RleCB3aXRoIGEgQ2hhdEdQVCBhY2NvdW50XFwuLztcclxuXHJcbmV4cG9ydCBmdW5jdGlvbiBpc0NvZGV4TG9jYWxLbm93bk1vZGVsKG1vZGVsOiBzdHJpbmcgfCBudWxsIHwgdW5kZWZpbmVkKTogYm9vbGVhbiB7XHJcbiAgY29uc3Qgbm9ybWFsaXplZE1vZGVsID0gbm9ybWFsaXplTW9kZWxJZChtb2RlbCk7XHJcbiAgaWYgKCFub3JtYWxpemVkTW9kZWwpIHJldHVybiBmYWxzZTtcclxuICByZXR1cm4gbW9kZWxzLnNvbWUoKGVudHJ5KSA9PiBlbnRyeS5pZCA9PT0gbm9ybWFsaXplZE1vZGVsKTtcclxufVxyXG5cclxuZXhwb3J0IGZ1bmN0aW9uIGlzQ29kZXhMb2NhbE1hbnVhbE1vZGVsKG1vZGVsOiBzdHJpbmcgfCBudWxsIHwgdW5kZWZpbmVkKTogYm9vbGVhbiB7XHJcbiAgY29uc3Qgbm9ybWFsaXplZE1vZGVsID0gbm9ybWFsaXplTW9kZWxJZChtb2RlbCk7XHJcbiAgcmV0dXJuIEJvb2xlYW4obm9ybWFsaXplZE1vZGVsKSAmJiAhaXNDb2RleExvY2FsS25vd25Nb2RlbChub3JtYWxpemVkTW9kZWwpO1xyXG59XHJcblxyXG5leHBvcnQgZnVuY3Rpb24gaXNDb2RleExvY2FsRmFzdE1vZGVTdXBwb3J0ZWQobW9kZWw6IHN0cmluZyB8IG51bGwgfCB1bmRlZmluZWQpOiBib29sZWFuIHtcclxuICBpZiAoaXNDb2RleExvY2FsTWFudWFsTW9kZWwobW9kZWwpKSByZXR1cm4gdHJ1ZTtcclxuICBjb25zdCBub3JtYWxpemVkTW9kZWwgPSB0eXBlb2YgbW9kZWwgPT09IFwic3RyaW5nXCIgPyBtb2RlbC50cmltKCkgOiBcIlwiO1xyXG4gIC8vIEVtcHR5IG1lYW5zIHdlJ3JlIG9taXR0aW5nIC0tbW9kZWwgc28gdGhlIENvZGV4IENMSSBwaWNrcyBpdHMgb3duIGRlZmF1bHQuXHJcbiAgLy8gTWFudWFsIG1vZGVsIElEcyBhcmUgYWxzbyB0cmVhdGVkIGFzIHN1cHBvcnRlZDogcGFzcyB0aGUgZmFzdC1tb2RlIG92ZXJyaWRlc1xyXG4gIC8vIHRocm91Z2ggYW5kIGxldCB0aGUgQ0xJIHJlamVjdCB0aGVtIGlmIHRoZSBjaG9zZW4gbW9kZWwgY2FuJ3QgdXNlIHRoZW0uXHJcbiAgaWYgKCFub3JtYWxpemVkTW9kZWwpIHJldHVybiB0cnVlO1xyXG4gIHJldHVybiBDT0RFWF9MT0NBTF9GQVNUX01PREVfU1VQUE9SVEVEX01PREVMUy5pbmNsdWRlcyhcclxuICAgIG5vcm1hbGl6ZWRNb2RlbCBhcyAodHlwZW9mIENPREVYX0xPQ0FMX0ZBU1RfTU9ERV9TVVBQT1JURURfTU9ERUxTKVtudW1iZXJdLFxyXG4gICk7XHJcbn1cclxuXHJcbi8vIE9yZGVyZWQgdGhlIHdheSB0aGUgQ2hhdEdQVCBhcHAgb3JkZXJzIENvZGV4IG1vZGVscyAoIzE0ODc4KTogbmV3ZXN0IG1vZGVsIHZlcnNpb24gZmlyc3QsXHJcbi8vIHRoZW4gYnkgZGVjcmVhc2luZyBjYXBhYmlsaXR5IGluc2lkZSBlYWNoIHZlcnNpb24sIG9sZGVyIG1vZGVscyBhdCB0aGUgZW5kLiBUaGUgc2VydmVyXHJcbi8vIHJldHVybnMgdGhpcyBsaXN0IGFzIHdyaXR0ZW4gYW5kIHRoZSBtb2RlbCBkcm9wZG93biBrZWVwcyBpdHMgb3JkZXIuXHJcbmV4cG9ydCBjb25zdCBtb2RlbHMgPSBbXHJcbiAgeyBpZDogXCJhbnRpZ3Jhdml0eS1pZGUtYnJpZGdlXCIsIGxhYmVsOiBcIkFudGlncmF2aXR5IElERSBCcmlkZ2UgKFplcm8tQ29zdClcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTYuMS1zb2xcIiwgbGFiZWw6IFwiZ3B0LTYuMS1zb2xcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTYtYXN0cmFcIiwgbGFiZWw6IFwiZ3B0LTYtYXN0cmFcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTYtc29sXCIsIGxhYmVsOiBcImdwdC02LXNvbFwiIH0sXHJcbiAgeyBpZDogXCJncHQtNi1sdW5hXCIsIGxhYmVsOiBcImdwdC02LWx1bmFcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTUuNi1zb2xcIiwgbGFiZWw6IFwiZ3B0LTUuNi1zb2xcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTUuNi10ZXJyYVwiLCBsYWJlbDogXCJncHQtNS42LXRlcnJhXCIgfSxcclxuICB7IGlkOiBcImdwdC01LjYtbHVuYVwiLCBsYWJlbDogXCJncHQtNS42LWx1bmFcIiB9LFxyXG4gIHsgaWQ6IFwiZ3B0LTUuNVwiLCBsYWJlbDogXCJncHQtNS41XCIgfSxcclxuICB7IGlkOiBcImdwdC01LjRcIiwgbGFiZWw6IFwiZ3B0LTUuNFwiIH0sXHJcbiAgeyBpZDogXCJncHQtNS40LW1pbmlcIiwgbGFiZWw6IFwiZ3B0LTUuNC1taW5pXCIgfSxcclxuICB7IGlkOiBcImdwdC01XCIsIGxhYmVsOiBcImdwdC01XCIgfSxcclxuICB7IGlkOiBcImdwdC01LW1pbmlcIiwgbGFiZWw6IFwiZ3B0LTUtbWluaVwiIH0sXHJcbiAgeyBpZDogXCJncHQtNS1uYW5vXCIsIGxhYmVsOiBcImdwdC01LW5hbm9cIiB9LFxyXG4gIHsgaWQ6IFwibzNcIiwgbGFiZWw6IFwibzNcIiB9LFxyXG4gIHsgaWQ6IFwibzQtbWluaVwiLCBsYWJlbDogXCJvNC1taW5pXCIgfSxcclxuICB7IGlkOiBcIm8zLW1pbmlcIiwgbGFiZWw6IFwibzMtbWluaVwiIH0sXHJcbiAgeyBpZDogXCJjb2RleC1taW5pLWxhdGVzdFwiLCBsYWJlbDogXCJDb2RleCBNaW5pXCIgfSxcclxuXTtcclxuXHJcbmV4cG9ydCBjb25zdCBhZ2VudENvbmZpZ3VyYXRpb25Eb2MgPSBgIyBjb2RleF9sb2NhbCBhZ2VudCBjb25maWd1cmF0aW9uXHJcblxyXG5OZXcgYWdlbnRzIHNlbGVjdCB0aGUgQ29kZXggaGFybmVzcyB3aXRoIGFkYXB0ZXJUeXBlOiBjb2RleF9sb2NhbCBhbmQgYW4gb3B0aW9uYWwgcmVxdWVzdC1sZXZlbCBydW5uZXI6IGF1dG8sIHBhcGVyY2xpcCwgb3IgbGVnYWN5LiBBdXRvbWF0aWMgc2VsZWN0aW9uIHVzZXMgUGFwZXJjbGlwIFJ1bm5lciBvbiBxdWFsaWZpZWQgTGludXggeDY0L0FSTTY0IHRhcmdldHMgd2l0aCBHTlUgbGliYyAke1BBUEVSQ0xJUF9SVU5ORVJfTUlOSU1VTV9HTElCQ19WRVJTSU9OfSBvciBuZXdlciBhbmQgbWFjT1MgYXJtNjQveDY0IHRhcmdldHMuIEl0IHN0b3JlcyBhZGFwdGVyVHlwZTogcGFwZXJjbGlwX3J1bm5lciB3aXRoIHByb3ZpZGVyOiBjb2RleC4gV2luZG93cywgMzItYml0IEFSTSwgQWxwaW5lL211c2wsIGFuZCBvbGRlciBvciB1bmtub3duIExpbnV4IGxpYmMgcmV0YWluIGF1dG9tYXRpYyBsZWdhY3kgc2VsZWN0aW9uLiBRdWFsaWZpY2F0aW9uIGFuZCBhcnRpZmFjdCBjaGVja3MgdXNlIHRoZSBzZWxlY3RlZCBleGVjdXRpb24gZW52aXJvbm1lbnQsIGluY2x1ZGluZyBpdHMgYXJjaGl0ZWN0dXJlLCByYXRoZXIgdGhhbiB0aGUgY29udHJvbGxlcidzIHBsYXRmb3JtLiBPdGhlciBoYXJuZXNzIGRlZmF1bHRzIGFyZSB1bmNoYW5nZWQuXHJcblxyXG5TZXQgcnVubmVyOiBsZWdhY3kgdG8gcmV0YWluIHRoaXMgYWRhcHRlcidzIGV4ZWN1dGlvbiBhbmQgY3VzdG9tIHNldHRpbmdzLiBFeHBsaWNpdCBydW5uZXI6IHBhcGVyY2xpcCByZXF1aXJlcyBhIHF1YWxpZmllZCB0YXJnZXQuIEV4aXN0aW5nIGFnZW50cyBhbmQgcmV2aWV3ZWQgcGVuZGluZyBoaXJlcyByZXRhaW4gdGhlaXIgc2F2ZWQgcnVubmVyOyBhdXRoZW50aWNhdGlvbiwgbW9kZWwsIGRlcGVuZGVuY3ksIGFuZCBydW50aW1lIGVycm9ycyBuZXZlciBzaWxlbnRseSBzd2l0Y2ggcnVubmVycy4gVGhlIGZpZWxkcyBiZWxvdyBkZXNjcmliZSBsZWdhY3kgY29kZXhfbG9jYWwgZXhlY3V0aW9uLiBOYXRpdmUgY3JlYXRpb24gdHJhbnNsYXRlcyBzdXBwb3J0ZWQgc2V0dGluZ3MgYW5kIHJlamVjdHMgdW5zdXBwb3J0ZWQgc2V0dGluZ3Mgd2l0aCB0aGUgZXhwbGljaXQgTGVnYWN5IHJ1bm5lciBvcHRpb24uXHJcblxyXG5BZGFwdGVyOiBjb2RleF9sb2NhbFxyXG5cclxuQ29yZSBmaWVsZHM6XHJcbi0gZW5naW5lIChzdHJpbmcsIG9wdGlvbmFsKTogZGVmYXVsdHMgdG8gQUNQLCBpbmNsdWRpbmcgbGVnYWN5IHVuc2V0L1wiYXV0b1wiIHZhbHVlcy4gTWlzc2luZyBwcmVyZXF1aXNpdGVzIGFuZCBleGVjdXRpb24gZmFpbHVyZXMgZmFpbCB0aGUgcnVuIHdpdGhvdXQgY2hhbmdpbmcgZW5naW5lcy4gU2V0IFwiY2xpXCIgdG8gZXhwbGljaXRseSBzZWxlY3QgdGhlIENMSSBlbmdpbmUuXHJcbi0gY3dkIChzdHJpbmcsIG9wdGlvbmFsKTogZGVmYXVsdCBhYnNvbHV0ZSB3b3JraW5nIGRpcmVjdG9yeSBmYWxsYmFjayBmb3IgdGhlIGFnZW50IHByb2Nlc3MgKGNyZWF0ZWQgaWYgbWlzc2luZyB3aGVuIHBvc3NpYmxlKVxyXG4tIGluc3RydWN0aW9uc0ZpbGVQYXRoIChzdHJpbmcsIG9wdGlvbmFsKTogYWJzb2x1dGUgcGF0aCB0byBhIG1hcmtkb3duIGluc3RydWN0aW9ucyBmaWxlIHByZXBlbmRlZCB0byBzdGRpbiBwcm9tcHQgYXQgcnVudGltZVxyXG4tIG1vZGVsIChzdHJpbmcsIG9wdGlvbmFsKTogQ29kZXggbW9kZWwgaWRcclxuLSBtb2RlbFJlYXNvbmluZ0VmZm9ydCAoc3RyaW5nLCBvcHRpb25hbCk6IHJlYXNvbmluZyBlZmZvcnQgb3ZlcnJpZGUgcGFzc2VkIHZpYSAtYyBtb2RlbF9yZWFzb25pbmdfZWZmb3J0PS4uLjsgR1BULTYgQXN0cmEsIEdQVC02LjEgU29sLCBHUFQtNiBTb2wsIGFuZCBHUFQtNS42IFNvbC9UZXJyYSBzdXBwb3J0IGxvd3xtZWRpdW18aGlnaHx4aGlnaHxtYXh8dWx0cmE7IEdQVC02IEx1bmEgYW5kIEdQVC01LjYgTHVuYSBzdXBwb3J0IGxvd3xtZWRpdW18aGlnaHx4aGlnaHxtYXhcclxuLSBwcm9tcHRUZW1wbGF0ZSAoc3RyaW5nLCBvcHRpb25hbCk6IHJ1biBwcm9tcHQgdGVtcGxhdGVcclxuLSBzZWFyY2ggKGJvb2xlYW4sIG9wdGlvbmFsKTogcnVuIGNvZGV4IHdpdGggLS1zZWFyY2hcclxuLSBmYXN0TW9kZSAoYm9vbGVhbiwgb3B0aW9uYWwpOiBlbmFibGUgQ29kZXggRmFzdCBtb2RlOyBzdXBwb3J0ZWQgb24gR1BULTYgKGFzdHJhL3NvbC9sdW5hKSwgR1BULTYuMSBTb2wsIEdQVC01LjYgKHNvbC90ZXJyYS9sdW5hKSwgR1BULTUuNSwgR1BULTUuNCBhbmQgcGFzc2VkIHRocm91Z2ggZm9yIG1hbnVhbCBtb2RlbCBJRHNcclxuLSBkYW5nZXJvdXNseUJ5cGFzc0FwcHJvdmFsc0FuZFNhbmRib3ggKGJvb2xlYW4sIG9wdGlvbmFsKTogcnVuIHdpdGggYnlwYXNzIGZsYWdcclxuLSBjb21tYW5kIChzdHJpbmcsIG9wdGlvbmFsKTogZGVmYXVsdHMgdG8gXCJjb2RleFwiXHJcbi0gZXh0cmFBcmdzIChzdHJpbmdbXSwgb3B0aW9uYWwpOiBhZGRpdGlvbmFsIENMSSBhcmdzXHJcbi0gZW52IChvYmplY3QsIG9wdGlvbmFsKTogS0VZPVZBTFVFIGVudmlyb25tZW50IHZhcmlhYmxlc1xyXG4tIHdvcmtzcGFjZVN0cmF0ZWd5IChvYmplY3QsIG9wdGlvbmFsKTogZXhlY3V0aW9uIHdvcmtzcGFjZSBzdHJhdGVneTsgY3VycmVudGx5IHN1cHBvcnRzIHsgdHlwZTogXCJnaXRfd29ya3RyZWVcIiwgYmFzZVJlZj8sIGJyYW5jaFRlbXBsYXRlPywgd29ya3RyZWVQYXJlbnREaXI/IH1cclxuLSB3b3Jrc3BhY2VSdW50aW1lIChvYmplY3QsIG9wdGlvbmFsKTogcmVzZXJ2ZWQgZm9yIHdvcmtzcGFjZSBydW50aW1lIG1ldGFkYXRhOyB3b3Jrc3BhY2UgcnVudGltZSBzZXJ2aWNlcyBhcmUgbWFudWFsbHkgY29udHJvbGxlZCBmcm9tIHRoZSB3b3Jrc3BhY2UgVUkgYW5kIGFyZSBub3QgYXV0by1zdGFydGVkIGJ5IGhlYXJ0YmVhdHNcclxuLSBmaWxlc3lzdGVtU2NvcGUgKHN0cmluZywgb3B0aW9uYWwpOiBzZXQgdG8gXCJ3b3Jrc3BhY2VcIiB0byBjb25maW5lIGxvY2FsIENMSSBmaWxlc3lzdGVtIGFjY2VzcyB3aXRoIEJ1YmJsZXdyYXAuIE9mZiBieSBkZWZhdWx0LiBUaGUgd29ya3NwYWNlIGFuZCBtYW5hZ2VkIENPREVYX0hPTUUgcmVtYWluIHdyaXRhYmxlOyBvdGhlciBob3N0IHBhdGhzIGFyZSBoaWRkZW4uXHJcbi0gZmlsZXN5c3RlbUV4dHJhUGF0aHMgKGFycmF5LCBvcHRpb25hbCk6IGFkZGl0aW9uYWwgYWJzb2x1dGUgaG9zdCBwYXRocyBleHBvc2VkIGluc2lkZSB0aGUgd29ya3NwYWNlIHNhbmRib3guIFN0cmluZyBlbnRyaWVzIGFyZSByZWFkLW9ubHk7IG9iamVjdCBlbnRyaWVzIHVzZSB7IHBhdGg6IFwiL2Fic29sdXRlL3BhdGhcIiwgYWNjZXNzOiBcInJvXCIgfCBcInJ3XCIgfS5cclxuLSBmaWxlc3lzdGVtU2FuZGJveENvbW1hbmQgKHN0cmluZywgb3B0aW9uYWwpOiBCdWJibGV3cmFwIGV4ZWN1dGFibGUgbmFtZSBvciBhYnNvbHV0ZSBwYXRoOyBkZWZhdWx0cyB0byBcImJ3cmFwXCIuIExpbnV4IG9ubHkuXHJcbi0gbmV0d29ya1Njb3BlIChzdHJpbmcsIG9wdGlvbmFsKTogXCJkZW55XCIgYmxvY2tzIGFsbCBuZXR3b3JrIGVncmVzczsgXCJhbGxvd2xpc3RcIiBwZXJtaXRzIG9ubHkgbmV0d29ya0FsbG93bGlzdCB0YXJnZXRzIHRocm91Z2ggUGFwZXJjbGlwJ3MgSFRUUChTKSBwcm94eS4gT2ZmIGJ5IGRlZmF1bHQuXHJcbi0gbmV0d29ya0FsbG93bGlzdCAoc3RyaW5nW10sIG9wdGlvbmFsKTogZXhhY3QgaG9zdG5hbWVzLCBob3N0bmFtZTpwb3J0IGVudHJpZXMsIG9yIG9yaWdpbiBVUkxzLiBJbmNsdWRlIHRoZSBjb25maWd1cmVkIENvZGV4IHByb3ZpZGVyIG9yaWdpbiwgc3VjaCBhcyBcImFwaS5vcGVuYWkuY29tXCIgb3IgYSBjdXN0b20gbW9kZWwgcHJvdmlkZXIgZ2F0ZXdheS5cclxuXHJcbk9wZXJhdGlvbmFsIGZpZWxkczpcclxuLSB0aW1lb3V0U2VjIChudW1iZXIsIG9wdGlvbmFsKTogcnVuIHRpbWVvdXQgaW4gc2Vjb25kc1xyXG4tIGdyYWNlU2VjIChudW1iZXIsIG9wdGlvbmFsKTogU0lHVEVSTSBncmFjZSBwZXJpb2QgaW4gc2Vjb25kc1xyXG4tIG91dHB1dEluYWN0aXZpdHlUaW1lb3V0TXMgKG51bWJlciB8IG51bGwsIG9wdGlvbmFsKTogaW5hY3Rpdml0eSBtb25pdG9yIGFyb3VuZCB0aGUgY29kZXggY2hpbGQuIFJlc2V0cyB3aGVuZXZlciB0aGUgY2hpbGQgZW1pdHMgc3Rkb3V0L3N0ZGVyciBieXRlcyBvciwgb24gTGludXgsIGl0cyBwcm9jZXNzIGdyb3VwIHNob3dzIG1lYW5pbmdmdWwgQ1BVLCBkaXNrIEkvTywgb3IgY2hpbGQtcHJvY2VzcyBjaHVybiBkdXJpbmcgYSBzaWxlbnQgYnVpbGQuIERlZmF1bHRzIHRvIDMwICogNjBfMDAwIG1zIHdoZW4gdW5zZXQgb3Igbm9uLXBvc2l0aXZlLiBTZXQgdG8gXFxgbnVsbFxcYCB0byBkaXNhYmxlIHRoZSBtb25pdG9yIGVudGlyZWx5IChvbmx5IGRvIHRoaXMgZm9yIGtub3duLXNsb3cgdGFza3M7IHRoZSBwbGF0Zm9ybS1sZXZlbCAxaCBzaWxlbnQtcnVuIHNhZmV0eSBuZXQgc3RpbGwgYXBwbGllcykuIE9uIGZpcmUsIHRoZSBhZGFwdGVyIHNlbmRzIFNJR1RFUk0gdG8gdGhlIHByb2Nlc3MgZ3JvdXAsIHdhaXRzIDVzLCB0aGVuIFNJR0tJTEwsIGFuZCBzdXJmYWNlcyB0aGUgcnVuIGFzIGZhaWxlZCB3aXRoIGVycm9yTWVzc2FnZSBcIm1vbml0b3I6IG5vIGNvZGV4IGFjdGl2aXR5IChvdXRwdXQgb3IgcHJvY2VzcykgZm9yIHtOfW0ge1N9c1wiLlxyXG4tIGFnZW50Q29tbWFuZCAoc3RyaW5nLCBvcHRpb25hbCk6IEFDUCBzZXJ2ZXIgY29tbWFuZCBvdmVycmlkZSB1c2VkIG9ubHkgd2hlbiBlbmdpbmU9XCJhY3BcIjsgZGVmYXVsdHMgdG8gdGhlIHBhY2thZ2UtbG9jYWwgY29kZXgtYWNwIGJpbmFyeVxyXG4tIG1vZGUgKHN0cmluZywgb3B0aW9uYWwpOiBBQ1Agc2Vzc2lvbiBtb2RlIHdoZW4gZW5naW5lPVwiYWNwXCI7IHBlcnNpc3RlbnQgb3Igb25lc2hvdFxyXG4tIG5vbkludGVyYWN0aXZlUGVybWlzc2lvbnMgKHN0cmluZywgb3B0aW9uYWwpOiBBQ1Agbm9uLWludGVyYWN0aXZlIHBlcm1pc3Npb24gZmFsbGJhY2sgd2hlbiBlbmdpbmU9XCJhY3BcIjsgZGVueSBvciBmYWlsXHJcbi0gc3RhdGVEaXIgKHN0cmluZywgb3B0aW9uYWwpOiBBQ1Agc3RhdGUgZGlyZWN0b3J5IG92ZXJyaWRlIHdoZW4gZW5naW5lPVwiYWNwXCJcclxuLSB3YXJtSGFuZGxlSWRsZU1zIChudW1iZXIsIG9wdGlvbmFsKTogd2FybSBBQ1AgcHJvY2VzcyBpZGxlIHRpbWVvdXQgd2hlbiBlbmdpbmU9XCJhY3BcIjsgZGVmYXVsdHMgdG8gMFxyXG5cclxuTm90ZXM6XHJcbi0gZmlsZXN5c3RlbVNjb3BlIGFuZCBuZXR3b3JrU2NvcGUgYXJlIHNwYXduLWxldmVsIGNvbmZpbmVtZW50IGFuZCBhcmUgb3J0aG9nb25hbCB0byBDb2RleCBhcHByb3ZhbC9zYW5kYm94IGZsYWdzLiBCb3RoIHJlcXVpcmUgQnViYmxld3JhcCBvbiB0aGUgaG9zdCBhbmQgZXhwbGljaXQgZW5naW5lPVwiY2xpXCI7IGRlZmF1bHQgb3IgZXhwbGljaXQgQUNQIGlzIHJlamVjdGVkIGJlY2F1c2UgQUNQIGNvbmZpbmVtZW50IGlzIG5vdCB5ZXQgc3VwcG9ydGVkLiBuZXR3b3JrU2NvcGU9XCJhbGxvd2xpc3RcIiBpbmplY3RzIEhUVFBfUFJPWFkvSFRUUFNfUFJPWFkgZm9yIHRoZSBDTEkgd2hpbGUgaXRzIHByaXZhdGUgbmV0d29yayBuYW1lc3BhY2UgYmxvY2tzIGRpcmVjdCBzb2NrZXRzLCBzbyBldmVyeSByZXF1aXJlZCBwcm92aWRlci9BUEkgaG9zdG5hbWUgbXVzdCBiZSBsaXN0ZWQgZXhwbGljaXRseS5cclxuLSBQcm9tcHRzIGFyZSBwaXBlZCB2aWEgc3RkaW4gKENvZGV4IHJlY2VpdmVzIFwiLVwiIHByb21wdCBhcmd1bWVudCkuXHJcbi0gSWYgaW5zdHJ1Y3Rpb25zRmlsZVBhdGggaXMgY29uZmlndXJlZCwgUGFwZXJjbGlwIHByZXBlbmRzIHRoYXQgZmlsZSdzIGNvbnRlbnRzIHRvIHRoZSBzdGRpbiBwcm9tcHQgb24gZXZlcnkgcnVuLlxyXG4tIENvZGV4IGV4ZWMgYXV0b21hdGljYWxseSBhcHBsaWVzIHJlcG8tc2NvcGVkIEFHRU5UUy5tZCBpbnN0cnVjdGlvbnMgZnJvbSB0aGUgYWN0aXZlIHdvcmtzcGFjZS4gUGFwZXJjbGlwIGNhbm5vdCBzdXBwcmVzcyB0aGF0IGRpc2NvdmVyeSBpbiBleGVjIG1vZGUsIHNvIHJlcG8gQUdFTlRTLm1kIGZpbGVzIG1heSBzdGlsbCBhcHBseSBldmVuIHdoZW4geW91IG9ubHkgY29uZmlndXJlZCBhbiBleHBsaWNpdCBpbnN0cnVjdGlvbnNGaWxlUGF0aC5cclxuLSBQYXBlcmNsaXAgaW5qZWN0cyBkZXNpcmVkIGxvY2FsIHNraWxscyBpbnRvIHRoZSBlZmZlY3RpdmUgQ09ERVhfSE9NRS9za2lsbHMvIGRpcmVjdG9yeSBhdCBleGVjdXRpb24gdGltZSBzbyBDb2RleCBjYW4gZGlzY292ZXIgXCIkcGFwZXJjbGlwXCIgYW5kIHJlbGF0ZWQgc2tpbGxzIHdpdGhvdXQgcG9sbHV0aW5nIHRoZSBwcm9qZWN0IHdvcmtpbmcgZGlyZWN0b3J5LiBGb3IgbmV3IGFuZCB1cGRhdGVkIGFnZW50cywgUGFwZXJjbGlwIGFzc2lnbnMgYW4gaXNvbGF0ZWQgbWFuYWdlZCBob21lIGF0IH4vLnBhcGVyY2xpcC9pbnN0YW5jZXMvPGlkPi9jb21wYW5pZXMvPGNvbXBhbnlJZD4vYWdlbnRzLzxhZ2VudElkPi9jb2RleC1ob21lL3NraWxscy87IHdoZW4gQ09ERVhfSE9NRSBpcyBleHBsaWNpdGx5IG92ZXJyaWRkZW4gaW4gYWRhcHRlciBjb25maWcsIHRoYXQgb3ZlcnJpZGUgaXMgdXNlZCBpbnN0ZWFkLlxyXG4tIE5ldyBhbmQgdXBkYXRlZCBjb2RleF9sb2NhbCBhZ2VudHMgcGVyc2lzdCBhbiBlbXB0eSBPUEVOQUlfQVBJX0tFWSBvdmVycmlkZSBieSBkZWZhdWx0IHNvIGEgaG9zdC1sZXZlbCBPUEVOQUlfQVBJX0tFWSBjYW5ub3QgbGVhayBpbnRvIENvZGV4IHJ1bnMgdGhyb3VnaCBwcm9jZXNzIGluaGVyaXRhbmNlLiBFeHBsaWNpdCBDT0RFWF9IT01FIG92ZXJyaWRlcyBtdXN0IG5vdCBwb2ludCBhdCB0aGUgc2hhcmVkIGNvbXBhbnkgY29kZXgtaG9tZSwgJENPREVYX0hPTUUsIG9yIH4vLmNvZGV4LlxyXG4tIFNvbWUgbW9kZWwvdG9vbCBjb21iaW5hdGlvbnMgcmVqZWN0IGNlcnRhaW4gZWZmb3J0IGxldmVscyAoZm9yIGV4YW1wbGUgbWluaW1hbCB3aXRoIHdlYiBzZWFyY2ggZW5hYmxlZCkuXHJcbi0gT3BlbkFJIHJldGlyZWQgZ3B0LTUuNSAoT2N0b2JlciAxNCwgMjAyNiksIGdwdC01LjQgYW5kIGdwdC01LjQtbWluaSAoQXVndXN0IDMxLCAyMDI2KSBmcm9tIENvZGV4IHdpdGggQ2hhdEdQVCBzaWduLWluLiBUaGV5IHJlbWFpbiBzZWxlY3RhYmxlIGZvciBPcGVuQUkgQVBJLWtleSBzZXNzaW9uczsgd2l0aCBDaGF0R1BUIHNpZ24taW4gdGhlIFRlc3QgbmFtZXMgdGhlIHJldGlyZW1lbnQgYW5kIGl0cyByZXBsYWNlbWVudC5cclxuLSBXaXRoIENoYXRHUFQgc2lnbi1pbiwgbW9kZWwgYXZhaWxhYmlsaXR5IGRlcGVuZHMgb24gdGhlIGluc3RhbGxlZCBDb2RleCBjYXBhYmlsaXRpZXMuIExlZ2FjeSBzZXR1cCByZXBvcnRzIGtub3duIG1vZGVsL3ZlcnNpb24gbWlzbWF0Y2hlcy4gTmF0aXZlIHNldHVwIHRlc3RzIHRoZSBhY3R1YWwgYXBwLXNlcnZlciBhbmQgc2VsZWN0ZWQgbW9kZWw7IGEgdmVyc2lvbiBudW1iZXIgYWxvbmUgZG9lcyBub3QgcmVqZWN0IG9yIHJlcGxhY2UgYW4gaW5zdGFsbGVkIENMSS4gSWYgdGhlIHByb3ZpZGVyIHJlamVjdHMgdGhlIG1vZGVsLCBzZWxlY3QgYW4gYXZhaWxhYmxlIG1vZGVsIG9yIHVwZGF0ZSBDb2RleCBpbiB0aGUgZXhlY3V0aW9uIGVudmlyb25tZW50LlxyXG4tIEZhc3QgbW9kZSBpcyBzdXBwb3J0ZWQgb24gR1BULTYgKGFzdHJhL3NvbC9sdW5hKSwgR1BULTYuMSBTb2wsIEdQVC01LjYgKHNvbC90ZXJyYS9sdW5hKSwgR1BULTUuNSwgR1BULTUuNCBhbmQgbWFudWFsIG1vZGVsIElEcy4gV2hlbiBlbmFibGVkIGZvciB0aG9zZSBtb2RlbHMsIFBhcGVyY2xpcCBhcHBsaWVzIFxcYHNlcnZpY2VfdGllcj1cImZhc3RcIlxcYCBhbmQgXFxgZmVhdHVyZXMuZmFzdF9tb2RlPXRydWVcXGAuXHJcbi0gV2hlbiBQYXBlcmNsaXAgcmVhbGl6ZXMgYSB3b3Jrc3BhY2UvcnVudGltZSBmb3IgYSBydW4sIGl0IGluamVjdHMgUEFQRVJDTElQX1dPUktTUEFDRV8qIGFuZCBQQVBFUkNMSVBfUlVOVElNRV8qIGVudiB2YXJzIGZvciBhZ2VudC1zaWRlIHRvb2xpbmcuXHJcbi0gVGhlIEFDUCBlbmdpbmUga2VlcHMgaXRzIHdvcmtzcGFjZSBzYW5kYm94IGFuZCBlbmFibGVzIG5ldHdvcmsgYWNjZXNzIG9uIGVhY2ggdHVybi4gRXhwbGljaXQgc2FuZGJveF93b3Jrc3BhY2Vfd3JpdGUubmV0d29ya19hY2Nlc3Mgb3ZlcnJpZGVzIGluIGV4dHJhQXJncyAob3IgZW52LlBBUEVSQ0xJUF9DT0RFWF9BQ1BfTkVUV09SS19BQ0NFU1M9XCJmYWxzZVwiKSBkaXNhYmxlIGl0OyBleGVjdXRpb24tdGFyZ2V0IG5ldHdvcmsgZGVuaWFsIHdpbnMuIFRoZSBidW5kbGVkIEFDUCBwYXRjaCBpcyBuZWVkZWQgYmVjYXVzZSB1cHN0cmVhbSBtb2RlIHByZXNldHMgb3ZlcnJpZGUgQ29kZXggY29uZmlnLnRvbWwgb24gZXZlcnkgdHVybi5cclxuLSBUaGUgQ0xJIGVuZ2luZSBkZWZhdWx0cyB0byBhIHdyaXRhYmxlIHdvcmtzcGFjZSBzYW5kYm94IHdpdGggbmV0d29yayBhY2Nlc3MgZm9yIHVuYXR0ZW5kZWQgd29yayBhbmQgUGFwZXJjbGlwIEFQSSBjYWxscy4gSXQgZG9lcyBub3QgZW5hYmxlIHRoZSBkYW5nZXJvdXMgYnlwYXNzIGZsYWcuIEV4cGxpY2l0IHNhbmRib3ggbW9kZXMvcHJvZmlsZXMgYW5kIG5ldHdvcmsgb3ZlcnJpZGVzIGluIGV4dHJhQXJncyByZXRhaW4gdGhlaXIgbWVhbmluZy4gQW4gZXhlY3V0aW9uLXRhcmdldCBuZXR3b3JrIGRlbmlhbCByZW1haW5zIGVuZm9yY2VkLlxyXG4tIENvZGV4IEFDUCBpcyB0aGUgcHJlZmVycmVkIGF1dG8gbGFuZSB3aGVuIE5vZGUgPj0yNC4xMS4wIGFuZCB0aGUgQ29kZXggQUNQIHNlcnZlciBhcmUgYXZhaWxhYmxlLiBJdCByZXVzZXMgc2hhcmVkIEFDUCBwcm9tcHQvcnVudGltZSBndWlkYW5jZSwgc2VsZWN0ZWQgc2tpbGwgbWF0ZXJpYWxpemF0aW9uIGludG8gQ09ERVhfSE9NRS9za2lsbHMsIG1vZGVsL3JlYXNvbmluZy9mYXN0LW1vZGUgc2Vzc2lvbiBjb25maWcsIGFuZCBleGlzdGluZyBxdW90YS13aW5kb3cgcmVwb3J0aW5nLiBNaXNzaW5nIEFDUCBwcmVyZXF1aXNpdGVzIGZhaWwgYm90aCBkZWZhdWx0IGFuZCBleHBsaWNpdCBBQ1AgcnVucyB3aXRoIGFuIGFjdGlvbmFibGUgc2V0dXAgZXJyb3I7IHRoZSBhZGFwdGVyIG5ldmVyIHN3aXRjaGVzIGVuZ2luZXMgYXV0b21hdGljYWxseS5cclxuYDtcclxuIl19

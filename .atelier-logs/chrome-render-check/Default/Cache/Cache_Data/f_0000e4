@@ -1,0 +1,211 @@
+import { createHotContext as __vite__createHotContext } from "/@vite/client";import.meta.hot = __vite__createHotContext("/src/components/task-chat/ComposerWorktreePicker.tsx");const useMemo = __vite__cjsImport0_react["useMemo"];const _jsxDEV = __vite__cjsImport4_react_jsxDevRuntime["jsxDEV"]; const _Fragment = __vite__cjsImport4_react_jsxDevRuntime["Fragment"];import __vite__cjsImport0_react from "/node_modules/.vite/deps/react.js?v=1de3f9fa";
+import { Folder, GitBranch, GitBranchPlus, Monitor } from "/node_modules/.vite/deps/lucide-react.js?v=1de3f9fa";
+import { SearchableSelect } from "/src/components/SearchableSelect.tsx";
+import { orderReusableExecutionWorkspaces } from "/src/lib/reusable-execution-workspaces.ts";
+var _jsxFileName = "C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/task-chat/ComposerWorktreePicker.tsx";
+import __vite__cjsImport4_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=1de3f9fa";
+var _s = $RefreshSig$();
+const MODE_OPTIONS = [
+	{
+		key: "isolated_workspace",
+		value: "isolated_workspace",
+		mode: "isolated_workspace",
+		label: "New worktree",
+		description: "Start in an isolated checkout."
+	},
+	{
+		key: "shared_workspace",
+		value: "shared_workspace",
+		mode: "shared_workspace",
+		label: "Project workspace",
+		description: "Use the project's shared checkout."
+	},
+	{
+		key: "operator_branch",
+		value: "operator_branch",
+		mode: "operator_branch",
+		label: "New branch",
+		description: "Create a branch in the project workspace."
+	},
+	{
+		key: "agent_default",
+		value: "agent_default",
+		mode: "agent_default",
+		label: "Agent default",
+		description: "Let the agent choose its workspace."
+	},
+	{
+		key: "inherit",
+		value: "inherit",
+		mode: "inherit",
+		label: "Project default",
+		description: "Use the project's worktree settings."
+	}
+];
+/** Reuses the searchable selector and the existing workspace recency ordering. */
+export function ComposerWorktreePicker({ mode, workspaceId, workspaces, onChange, loading, error, onRetry, disabled, mobile, contentStyle, selectedWorkspaceLabel }) {
+	_s();
+	const groups = useMemo(() => [
+		{
+			id: "new",
+			options: [MODE_OPTIONS[0]]
+		},
+		{
+			id: "reuse",
+			label: "Reuse a worktree",
+			options: orderReusableExecutionWorkspaces(workspaces).map((workspace) => ({
+				key: `reuse:${workspace.id}`,
+				value: `reuse:${workspace.id}`,
+				workspaceId: workspace.id,
+				mode: "reuse_existing",
+				label: workspace.name,
+				description: workspace.branchName ?? "Existing workspace",
+				searchText: `${workspace.branchName ?? ""} ${workspace.id}`
+			}))
+		},
+		{
+			id: "other",
+			label: "Other options",
+			options: MODE_OPTIONS.filter((option) => option.mode === "shared_workspace" || option.mode !== "isolated_workspace" && option.mode === mode)
+		}
+	], [mode, workspaces]);
+	const value = mode === "reuse_existing" ? `reuse:${workspaceId}` : mode;
+	return /* @__PURE__ */ _jsxDEV(SearchableSelect, {
+		value,
+		groups,
+		onValueChange: (_, option) => onChange(option.mode, option.workspaceId ?? ""),
+		placeholder: "Worktrees",
+		triggerAriaLabel: "Worktrees",
+		mobileTitle: "Worktrees",
+		searchPlaceholder: "Search worktrees...",
+		emptyMessage: "No matching worktrees.",
+		disabled,
+		modal: mobile,
+		contentStyle,
+		contentWidth: "auto",
+		className: "min-w-0 flex-1 sm:flex-none sm:max-w-72",
+		triggerClassName: "h-8 gap-1.5 border-0 bg-transparent px-2 text-xs font-medium shadow-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0",
+		renderValue: (option) => /* @__PURE__ */ _jsxDEV("span", {
+			className: "flex min-w-0 items-center gap-1.5",
+			children: [/* @__PURE__ */ _jsxDEV(GitBranch, {
+				className: "size-3.5 shrink-0",
+				"aria-hidden": true
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 77,
+				columnNumber: 11
+			}, this), /* @__PURE__ */ _jsxDEV("span", {
+				className: "truncate",
+				children: [/* @__PURE__ */ _jsxDEV("span", {
+					className: "hidden text-muted-foreground sm:inline",
+					children: "Worktrees · "
+				}, void 0, false, {
+					fileName: _jsxFileName,
+					lineNumber: 79,
+					columnNumber: 13
+				}, this), option?.label ?? selectedWorkspaceLabel ?? "Select worktree"]
+			}, void 0, true, {
+				fileName: _jsxFileName,
+				lineNumber: 78,
+				columnNumber: 11
+			}, this)]
+		}, void 0, true, {
+			fileName: _jsxFileName,
+			lineNumber: 76,
+			columnNumber: 9
+		}, this),
+		renderOption: (option) => {
+			const Icon = option.workspaceId ? GitBranch : option.mode === "isolated_workspace" ? GitBranchPlus : option.mode === "agent_default" ? Monitor : option.mode === "operator_branch" ? GitBranch : Folder;
+			return /* @__PURE__ */ _jsxDEV(_Fragment, { children: [/* @__PURE__ */ _jsxDEV(Icon, {
+				className: "size-4 shrink-0 text-muted-foreground",
+				"aria-hidden": true
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 89,
+				columnNumber: 13
+			}, this), /* @__PURE__ */ _jsxDEV("span", {
+				className: "flex min-w-0 flex-col",
+				children: [/* @__PURE__ */ _jsxDEV("span", {
+					className: "truncate",
+					children: option.label
+				}, void 0, false, {
+					fileName: _jsxFileName,
+					lineNumber: 91,
+					columnNumber: 15
+				}, this), /* @__PURE__ */ _jsxDEV("span", {
+					className: "truncate text-xs text-muted-foreground",
+					children: option.description
+				}, void 0, false, {
+					fileName: _jsxFileName,
+					lineNumber: 92,
+					columnNumber: 15
+				}, this)]
+			}, void 0, true, {
+				fileName: _jsxFileName,
+				lineNumber: 90,
+				columnNumber: 13
+			}, this)] }, void 0, true, {
+				fileName: _jsxFileName,
+				lineNumber: 88,
+				columnNumber: 11
+			}, this);
+		},
+		listFooter: loading || error || workspaces.length === 0 ? /* @__PURE__ */ _jsxDEV("div", {
+			className: "border-t border-border px-3 py-2 text-xs text-muted-foreground",
+			role: "status",
+			children: loading ? "Loading existing worktrees…" : error ? /* @__PURE__ */ _jsxDEV("span", {
+				className: "flex items-center justify-between gap-2",
+				children: ["Couldn't load worktrees.", /* @__PURE__ */ _jsxDEV("button", {
+					type: "button",
+					className: "rounded px-2 py-1 text-foreground hover:bg-accent",
+					onClick: onRetry,
+					children: "Retry"
+				}, void 0, false, {
+					fileName: _jsxFileName,
+					lineNumber: 102,
+					columnNumber: 15
+				}, this)]
+			}, void 0, true, {
+				fileName: _jsxFileName,
+				lineNumber: 100,
+				columnNumber: 13
+			}, this) : "No existing worktrees yet. Choose New worktree to start one."
+		}, void 0, false, {
+			fileName: _jsxFileName,
+			lineNumber: 98,
+			columnNumber: 9
+		}, this) : undefined
+	}, void 0, false, {
+		fileName: _jsxFileName,
+		lineNumber: 60,
+		columnNumber: 5
+	}, this);
+}
+_s(ComposerWorktreePicker, "jtdUUc8lBEYbsvotqAwekbhnTK8=");
+_c = ComposerWorktreePicker;
+var _c;
+$RefreshReg$(_c, "ComposerWorktreePicker");
+import * as RefreshRuntime from "/@react-refresh";
+const inWebWorker = typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope;
+import * as __vite_react_currentExports from "/src/components/task-chat/ComposerWorktreePicker.tsx";
+if (import.meta.hot && !inWebWorker) {
+  if (!window.$RefreshReg$) {
+    throw new Error(
+      "@vitejs/plugin-react can't detect preamble. Something is wrong."
+    );
+  }
+
+  const currentExports = __vite_react_currentExports;
+  queueMicrotask(() => {
+    RefreshRuntime.registerExportsForReactRefresh("C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/task-chat/ComposerWorktreePicker.tsx", currentExports);
+    import.meta.hot.accept((nextExports) => {
+      if (!nextExports) return;
+      const invalidateMessage = RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate("C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/task-chat/ComposerWorktreePicker.tsx", currentExports, nextExports);
+      if (invalidateMessage) import.meta.hot.invalidate(invalidateMessage);
+    });
+  });
+}
+function $RefreshReg$(type, id) { return RefreshRuntime.register(type, "C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/task-chat/ComposerWorktreePicker.tsx" + ' ' + id); }
+function $RefreshSig$() { return RefreshRuntime.createSignatureFunctionForTransform(); }
+
+//# sourceMappingURL=data:application/json;base64,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QUFnQyxRQUN6Qyx3QkFBQyxRQUFEO0lBQU0sV0FBVTtjQUFoQixDQUEwRCw0QkFFeEQsd0JBQUMsVUFBRDtLQUFRLE1BQUs7S0FBUyxXQUFVO0tBQW9ELFNBQVM7ZUFBUztJQUFhOzs7O1lBQy9HOzs7OztjQUNKO0VBQ0Q7Ozs7YUFDSDtDQUNMOzs7OztBQUVMIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIkNvbXBvc2VyV29ya3RyZWVQaWNrZXIudHN4Il0sInZlcnNpb24iOjMsInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IHVzZU1lbW8sIHR5cGUgQ1NTUHJvcGVydGllcyB9IGZyb20gXCJyZWFjdFwiO1xyXG5pbXBvcnQgeyBGb2xkZXIsIEdpdEJyYW5jaCwgR2l0QnJhbmNoUGx1cywgTW9uaXRvciB9IGZyb20gXCJsdWNpZGUtcmVhY3RcIjtcclxuaW1wb3J0IHR5cGUgeyBFeGVjdXRpb25Xb3Jrc3BhY2VTdW1tYXJ5IH0gZnJvbSBcIkBwYXBlcmNsaXBhaS9zaGFyZWRcIjtcclxuaW1wb3J0IHsgU2VhcmNoYWJsZVNlbGVjdCwgdHlwZSBTZWFyY2hhYmxlU2VsZWN0T3B0aW9uIH0gZnJvbSBcIkAvY29tcG9uZW50cy9TZWFyY2hhYmxlU2VsZWN0XCI7XHJcbmltcG9ydCB7IG9yZGVyUmV1c2FibGVFeGVjdXRpb25Xb3Jrc3BhY2VzIH0gZnJvbSBcIkAvbGliL3JldXNhYmxlLWV4ZWN1dGlvbi13b3Jrc3BhY2VzXCI7XHJcblxyXG5pbnRlcmZhY2UgV29ya3RyZWVPcHRpb24gZXh0ZW5kcyBTZWFyY2hhYmxlU2VsZWN0T3B0aW9uIHtcclxuICBtb2RlOiBzdHJpbmc7XHJcbiAgd29ya3NwYWNlSWQ/OiBzdHJpbmc7XHJcbiAgZGVzY3JpcHRpb246IHN0cmluZztcclxufVxyXG5cclxuaW50ZXJmYWNlIENvbXBvc2VyV29ya3RyZWVQaWNrZXJQcm9wcyB7XHJcbiAgbW9kZTogc3RyaW5nO1xyXG4gIHdvcmtzcGFjZUlkOiBzdHJpbmc7XHJcbiAgd29ya3NwYWNlczogcmVhZG9ubHkgRXhlY3V0aW9uV29ya3NwYWNlU3VtbWFyeVtdO1xyXG4gIG9uQ2hhbmdlOiAobW9kZTogc3RyaW5nLCB3b3Jrc3BhY2VJZDogc3RyaW5nKSA9PiB2b2lkO1xyXG4gIGxvYWRpbmc6IGJvb2xlYW47XHJcbiAgZXJyb3I6IGJvb2xlYW47XHJcbiAgb25SZXRyeTogKCkgPT4gdm9pZDtcclxuICBkaXNhYmxlZD86IGJvb2xlYW47XHJcbiAgbW9iaWxlPzogYm9vbGVhbjtcclxuICBjb250ZW50U3R5bGU/OiBDU1NQcm9wZXJ0aWVzO1xyXG4gIHNlbGVjdGVkV29ya3NwYWNlTGFiZWw/OiBzdHJpbmc7XHJcbn1cclxuXHJcbmNvbnN0IE1PREVfT1BUSU9OUzogV29ya3RyZWVPcHRpb25bXSA9IFtcclxuICB7IGtleTogXCJpc29sYXRlZF93b3Jrc3BhY2VcIiwgdmFsdWU6IFwiaXNvbGF0ZWRfd29ya3NwYWNlXCIsIG1vZGU6IFwiaXNvbGF0ZWRfd29ya3NwYWNlXCIsIGxhYmVsOiBcIk5ldyB3b3JrdHJlZVwiLCBkZXNjcmlwdGlvbjogXCJTdGFydCBpbiBhbiBpc29sYXRlZCBjaGVja291dC5cIiB9LFxyXG4gIHsga2V5OiBcInNoYXJlZF93b3Jrc3BhY2VcIiwgdmFsdWU6IFwic2hhcmVkX3dvcmtzcGFjZVwiLCBtb2RlOiBcInNoYXJlZF93b3Jrc3BhY2VcIiwgbGFiZWw6IFwiUHJvamVjdCB3b3Jrc3BhY2VcIiwgZGVzY3JpcHRpb246IFwiVXNlIHRoZSBwcm9qZWN0J3Mgc2hhcmVkIGNoZWNrb3V0LlwiIH0sXHJcbiAgeyBrZXk6IFwib3BlcmF0b3JfYnJhbmNoXCIsIHZhbHVlOiBcIm9wZXJhdG9yX2JyYW5jaFwiLCBtb2RlOiBcIm9wZXJhdG9yX2JyYW5jaFwiLCBsYWJlbDogXCJOZXcgYnJhbmNoXCIsIGRlc2NyaXB0aW9uOiBcIkNyZWF0ZSBhIGJyYW5jaCBpbiB0aGUgcHJvamVjdCB3b3Jrc3BhY2UuXCIgfSxcclxuICB7IGtleTogXCJhZ2VudF9kZWZhdWx0XCIsIHZhbHVlOiBcImFnZW50X2RlZmF1bHRcIiwgbW9kZTogXCJhZ2VudF9kZWZhdWx0XCIsIGxhYmVsOiBcIkFnZW50IGRlZmF1bHRcIiwgZGVzY3JpcHRpb246IFwiTGV0IHRoZSBhZ2VudCBjaG9vc2UgaXRzIHdvcmtzcGFjZS5cIiB9LFxyXG4gIHsga2V5OiBcImluaGVyaXRcIiwgdmFsdWU6IFwiaW5oZXJpdFwiLCBtb2RlOiBcImluaGVyaXRcIiwgbGFiZWw6IFwiUHJvamVjdCBkZWZhdWx0XCIsIGRlc2NyaXB0aW9uOiBcIlVzZSB0aGUgcHJvamVjdCdzIHdvcmt0cmVlIHNldHRpbmdzLlwiIH0sXHJcbl07XHJcblxyXG4vKiogUmV1c2VzIHRoZSBzZWFyY2hhYmxlIHNlbGVjdG9yIGFuZCB0aGUgZXhpc3Rpbmcgd29ya3NwYWNlIHJlY2VuY3kgb3JkZXJpbmcuICovXHJcbmV4cG9ydCBmdW5jdGlvbiBDb21wb3Nlcldvcmt0cmVlUGlja2VyKHtcclxuICBtb2RlLCB3b3Jrc3BhY2VJZCwgd29ya3NwYWNlcywgb25DaGFuZ2UsIGxvYWRpbmcsIGVycm9yLCBvblJldHJ5LFxyXG4gIGRpc2FibGVkLCBtb2JpbGUsIGNvbnRlbnRTdHlsZSwgc2VsZWN0ZWRXb3Jrc3BhY2VMYWJlbCxcclxufTogQ29tcG9zZXJXb3JrdHJlZVBpY2tlclByb3BzKSB7XHJcbiAgY29uc3QgZ3JvdXBzID0gdXNlTWVtbygoKSA9PiBbXHJcbiAgICB7IGlkOiBcIm5ld1wiLCBvcHRpb25zOiBbTU9ERV9PUFRJT05TWzBdIV0gfSxcclxuICAgIHtcclxuICAgICAgaWQ6IFwicmV1c2VcIiwgbGFiZWw6IFwiUmV1c2UgYSB3b3JrdHJlZVwiLFxyXG4gICAgICBvcHRpb25zOiBvcmRlclJldXNhYmxlRXhlY3V0aW9uV29ya3NwYWNlcyh3b3Jrc3BhY2VzKS5tYXAoKHdvcmtzcGFjZSk6IFdvcmt0cmVlT3B0aW9uID0+ICh7XHJcbiAgICAgICAga2V5OiBgcmV1c2U6JHt3b3Jrc3BhY2UuaWR9YCwgdmFsdWU6IGByZXVzZToke3dvcmtzcGFjZS5pZH1gLFxyXG4gICAgICAgIHdvcmtzcGFjZUlkOiB3b3Jrc3BhY2UuaWQsIG1vZGU6IFwicmV1c2VfZXhpc3RpbmdcIiwgbGFiZWw6IHdvcmtzcGFjZS5uYW1lLFxyXG4gICAgICAgIGRlc2NyaXB0aW9uOiB3b3Jrc3BhY2UuYnJhbmNoTmFtZSA/PyBcIkV4aXN0aW5nIHdvcmtzcGFjZVwiLFxyXG4gICAgICAgIHNlYXJjaFRleHQ6IGAke3dvcmtzcGFjZS5icmFuY2hOYW1lID8/IFwiXCJ9ICR7d29ya3NwYWNlLmlkfWAsXHJcbiAgICAgIH0pKSxcclxuICAgIH0sXHJcbiAgICB7XHJcbiAgICAgIGlkOiBcIm90aGVyXCIsIGxhYmVsOiBcIk90aGVyIG9wdGlvbnNcIixcclxuICAgICAgb3B0aW9uczogTU9ERV9PUFRJT05TLmZpbHRlcigob3B0aW9uKSA9PiBvcHRpb24ubW9kZSA9PT0gXCJzaGFyZWRfd29ya3NwYWNlXCJcclxuICAgICAgICB8fCAob3B0aW9uLm1vZGUgIT09IFwiaXNvbGF0ZWRfd29ya3NwYWNlXCIgJiYgb3B0aW9uLm1vZGUgPT09IG1vZGUpKSxcclxuICAgIH0sXHJcbiAgXSwgW21vZGUsIHdvcmtzcGFjZXNdKTtcclxuXHJcbiAgY29uc3QgdmFsdWUgPSBtb2RlID09PSBcInJldXNlX2V4aXN0aW5nXCIgPyBgcmV1c2U6JHt3b3Jrc3BhY2VJZH1gIDogbW9kZTtcclxuICByZXR1cm4gKFxyXG4gICAgPFNlYXJjaGFibGVTZWxlY3Q8c3RyaW5nLCBXb3JrdHJlZU9wdGlvbj5cclxuICAgICAgdmFsdWU9e3ZhbHVlfVxyXG4gICAgICBncm91cHM9e2dyb3Vwc31cclxuICAgICAgb25WYWx1ZUNoYW5nZT17KF8sIG9wdGlvbikgPT4gb25DaGFuZ2Uob3B0aW9uLm1vZGUsIG9wdGlvbi53b3Jrc3BhY2VJZCA/PyBcIlwiKX1cclxuICAgICAgcGxhY2Vob2xkZXI9XCJXb3JrdHJlZXNcIlxyXG4gICAgICB0cmlnZ2VyQXJpYUxhYmVsPVwiV29ya3RyZWVzXCJcclxuICAgICAgbW9iaWxlVGl0bGU9XCJXb3JrdHJlZXNcIlxyXG4gICAgICBzZWFyY2hQbGFjZWhvbGRlcj1cIlNlYXJjaCB3b3JrdHJlZXMuLi5cIlxyXG4gICAgICBlbXB0eU1lc3NhZ2U9XCJObyBtYXRjaGluZyB3b3JrdHJlZXMuXCJcclxuICAgICAgZGlzYWJsZWQ9e2Rpc2FibGVkfVxyXG4gICAgICBtb2RhbD17bW9iaWxlfVxyXG4gICAgICBjb250ZW50U3R5bGU9e2NvbnRlbnRTdHlsZX1cclxuICAgICAgY29udGVudFdpZHRoPVwiYXV0b1wiXHJcbiAgICAgIGNsYXNzTmFtZT1cIm1pbi13LTAgZmxleC0xIHNtOmZsZXgtbm9uZSBzbTptYXgtdy03MlwiXHJcbiAgICAgIHRyaWdnZXJDbGFzc05hbWU9XCJoLTggZ2FwLTEuNSBib3JkZXItMCBiZy10cmFuc3BhcmVudCBweC0yIHRleHQteHMgZm9udC1tZWRpdW0gc2hhZG93LW5vbmUgaG92ZXI6YmctYWNjZW50IGZvY3VzLXZpc2libGU6YmctYWNjZW50IGZvY3VzLXZpc2libGU6cmluZy0wXCJcclxuICAgICAgcmVuZGVyVmFsdWU9eyhvcHRpb24pID0+IChcclxuICAgICAgICA8c3BhbiBjbGFzc05hbWU9XCJmbGV4IG1pbi13LTAgaXRlbXMtY2VudGVyIGdhcC0xLjVcIj5cclxuICAgICAgICAgIDxHaXRCcmFuY2ggY2xhc3NOYW1lPVwic2l6ZS0zLjUgc2hyaW5rLTBcIiBhcmlhLWhpZGRlbiAvPlxyXG4gICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPVwidHJ1bmNhdGVcIj5cclxuICAgICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPVwiaGlkZGVuIHRleHQtbXV0ZWQtZm9yZWdyb3VuZCBzbTppbmxpbmVcIj5Xb3JrdHJlZXMgwrcgPC9zcGFuPlxyXG4gICAgICAgICAgICB7b3B0aW9uPy5sYWJlbCA/PyBzZWxlY3RlZFdvcmtzcGFjZUxhYmVsID8/IFwiU2VsZWN0IHdvcmt0cmVlXCJ9XHJcbiAgICAgICAgICA8L3NwYW4+XHJcbiAgICAgICAgPC9zcGFuPlxyXG4gICAgICApfVxyXG4gICAgICByZW5kZXJPcHRpb249eyhvcHRpb24pID0+IHtcclxuICAgICAgICBjb25zdCBJY29uID0gb3B0aW9uLndvcmtzcGFjZUlkID8gR2l0QnJhbmNoIDogb3B0aW9uLm1vZGUgPT09IFwiaXNvbGF0ZWRfd29ya3NwYWNlXCIgPyBHaXRCcmFuY2hQbHVzXHJcbiAgICAgICAgICA6IG9wdGlvbi5tb2RlID09PSBcImFnZW50X2RlZmF1bHRcIiA/IE1vbml0b3IgOiBvcHRpb24ubW9kZSA9PT0gXCJvcGVyYXRvcl9icmFuY2hcIiA/IEdpdEJyYW5jaCA6IEZvbGRlcjtcclxuICAgICAgICByZXR1cm4gKFxyXG4gICAgICAgICAgPD5cclxuICAgICAgICAgICAgPEljb24gY2xhc3NOYW1lPVwic2l6ZS00IHNocmluay0wIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiIGFyaWEtaGlkZGVuIC8+XHJcbiAgICAgICAgICAgIDxzcGFuIGNsYXNzTmFtZT1cImZsZXggbWluLXctMCBmbGV4LWNvbFwiPlxyXG4gICAgICAgICAgICAgIDxzcGFuIGNsYXNzTmFtZT1cInRydW5jYXRlXCI+e29wdGlvbi5sYWJlbH08L3NwYW4+XHJcbiAgICAgICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPVwidHJ1bmNhdGUgdGV4dC14cyB0ZXh0LW11dGVkLWZvcmVncm91bmRcIj57b3B0aW9uLmRlc2NyaXB0aW9ufTwvc3Bhbj5cclxuICAgICAgICAgICAgPC9zcGFuPlxyXG4gICAgICAgICAgPC8+XHJcbiAgICAgICAgKTtcclxuICAgICAgfX1cclxuICAgICAgbGlzdEZvb3Rlcj17bG9hZGluZyB8fCBlcnJvciB8fCB3b3Jrc3BhY2VzLmxlbmd0aCA9PT0gMCA/IChcclxuICAgICAgICA8ZGl2IGNsYXNzTmFtZT1cImJvcmRlci10IGJvcmRlci1ib3JkZXIgcHgtMyBweS0yIHRleHQteHMgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kXCIgcm9sZT1cInN0YXR1c1wiPlxyXG4gICAgICAgICAge2xvYWRpbmcgPyBcIkxvYWRpbmcgZXhpc3Rpbmcgd29ya3RyZWVz4oCmXCIgOiBlcnJvciA/IChcclxuICAgICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPVwiZmxleCBpdGVtcy1jZW50ZXIganVzdGlmeS1iZXR3ZWVuIGdhcC0yXCI+XHJcbiAgICAgICAgICAgICAgQ291bGRuJ3QgbG9hZCB3b3JrdHJlZXMuXHJcbiAgICAgICAgICAgICAgPGJ1dHRvbiB0eXBlPVwiYnV0dG9uXCIgY2xhc3NOYW1lPVwicm91bmRlZCBweC0yIHB5LTEgdGV4dC1mb3JlZ3JvdW5kIGhvdmVyOmJnLWFjY2VudFwiIG9uQ2xpY2s9e29uUmV0cnl9PlJldHJ5PC9idXR0b24+XHJcbiAgICAgICAgICAgIDwvc3Bhbj5cclxuICAgICAgICAgICkgOiBcIk5vIGV4aXN0aW5nIHdvcmt0cmVlcyB5ZXQuIENob29zZSBOZXcgd29ya3RyZWUgdG8gc3RhcnQgb25lLlwifVxyXG4gICAgICAgIDwvZGl2PlxyXG4gICAgICApIDogdW5kZWZpbmVkfVxyXG4gICAgLz5cclxuICApO1xyXG59XHJcbiJdfQ==

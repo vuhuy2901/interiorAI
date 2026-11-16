@@ -1,0 +1,242 @@
+import { createHotContext as __vite__createHotContext } from "/@vite/client";import.meta.hot = __vite__createHotContext("/src/components/voice/NativeVoiceConversation.tsx");const useContext = __vite__cjsImport0_react["useContext"]; const useEffect = __vite__cjsImport0_react["useEffect"]; const useMemo = __vite__cjsImport0_react["useMemo"]; const useRef = __vite__cjsImport0_react["useRef"]; const useState = __vite__cjsImport0_react["useState"];const _jsxDEV = __vite__cjsImport10_react_jsxDevRuntime["jsxDEV"];import __vite__cjsImport0_react from "/node_modules/.vite/deps/react.js?v=1de3f9fa";
+import { useQuery } from "/node_modules/.vite/deps/@tanstack_react-query.js?v=1de3f9fa";
+import { voiceSessionsApi } from "/src/api/voiceSessions.ts";
+import { Button } from "/src/components/ui/button.tsx";
+import { VoiceCallContext } from "/src/components/voice/VoiceCallContext.ts";
+import { Link } from "/node_modules/.vite/deps/react-router-dom.js?v=1de3f9fa";
+import { ApiError } from "/src/api/client.ts";
+import { connectSpekoVoiceMedia } from "/src/lib/speko-voice-media.ts";
+import { createVoiceCallAttempt } from "/src/lib/voice-call-attempt.ts";
+import { VoiceConversationPanel } from "/src/components/voice/VoiceConversationPanel.tsx";
+var _jsxFileName = "C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/voice/NativeVoiceConversation.tsx";
+import __vite__cjsImport10_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=1de3f9fa";
+var _s = $RefreshSig$(), _s2 = $RefreshSig$();
+export function NativeVoiceConversation(props) {
+	_s();
+	const host = useContext(VoiceCallContext);
+	const [newConversation, setNewConversation] = useState(false);
+	if (host && !props.managed) return /* @__PURE__ */ _jsxDEV("div", {
+		className: "flex flex-col gap-2",
+		children: [!props.issueId && /* @__PURE__ */ _jsxDEV(ConversationChoice, {
+			value: newConversation,
+			disabled: host.active,
+			onChange: setNewConversation
+		}, void 0, false, {
+			fileName: _jsxFileName,
+			lineNumber: 31,
+			columnNumber: 24
+		}, this), /* @__PURE__ */ _jsxDEV(Button, {
+			size: "sm",
+			variant: "outline",
+			disabled: host.active,
+			onClick: () => host.open({
+				...props,
+				newConversation
+			}),
+			children: host.active ? "Voice panel open" : "Start voice"
+		}, void 0, false, {
+			fileName: _jsxFileName,
+			lineNumber: 32,
+			columnNumber: 5
+		}, this)]
+	}, void 0, true, {
+		fileName: _jsxFileName,
+		lineNumber: 30,
+		columnNumber: 38
+	}, this);
+	return /* @__PURE__ */ _jsxDEV(VoiceSessionView, { ...props }, void 0, false, {
+		fileName: _jsxFileName,
+		lineNumber: 34,
+		columnNumber: 10
+	}, this);
+}
+_s(NativeVoiceConversation, "uWZ+3ZhF5rbK3hgA8qLrsxgS5/w=");
+_c = NativeVoiceConversation;
+function ConversationChoice({ value, disabled, onChange }) {
+	return /* @__PURE__ */ _jsxDEV("label", {
+		className: "flex flex-col gap-2 text-sm",
+		children: ["Conversation", /* @__PURE__ */ _jsxDEV("select", {
+			disabled,
+			"aria-label": "Conversation",
+			className: "rounded-md border border-input bg-background p-2 text-sm",
+			value: value ? "new" : "continue",
+			onChange: (event) => onChange(event.target.value === "new"),
+			children: [/* @__PURE__ */ _jsxDEV("option", {
+				value: "continue",
+				children: "Continue conversation"
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 39,
+				columnNumber: 222
+			}, this), /* @__PURE__ */ _jsxDEV("option", {
+				value: "new",
+				children: "New conversation"
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 39,
+				columnNumber: 277
+			}, this)]
+		}, void 0, true, {
+			fileName: _jsxFileName,
+			lineNumber: 39,
+			columnNumber: 5
+		}, this)]
+	}, void 0, true, {
+		fileName: _jsxFileName,
+		lineNumber: 38,
+		columnNumber: 10
+	}, this);
+}
+_c2 = ConversationChoice;
+export function VoiceSessionView({ companyId, endpointId, issueId, agentName, autoStart, newConversation: initialNewConversation = false, onEndedChange, journal, client = voiceSessionsApi, connect = connectSpekoVoiceMedia }) {
+	_s2();
+	const [sessionId, setSessionId] = useState();
+	const [boundIssueId, setBoundIssueId] = useState(issueId);
+	const [starting, setStarting] = useState(false);
+	const [accessLost, setAccessLost] = useState(false);
+	const [newConversation, setNewConversation] = useState(initialNewConversation);
+	const intent = useRef(newConversation);
+	intent.current = newConversation;
+	const dependencies = useMemo(() => {
+		const attempt = createVoiceCallAttempt(companyId, client, journal);
+		return {
+			async mint() {
+				setAccessLost(false);
+				setStarting(true);
+				try {
+					const result = await attempt.start({
+						endpointId,
+						issueId,
+						...intent.current ? { newConversation: true } : {}
+					});
+					setSessionId(result.session.id);
+					setBoundIssueId(result.session.issueId);
+					return result.media;
+				} finally {
+					setStarting(false);
+				}
+			},
+			async end(id) {
+				await attempt.end(id);
+				setSessionId(undefined);
+				setNewConversation(false);
+			},
+			connect
+		};
+	}, [
+		companyId,
+		endpointId,
+		issueId,
+		client,
+		connect,
+		journal
+	]);
+	const notification = useQuery({
+		queryKey: [
+			"voice-notification",
+			companyId,
+			sessionId
+		],
+		queryFn: () => client.notification(companyId, sessionId),
+		enabled: Boolean(sessionId),
+		refetchInterval: 1e3,
+		refetchIntervalInBackground: true
+	});
+	const rejected = notification.error instanceof ApiError && [
+		401,
+		403,
+		404
+	].includes(notification.error.status);
+	useEffect(() => {
+		if (rejected) setAccessLost(true);
+	}, [rejected]);
+	const accessRevoked = rejected || accessLost;
+	return /* @__PURE__ */ _jsxDEV("div", {
+		className: "flex min-w-0 flex-col gap-4",
+		children: [
+			!issueId && !sessionId && !autoStart && /* @__PURE__ */ _jsxDEV(ConversationChoice, {
+				value: newConversation,
+				disabled: starting,
+				onChange: setNewConversation
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 81,
+				columnNumber: 48
+			}, this),
+			boundIssueId && /* @__PURE__ */ _jsxDEV(Link, {
+				className: "text-sm text-primary underline",
+				to: `/issues/${encodeURIComponent(boundIssueId)}`,
+				children: "View conversation task"
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 82,
+				columnNumber: 24
+			}, this),
+			/* @__PURE__ */ _jsxDEV(VoiceConversationPanel, {
+				agentName,
+				autoStart,
+				accessRevoked,
+				onEndedChange,
+				dependencies,
+				notification: notification.data ?? undefined
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 83,
+				columnNumber: 7
+			}, this),
+			(notification.isError || accessLost) && /* @__PURE__ */ _jsxDEV("p", {
+				role: "alert",
+				className: "text-sm text-destructive",
+				children: accessRevoked ? "Access to this call is no longer available. The call is being closed." : "Task updates are temporarily unavailable. The connection will retry; end the call if the problem continues."
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 84,
+				columnNumber: 48
+			}, this),
+			/* @__PURE__ */ _jsxDEV("p", {
+				className: "text-xs text-muted-foreground",
+				children: "Speko handles the audio and may retain recordings according to your workspace settings. Paperclip keeps task history. Speko usage is billed separately from agent work. Calls are limited to ten minutes."
+			}, void 0, false, {
+				fileName: _jsxFileName,
+				lineNumber: 85,
+				columnNumber: 7
+			}, this)
+		]
+	}, void 0, true, {
+		fileName: _jsxFileName,
+		lineNumber: 80,
+		columnNumber: 5
+	}, this);
+}
+_s2(VoiceSessionView, "lWYaFozQx7HJnWnw12gJrsUXSWQ=", false, function() {
+	return [useQuery];
+});
+_c3 = VoiceSessionView;
+var _c, _c2, _c3;
+$RefreshReg$(_c, "NativeVoiceConversation");
+$RefreshReg$(_c2, "ConversationChoice");
+$RefreshReg$(_c3, "VoiceSessionView");
+import * as RefreshRuntime from "/@react-refresh";
+const inWebWorker = typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope;
+import * as __vite_react_currentExports from "/src/components/voice/NativeVoiceConversation.tsx";
+if (import.meta.hot && !inWebWorker) {
+  if (!window.$RefreshReg$) {
+    throw new Error(
+      "@vitejs/plugin-react can't detect preamble. Something is wrong."
+    );
+  }
+
+  const currentExports = __vite_react_currentExports;
+  queueMicrotask(() => {
+    RefreshRuntime.registerExportsForReactRefresh("C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/voice/NativeVoiceConversation.tsx", currentExports);
+    import.meta.hot.accept((nextExports) => {
+      if (!nextExports) return;
+      const invalidateMessage = RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate("C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/voice/NativeVoiceConversation.tsx", currentExports, nextExports);
+      if (invalidateMessage) import.meta.hot.invalidate(invalidateMessage);
+    });
+  });
+}
+function $RefreshReg$(type, id) { return RefreshRuntime.register(type, "C:/QLDAPM-final/interiorAI/paperclip/ui/src/components/voice/NativeVoiceConversation.tsx" + ' ' + id); }
+function $RefreshSig$() { return RefreshRuntime.createSignatureFunctionForTransform(); }
+
+//# sourceMappingURL=data:application/json;base64,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QUFTO0VBQ3JELGVBQWUsT0FBTyxhQUFhLFdBQVcsU0FBVTtFQUN4RCxTQUFTLFFBQVEsU0FBUztFQUMxQixpQkFBaUI7RUFDakIsNkJBQTZCO0NBQzdCLENBQUM7Q0FDSCxNQUFNLFdBQVcsYUFBYSxpQkFBaUIsWUFBWTtFQUFDO0VBQUs7RUFBSztDQUFHLENBQUMsQ0FBQyxTQUFTLGFBQWEsTUFBTSxNQUFNO0NBQzdHLGdCQUFnQjtFQUFFLElBQUksVUFBVSxjQUFjLElBQUk7Q0FBRyxHQUFHLENBQUMsUUFBUSxDQUFDO0NBQ2xFLE1BQU0sZ0JBQWdCLFlBQVk7Q0FDbEMsT0FDRSx3QkFBQyxPQUFEO0VBQUssV0FBVTtZQUFmO0dBQ0csQ0FBQyxXQUFXLENBQUMsYUFBYSxDQUFDLGFBQWEsd0JBQUMsb0JBQUQ7SUFBb0IsT0FBTztJQUFpQixVQUFVO0lBQVUsVUFBVTtHQUFxQjs7Ozs7R0FDdkksZ0JBQWdCLHdCQUFDLE1BQUQ7SUFBTSxXQUFVO0lBQWlDLElBQUksV0FBVyxtQkFBbUIsWUFBWTtjQUFLO0dBQTRCOzs7OztHQUNqSix3QkFBQyx3QkFBRDtJQUFtQztJQUFzQjtJQUEwQjtJQUE4QjtJQUE2QjtJQUFjLGNBQWMsYUFBYSxRQUFRO0dBQVk7Ozs7O0lBQ3pNLGFBQWEsV0FBVyxlQUFlLHdCQUFDLEtBQUQ7SUFBRyxNQUFLO0lBQVEsV0FBVTtjQUE0QixnQkFBZ0IsMEVBQTBFO0dBQWlIOzs7OztHQUMxUyx3QkFBQyxLQUFEO0lBQUcsV0FBVTtjQUFnQztHQUE0TTs7Ozs7RUFDdFA7Ozs7OztBQUVUIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIk5hdGl2ZVZvaWNlQ29udmVyc2F0aW9uLnRzeCJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyB1c2VDb250ZXh0LCB1c2VFZmZlY3QsIHVzZU1lbW8sIHVzZVJlZiwgdXNlU3RhdGUgfSBmcm9tIFwicmVhY3RcIjtcclxuaW1wb3J0IHsgdXNlUXVlcnkgfSBmcm9tIFwiQHRhbnN0YWNrL3JlYWN0LXF1ZXJ5XCI7XHJcbmltcG9ydCB7IHZvaWNlU2Vzc2lvbnNBcGkgfSBmcm9tIFwiQC9hcGkvdm9pY2VTZXNzaW9uc1wiO1xyXG5pbXBvcnQgeyBCdXR0b24gfSBmcm9tIFwiQC9jb21wb25lbnRzL3VpL2J1dHRvblwiO1xyXG5pbXBvcnQgeyBWb2ljZUNhbGxDb250ZXh0IH0gZnJvbSBcIi4vVm9pY2VDYWxsQ29udGV4dFwiO1xyXG5pbXBvcnQgeyBMaW5rIH0gZnJvbSBcInJlYWN0LXJvdXRlci1kb21cIjtcclxuaW1wb3J0IHsgQXBpRXJyb3IgfSBmcm9tIFwiQC9hcGkvY2xpZW50XCI7XHJcbmltcG9ydCB7IGNvbm5lY3RTcGVrb1ZvaWNlTWVkaWEgfSBmcm9tIFwiQC9saWIvc3Bla28tdm9pY2UtbWVkaWFcIjtcclxuaW1wb3J0IHsgY3JlYXRlVm9pY2VDYWxsQXR0ZW1wdCwgdHlwZSBWb2ljZUNhbGxKb3VybmFsIH0gZnJvbSBcIkAvbGliL3ZvaWNlLWNhbGwtYXR0ZW1wdFwiO1xyXG5pbXBvcnQgeyBWb2ljZUNvbnZlcnNhdGlvblBhbmVsIH0gZnJvbSBcIi4vVm9pY2VDb252ZXJzYXRpb25QYW5lbFwiO1xyXG5cclxuZXhwb3J0IGludGVyZmFjZSBOYXRpdmVWb2ljZUNvbnZlcnNhdGlvblByb3BzIHtcclxuICBjb21wYW55SWQ6IHN0cmluZztcclxuICBlbmRwb2ludElkOiBzdHJpbmc7XHJcbiAgaXNzdWVJZD86IHN0cmluZztcclxuICBtYW5hZ2VkPzogYm9vbGVhbjtcclxuICBhdXRvU3RhcnQ/OiBib29sZWFuO1xyXG4gIG5ld0NvbnZlcnNhdGlvbj86IGJvb2xlYW47XHJcbiAgb25FbmRlZENoYW5nZT86IChlbmRlZDogYm9vbGVhbikgPT4gdm9pZDtcclxuICBqb3VybmFsPzogVm9pY2VDYWxsSm91cm5hbDtcclxuICBhZ2VudE5hbWU6IHN0cmluZztcclxuICAvKiogU3RvcnkgZml4dHVyZXMgcmVwbGFjZSB0aGUgZXh0ZXJuYWwgY2xpZW50IGFuZCBtZWRpYSwgbmV2ZXIgdGhlIGNvbXBvbmVudC4gKi9cclxuICBjbGllbnQ/OiB0eXBlb2Ygdm9pY2VTZXNzaW9uc0FwaTtcclxuICBjb25uZWN0PzogdHlwZW9mIGNvbm5lY3RTcGVrb1ZvaWNlTWVkaWE7XHJcbn1cclxuXHJcbmV4cG9ydCBmdW5jdGlvbiBOYXRpdmVWb2ljZUNvbnZlcnNhdGlvbihwcm9wczogTmF0aXZlVm9pY2VDb252ZXJzYXRpb25Qcm9wcykge1xyXG4gIGNvbnN0IGhvc3QgPSB1c2VDb250ZXh0KFZvaWNlQ2FsbENvbnRleHQpO1xyXG4gIGNvbnN0IFtuZXdDb252ZXJzYXRpb24sIHNldE5ld0NvbnZlcnNhdGlvbl0gPSB1c2VTdGF0ZShmYWxzZSk7XHJcbiAgaWYgKGhvc3QgJiYgIXByb3BzLm1hbmFnZWQpIHJldHVybiA8ZGl2IGNsYXNzTmFtZT1cImZsZXggZmxleC1jb2wgZ2FwLTJcIj5cclxuICAgIHshcHJvcHMuaXNzdWVJZCAmJiA8Q29udmVyc2F0aW9uQ2hvaWNlIHZhbHVlPXtuZXdDb252ZXJzYXRpb259IGRpc2FibGVkPXtob3N0LmFjdGl2ZX0gb25DaGFuZ2U9e3NldE5ld0NvbnZlcnNhdGlvbn0gLz59XHJcbiAgICA8QnV0dG9uIHNpemU9XCJzbVwiIHZhcmlhbnQ9XCJvdXRsaW5lXCIgZGlzYWJsZWQ9e2hvc3QuYWN0aXZlfSBvbkNsaWNrPXsoKSA9PiBob3N0Lm9wZW4oeyAuLi5wcm9wcywgbmV3Q29udmVyc2F0aW9uIH0pfT57aG9zdC5hY3RpdmUgPyBcIlZvaWNlIHBhbmVsIG9wZW5cIiA6IFwiU3RhcnQgdm9pY2VcIn08L0J1dHRvbj5cclxuICA8L2Rpdj47XHJcbiAgcmV0dXJuIDxWb2ljZVNlc3Npb25WaWV3IHsuLi5wcm9wc30gLz47XHJcbn1cclxuXHJcbmZ1bmN0aW9uIENvbnZlcnNhdGlvbkNob2ljZSh7IHZhbHVlLCBkaXNhYmxlZCwgb25DaGFuZ2UgfTogeyB2YWx1ZTogYm9vbGVhbjsgZGlzYWJsZWQ6IGJvb2xlYW47IG9uQ2hhbmdlKHZhbHVlOiBib29sZWFuKTogdm9pZCB9KSB7XHJcbiAgcmV0dXJuIDxsYWJlbCBjbGFzc05hbWU9XCJmbGV4IGZsZXgtY29sIGdhcC0yIHRleHQtc21cIj5Db252ZXJzYXRpb25cclxuICAgIDxzZWxlY3QgZGlzYWJsZWQ9e2Rpc2FibGVkfSBhcmlhLWxhYmVsPVwiQ29udmVyc2F0aW9uXCIgY2xhc3NOYW1lPVwicm91bmRlZC1tZCBib3JkZXIgYm9yZGVyLWlucHV0IGJnLWJhY2tncm91bmQgcC0yIHRleHQtc21cIiB2YWx1ZT17dmFsdWUgPyBcIm5ld1wiIDogXCJjb250aW51ZVwifSBvbkNoYW5nZT17ZXZlbnQgPT4gb25DaGFuZ2UoZXZlbnQudGFyZ2V0LnZhbHVlID09PSBcIm5ld1wiKX0+PG9wdGlvbiB2YWx1ZT1cImNvbnRpbnVlXCI+Q29udGludWUgY29udmVyc2F0aW9uPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT1cIm5ld1wiPk5ldyBjb252ZXJzYXRpb248L29wdGlvbj48L3NlbGVjdD5cclxuICA8L2xhYmVsPjtcclxufVxyXG5cclxuZXhwb3J0IGZ1bmN0aW9uIFZvaWNlU2Vzc2lvblZpZXcoeyBjb21wYW55SWQsIGVuZHBvaW50SWQsIGlzc3VlSWQsIGFnZW50TmFtZSwgYXV0b1N0YXJ0LCBuZXdDb252ZXJzYXRpb246IGluaXRpYWxOZXdDb252ZXJzYXRpb24gPSBmYWxzZSwgb25FbmRlZENoYW5nZSwgam91cm5hbCwgY2xpZW50ID0gdm9pY2VTZXNzaW9uc0FwaSwgY29ubmVjdCA9IGNvbm5lY3RTcGVrb1ZvaWNlTWVkaWEgfTogTmF0aXZlVm9pY2VDb252ZXJzYXRpb25Qcm9wcykge1xyXG4gIGNvbnN0IFtzZXNzaW9uSWQsIHNldFNlc3Npb25JZF0gPSB1c2VTdGF0ZTxzdHJpbmc+KCk7XHJcbiAgY29uc3QgW2JvdW5kSXNzdWVJZCwgc2V0Qm91bmRJc3N1ZUlkXSA9IHVzZVN0YXRlKGlzc3VlSWQpO1xyXG4gIGNvbnN0IFtzdGFydGluZywgc2V0U3RhcnRpbmddID0gdXNlU3RhdGUoZmFsc2UpO1xyXG4gIGNvbnN0IFthY2Nlc3NMb3N0LCBzZXRBY2Nlc3NMb3N0XSA9IHVzZVN0YXRlKGZhbHNlKTtcclxuICBjb25zdCBbbmV3Q29udmVyc2F0aW9uLCBzZXROZXdDb252ZXJzYXRpb25dID0gdXNlU3RhdGUoaW5pdGlhbE5ld0NvbnZlcnNhdGlvbik7XHJcbiAgY29uc3QgaW50ZW50ID0gdXNlUmVmKG5ld0NvbnZlcnNhdGlvbik7XHJcbiAgaW50ZW50LmN1cnJlbnQgPSBuZXdDb252ZXJzYXRpb247XHJcbiAgY29uc3QgZGVwZW5kZW5jaWVzID0gdXNlTWVtbygoKSA9PiB7XHJcbiAgICBjb25zdCBhdHRlbXB0ID0gY3JlYXRlVm9pY2VDYWxsQXR0ZW1wdChjb21wYW55SWQsIGNsaWVudCwgam91cm5hbCk7XHJcbiAgICByZXR1cm4ge1xyXG4gICAgICBhc3luYyBtaW50KCkge1xyXG4gICAgICAgIHNldEFjY2Vzc0xvc3QoZmFsc2UpOyBzZXRTdGFydGluZyh0cnVlKTtcclxuICAgICAgICB0cnkge1xyXG4gICAgICAgICAgY29uc3QgcmVzdWx0ID0gYXdhaXQgYXR0ZW1wdC5zdGFydCh7IGVuZHBvaW50SWQsIGlzc3VlSWQsIC4uLihpbnRlbnQuY3VycmVudCA/IHsgbmV3Q29udmVyc2F0aW9uOiB0cnVlIH0gOiB7fSkgfSk7XHJcbiAgICAgICAgICBzZXRTZXNzaW9uSWQocmVzdWx0LnNlc3Npb24uaWQpOyBzZXRCb3VuZElzc3VlSWQocmVzdWx0LnNlc3Npb24uaXNzdWVJZCk7XHJcbiAgICAgICAgICByZXR1cm4gcmVzdWx0Lm1lZGlhO1xyXG4gICAgICAgIH0gZmluYWxseSB7IHNldFN0YXJ0aW5nKGZhbHNlKTsgfVxyXG4gICAgICB9LFxyXG4gICAgICBhc3luYyBlbmQoaWQ6IHN0cmluZykge1xyXG4gICAgICAgIGF3YWl0IGF0dGVtcHQuZW5kKGlkKTtcclxuICAgICAgICBzZXRTZXNzaW9uSWQodW5kZWZpbmVkKTsgc2V0TmV3Q29udmVyc2F0aW9uKGZhbHNlKTtcclxuICAgICAgfSxcclxuICAgICAgY29ubmVjdCxcclxuICAgIH07XHJcbiAgfSwgW2NvbXBhbnlJZCwgZW5kcG9pbnRJZCwgaXNzdWVJZCwgY2xpZW50LCBjb25uZWN0LCBqb3VybmFsXSk7XHJcbiAgY29uc3Qgbm90aWZpY2F0aW9uID0gdXNlUXVlcnkoe1xyXG4gICAgcXVlcnlLZXk6IFtcInZvaWNlLW5vdGlmaWNhdGlvblwiLCBjb21wYW55SWQsIHNlc3Npb25JZF0sXHJcbiAgICBxdWVyeUZuOiAoKSA9PiBjbGllbnQubm90aWZpY2F0aW9uKGNvbXBhbnlJZCwgc2Vzc2lvbklkISksXHJcbiAgICBlbmFibGVkOiBCb29sZWFuKHNlc3Npb25JZCksXHJcbiAgICByZWZldGNoSW50ZXJ2YWw6IDEwMDAsXHJcbiAgICByZWZldGNoSW50ZXJ2YWxJbkJhY2tncm91bmQ6IHRydWUsXHJcbiAgICB9KTtcclxuICBjb25zdCByZWplY3RlZCA9IG5vdGlmaWNhdGlvbi5lcnJvciBpbnN0YW5jZW9mIEFwaUVycm9yICYmIFs0MDEsIDQwMywgNDA0XS5pbmNsdWRlcyhub3RpZmljYXRpb24uZXJyb3Iuc3RhdHVzKTtcclxuICB1c2VFZmZlY3QoKCkgPT4geyBpZiAocmVqZWN0ZWQpIHNldEFjY2Vzc0xvc3QodHJ1ZSk7IH0sIFtyZWplY3RlZF0pO1xyXG4gIGNvbnN0IGFjY2Vzc1Jldm9rZWQgPSByZWplY3RlZCB8fCBhY2Nlc3NMb3N0O1xyXG4gIHJldHVybiAoXHJcbiAgICA8ZGl2IGNsYXNzTmFtZT1cImZsZXggbWluLXctMCBmbGV4LWNvbCBnYXAtNFwiPlxyXG4gICAgICB7IWlzc3VlSWQgJiYgIXNlc3Npb25JZCAmJiAhYXV0b1N0YXJ0ICYmIDxDb252ZXJzYXRpb25DaG9pY2UgdmFsdWU9e25ld0NvbnZlcnNhdGlvbn0gZGlzYWJsZWQ9e3N0YXJ0aW5nfSBvbkNoYW5nZT17c2V0TmV3Q29udmVyc2F0aW9ufSAvPn1cclxuICAgICAge2JvdW5kSXNzdWVJZCAmJiA8TGluayBjbGFzc05hbWU9XCJ0ZXh0LXNtIHRleHQtcHJpbWFyeSB1bmRlcmxpbmVcIiB0bz17YC9pc3N1ZXMvJHtlbmNvZGVVUklDb21wb25lbnQoYm91bmRJc3N1ZUlkKX1gfT5WaWV3IGNvbnZlcnNhdGlvbiB0YXNrPC9MaW5rPn1cclxuICAgICAgPFZvaWNlQ29udmVyc2F0aW9uUGFuZWwgYWdlbnROYW1lPXthZ2VudE5hbWV9IGF1dG9TdGFydD17YXV0b1N0YXJ0fSBhY2Nlc3NSZXZva2VkPXthY2Nlc3NSZXZva2VkfSBvbkVuZGVkQ2hhbmdlPXtvbkVuZGVkQ2hhbmdlfSBkZXBlbmRlbmNpZXM9e2RlcGVuZGVuY2llc30gbm90aWZpY2F0aW9uPXtub3RpZmljYXRpb24uZGF0YSA/PyB1bmRlZmluZWR9IC8+XHJcbiAgICAgIHsobm90aWZpY2F0aW9uLmlzRXJyb3IgfHwgYWNjZXNzTG9zdCkgJiYgPHAgcm9sZT1cImFsZXJ0XCIgY2xhc3NOYW1lPVwidGV4dC1zbSB0ZXh0LWRlc3RydWN0aXZlXCI+e2FjY2Vzc1Jldm9rZWQgPyBcIkFjY2VzcyB0byB0aGlzIGNhbGwgaXMgbm8gbG9uZ2VyIGF2YWlsYWJsZS4gVGhlIGNhbGwgaXMgYmVpbmcgY2xvc2VkLlwiIDogXCJUYXNrIHVwZGF0ZXMgYXJlIHRlbXBvcmFyaWx5IHVuYXZhaWxhYmxlLiBUaGUgY29ubmVjdGlvbiB3aWxsIHJldHJ5OyBlbmQgdGhlIGNhbGwgaWYgdGhlIHByb2JsZW0gY29udGludWVzLlwifTwvcD59XHJcbiAgICAgIDxwIGNsYXNzTmFtZT1cInRleHQteHMgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kXCI+U3Bla28gaGFuZGxlcyB0aGUgYXVkaW8gYW5kIG1heSByZXRhaW4gcmVjb3JkaW5ncyBhY2NvcmRpbmcgdG8geW91ciB3b3Jrc3BhY2Ugc2V0dGluZ3MuIFBhcGVyY2xpcCBrZWVwcyB0YXNrIGhpc3RvcnkuIFNwZWtvIHVzYWdlIGlzIGJpbGxlZCBzZXBhcmF0ZWx5IGZyb20gYWdlbnQgd29yay4gQ2FsbHMgYXJlIGxpbWl0ZWQgdG8gdGVuIG1pbnV0ZXMuPC9wPlxyXG4gICAgPC9kaXY+XHJcbiAgKTtcclxufVxyXG4iXX0=

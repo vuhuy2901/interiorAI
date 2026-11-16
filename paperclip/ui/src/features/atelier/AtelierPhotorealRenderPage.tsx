@@ -35,6 +35,30 @@ function apiError(body: any, fallback: string) {
   return String(body?.detail || body?.error_message || body?.message || fallback);
 }
 
+async function renderWebglPreview(sourceUrl: string, width: number, height: number): Promise<string> {
+  const source = new Image();
+  source.decoding = "async";
+  await new Promise<void>((resolve, reject) => {
+    source.onload = () => resolve();
+    source.onerror = () => reject(new Error("Không đọc được ảnh xem trước từ Scene 3D"));
+    source.src = sourceUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Trình duyệt không hỗ trợ xuất ảnh Canvas");
+  context.fillStyle = "#111418";
+  context.fillRect(0, 0, width, height);
+  const scale = Math.min(width / source.naturalWidth, height / source.naturalHeight);
+  const drawWidth = source.naturalWidth * scale;
+  const drawHeight = source.naturalHeight * scale;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  return canvas.toDataURL("image/png");
+}
+
 export function AtelierPhotorealRenderPage() {
   const navigate = useNavigate();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -50,10 +74,14 @@ export function AtelierPhotorealRenderPage() {
   const [zoom, setZoom] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [fallbackResult, setFallbackResult] = useState("");
+  const [fallbackRendering, setFallbackRendering] = useState(false);
   const [cameraPreview] = useState(() => {
     try { return window.sessionStorage.getItem("atelier.render.preview") || ""; }
     catch { return ""; }
   });
+  const blenderAvailable = Boolean(capabilities?.available);
+  const fallbackAvailable = Boolean(cameraPreview);
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Thiết kế Nội thất" }, { label: "Render chân thực" }]);
@@ -112,6 +140,14 @@ export function AtelierPhotorealRenderPage() {
     setSubmitting(true);
     setError("");
     try {
+      if (!blenderAvailable) {
+        if (!cameraPreview) throw new Error("Hãy quay lại thiết kế 3D, chọn góc nhìn rồi mở Render chân thực lại.");
+        setFallbackRendering(true);
+        const selectedResolution = RENDER_RESOLUTIONS.find((item) => item.id === resolution) ?? RENDER_RESOLUTIONS[1];
+        setFallbackResult(await renderWebglPreview(cameraPreview, selectedResolution.width, selectedResolution.height));
+        setZoom(1);
+        return;
+      }
       const currentCamera = camera === "current_view" ? readCurrentCameraSnapshot() : null;
       if (camera === "current_view" && !currentCamera) {
         throw new Error("Không còn dữ liệu góc nhìn hiện tại. Hãy quay lại thiết kế, chọn góc camera rồi mở Render chân thực lại.");
@@ -136,9 +172,10 @@ export function AtelierPhotorealRenderPage() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể tạo tác vụ render");
     } finally {
+      setFallbackRendering(false);
       setSubmitting(false);
     }
-  }, [camera, cameraPreset, lightingPreset, project, quality, resolution]);
+  }, [blenderAvailable, camera, cameraPreset, cameraPreview, lightingPreset, project, quality, resolution]);
 
   const retryRender = useCallback(async () => {
     if (!job?.job_id) return;
@@ -160,9 +197,8 @@ export function AtelierPhotorealRenderPage() {
     }
   }, [job?.job_id]);
 
-  const imageUrl = job?.image_url || job?.render_url;
-  const active = submitting || isRenderActive(job?.status);
-  const blenderAvailable = Boolean(capabilities?.available);
+  const imageUrl = fallbackResult || job?.image_url || job?.render_url;
+  const active = submitting || fallbackRendering || isRenderActive(job?.status);
   const engineReason = capabilityError || capabilities?.reason || capabilities?.message;
 
   return (
@@ -177,10 +213,13 @@ export function AtelierPhotorealRenderPage() {
         </div>
         <a
           className={`photoreal-icon-button ${imageUrl ? "" : "is-disabled"}`}
-          href={job?.download_url || (job?.job_id ? `${API_BASE}/render-jobs/${job.job_id}/download` : undefined)}
-          download
+          href={fallbackResult || job?.download_url || (job?.job_id ? `${API_BASE}/render-jobs/${job.job_id}/download` : undefined)}
+          download={fallbackResult ? `atelier-render-rev-${project?.revision || 0}.png` : true}
           aria-disabled={!imageUrl}
-          onClick={(event) => { if (!imageUrl) event.preventDefault(); }}
+          onClick={(event) => {
+            if (!imageUrl) event.preventDefault();
+            else if (fallbackResult) event.currentTarget.href = fallbackResult;
+          }}
         >
           <Download size={17} /> <span>Tải ảnh</span>
         </a>
@@ -212,7 +251,10 @@ export function AtelierPhotorealRenderPage() {
         {active ? (
           <div className="photoreal-processing" role="status">
             <LoaderCircle className="spin" size={22} />
-            <div><strong>{renderStatusText(job?.status || "QUEUED")}</strong><span>Không ước lượng phần trăm khi Blender chưa cung cấp dữ liệu đáng tin cậy.</span></div>
+            <div>
+              <strong>{fallbackRendering ? "Đang xuất ảnh WebGL/HDRI" : renderStatusText(job?.status || "QUEUED")}</strong>
+              <span>{fallbackRendering ? "Đang tạo tệp PNG theo đúng độ phân giải đã chọn." : "Không ước lượng phần trăm khi Blender chưa cung cấp dữ liệu đáng tin cậy."}</span>
+            </div>
           </div>
         ) : null}
 
@@ -233,7 +275,7 @@ export function AtelierPhotorealRenderPage() {
             <div className="photoreal-controls-body">
               <label>
                 <span>Góc camera</span>
-                <select value={camera} onChange={(event) => setCamera(event.target.value)} disabled={active}>
+                <select value={camera} onChange={(event) => setCamera(event.target.value)} disabled={active || !blenderAvailable}>
                   <option value="current_view">Góc nhìn đang chọn</option>
                   <option value="eye_level">Tầm mắt</option>
                   <option value="corner">Góc phòng</option>
@@ -249,25 +291,25 @@ export function AtelierPhotorealRenderPage() {
               </label>
               <label>
                 <span>Mức chất lượng</span>
-                <select value={quality} onChange={(event) => setQuality(event.target.value as RenderQualityId)} disabled={active}>
+                <select value={quality} onChange={(event) => setQuality(event.target.value as RenderQualityId)} disabled={active || !blenderAvailable}>
                   {RENDER_QUALITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
               </label>
               <div className="photoreal-engine-state">
-                <span className={`photoreal-status-dot ${blenderAvailable ? "is-ready" : ""}`} />
+                <span className={`photoreal-status-dot ${blenderAvailable || fallbackAvailable ? "is-ready" : ""}`} />
                 <div>
-                  <strong>{blenderAvailable ? "Blender Cycles sẵn sàng" : capabilities ? "Chưa kết nối bộ máy render" : "Đang kiểm tra bộ máy render"}</strong>
-                  <span>{blenderAvailable ? "Snapshot khóa đúng revision trước khi gửi" : engineReason || "Vui lòng chờ kiểm tra cấu hình máy chủ"}</span>
+                  <strong>{blenderAvailable ? "Blender Cycles sẵn sàng" : fallbackAvailable ? "WebGL HDRI fallback sẵn sàng" : capabilities ? "Chưa kết nối bộ máy render" : "Đang kiểm tra bộ máy render"}</strong>
+                  <span>{blenderAvailable ? "Snapshot khóa đúng revision trước khi gửi" : fallbackAvailable ? "Xuất đúng khung camera hiện tại; Blender đang bị Windows Application Control chặn" : engineReason || "Vui lòng chờ kiểm tra cấu hình máy chủ"}</span>
                 </div>
               </div>
               <button
                 type="button"
                 className="photoreal-render-button"
                 onClick={() => void submitRender()}
-                disabled={active || !blenderAvailable || !project}
+                disabled={active || (!blenderAvailable && !fallbackAvailable) || !project}
               >
                 {active ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}
-                {active ? "Đang render" : "Render ảnh"}
+                {active ? "Đang render" : blenderAvailable ? "Render ảnh" : "Xuất ảnh WebGL"}
               </button>
             </div>
           ) : null}
@@ -277,7 +319,9 @@ export function AtelierPhotorealRenderPage() {
               {job?.job_id ? <button type="button" onClick={() => void retryRender()} disabled={submitting}><RefreshCw size={14} /> Thử lại</button> : null}
             </div>
           ) : null}
-          {job?.status === "COMPLETED" ? (
+          {fallbackResult ? (
+            <div className="photoreal-success">Đã xuất ảnh WebGL/HDRI từ đúng góc camera hiện tại · {RENDER_RESOLUTIONS.find((item) => item.id === resolution)?.label}</div>
+          ) : job?.status === "COMPLETED" ? (
             <div className="photoreal-success">Ảnh hoàn tất từ revision #{job.revision} · {job.resolution?.join(" × ") || "đúng độ phân giải đã chọn"}</div>
           ) : null}
         </section>

@@ -1,0 +1,162 @@
+import { useQuery } from "/node_modules/.vite/deps/@tanstack_react-query.js?v=1de3f9fa";
+import { authApi } from "/src/api/auth.ts";
+import { companiesApi } from "/src/api/companies.ts";
+import { ApiError } from "/src/api/client.ts";
+import { queryKeys } from "/src/lib/queryKeys.ts";
+import { useBootstrapQuery } from "/src/api/bootstrap-query.ts";
+import { hasUnverifiedSession } from "/src/lib/cached-session.ts";
+// Single source of truth for the company-list query. Every consumer reads the
+// same cache entry, so they must agree on the shape — returning a bare
+// `Company[]` from one and this wrapped object from another silently corrupts
+// the entry and crashes whichever reads the other's shape.
+//
+// The entry is keyed by account. Callers therefore cannot ask for "the company
+// list" without saying whose, which is the point: the previous design let a
+// list fetched for one account answer a question about another, and every
+// consumer had to defend against that individually.
+export function companyListQueryOptions(userId) {
+	return {
+		queryKey: queryKeys.companies.list(userId),
+		queryFn: async () => {
+			// Request coalescing keys on the path alone, so it would happily answer a
+			// fetch for this account with a `/companies` request issued under the
+			// previous one — putting the wrong account's list in an account-keyed
+			// entry. Coalescing has nothing to offer here anyway: React Query already
+			// dedupes concurrent fetches within a key, and *across* keys the accounts
+			// differ by construction, which is exactly when sharing is wrong.
+			companiesApi.detachInflightList();
+			try {
+				return {
+					companies: await companiesApi.list(),
+					unauthorized: false
+				};
+			} catch (err) {
+				if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+					return {
+						companies: [],
+						unauthorized: true
+					};
+				}
+				throw err;
+			}
+		}
+	};
+}
+/** The administration directory has its own account-scoped cache and request. */
+export function companyDirectoryQueryOptions(userId) {
+	return {
+		queryKey: queryKeys.companies.directory(userId),
+		queryFn: async () => {
+			companiesApi.detachInflightDirectory();
+			return companiesApi.directory();
+		}
+	};
+}
+const sessionQueryOptions = {
+	queryKey: queryKeys.auth.session,
+	queryFn: () => authApi.getSession()
+};
+/** Observe the shared session read when a surface needs error and retry state. */
+export function useAccountSessionQuery() {
+	return useQuery(sessionQueryOptions);
+}
+/**
+* The signed-in account, as the cache currently understands it.
+*
+* `settled` means the session query *answered*, not merely that it stopped
+* being pending. The distinction is the whole point of this helper. `null` is a
+* real answer — `authApi.getSession` returns it for a 401, meaning "signed out"
+* — but a session request that *failed* answers nothing, and it throws rather
+* than returning null. Treating that failure as `null` would key an account's
+* list to `anonymous` while the request still carried their cookie, writing a
+* credentialed response into the entry every signed-out reader trusts. Which is
+* the original bug, rebuilt for anonymous.
+*
+* So: settled on success only. A failed session lookup leaves the list unfetched
+* until the query recovers, which it does on the next refetch.
+*/
+export function useAccountIdentity() {
+	const { data: session, isSuccess, isError, dataUpdatedAt } = useAccountSessionQuery();
+	const userId = session?.user.id ?? null;
+	return {
+		userId,
+		settled: isSuccess,
+		failed: isError,
+		updatedAt: dataUpdatedAt,
+		bootstrap: isSuccess && session?.boardBootstrap?.userId === userId ? session.boardBootstrap : undefined
+	};
+}
+/**
+* Observe the company list for the account signed in now.
+*
+* Pass `enabled: false` to hold for a caller's own reasons; the session gate is
+* applied on top of it either way.
+*/
+export function useCompanyListQuery(options = {}) {
+	const { userId, settled, bootstrap, updatedAt } = useAccountIdentity();
+	const query = useBootstrapQuery({
+		...companyListQueryOptions(userId),
+		...options,
+		enabled: settled && (options.enabled ?? true)
+	}, bootstrap ? {
+		identity: bootstrap,
+		data: {
+			companies: bootstrap.companies,
+			unauthorized: false
+		},
+		updatedAt
+	} : undefined);
+	// While the account is unknown this query is disabled, and a disabled query
+	// reports `isLoading: false` with `data: undefined` — which consumers default
+	// to an empty list and read as "asked, and owns nothing". That is the
+	// destructive reading: `shouldClearStoredCompanySelection` would throw away
+	// the customer's stored company on every cold boot, before the session had
+	// even landed.
+	//
+	// Waiting for the account is part of getting the list, so it is reported as
+	// part of getting the list. Consumers gate on these two, and both must mean
+	// "no answer yet" for the whole window in which there is no answer.
+	const waitingForAccount = !settled && (options.enabled ?? true);
+	return {
+		...query,
+		isLoading: query.isLoading || waitingForAccount,
+		isFetching: query.isFetching || waitingForAccount
+	};
+}
+/**
+* Resolve the account identity for an imperative path, fetching the session if
+* the cache has no answer yet.
+*
+* Not `getQueryData` with a `?? null` fallback: an empty or errored session
+* entry would read as "signed out" and key an authenticated response to
+* `anonymous`. There is no safe default here — the identity is either known or
+* must be obtained, and if it cannot be obtained the caller must fail rather
+* than guess.
+*/
+export async function resolveAccountUserId(queryClient) {
+	const state = queryClient.getQueryState(queryKeys.auth.session);
+	// `isInvalidated` matters as much as `status` here. Invalidation is how the
+	// app says "this is the previous account's answer" — InviteLanding invalidates
+	// the session immediately after a sign-in and resolves an identity in the next
+	// breath. The entry is still `success`, still holding the *old* user, until a
+	// refetch lands; trusting it would key the new account's list to the old
+	// account's id, which is the misattribution this whole file exists to prevent.
+	if (state?.status === "success" && !state.isInvalidated && !hasUnverifiedSession(queryClient)) {
+		return state.data?.user.id ?? null;
+	}
+	const session = await queryClient.fetchQuery({
+		...sessionQueryOptions,
+		staleTime: 0
+	});
+	return session?.user.id ?? null;
+}
+/** Fetch the company list for the account signed in now, ignoring what is cached. */
+export async function fetchCompanyListForCurrentAccount(queryClient) {
+	const userId = await resolveAccountUserId(queryClient);
+	return queryClient.fetchQuery({
+		...companyListQueryOptions(userId),
+		staleTime: 0
+	});
+}
+
+//# sourceMappingURL=data:application/json;base64,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bnQiOlsiaW1wb3J0IHsgdXNlUXVlcnksIHR5cGUgUXVlcnlDbGllbnQgfSBmcm9tIFwiQHRhbnN0YWNrL3JlYWN0LXF1ZXJ5XCI7XHJcbmltcG9ydCB0eXBlIHsgQm9hcmRCb290c3RyYXAsIENvbXBhbnkgfSBmcm9tIFwiQHBhcGVyY2xpcGFpL3NoYXJlZFwiO1xyXG5pbXBvcnQgeyBhdXRoQXBpIH0gZnJvbSBcIi4vYXV0aFwiO1xyXG5pbXBvcnQgeyBjb21wYW5pZXNBcGkgfSBmcm9tIFwiLi9jb21wYW5pZXNcIjtcclxuaW1wb3J0IHsgQXBpRXJyb3IgfSBmcm9tIFwiLi9jbGllbnRcIjtcclxuaW1wb3J0IHsgcXVlcnlLZXlzIH0gZnJvbSBcIi4uL2xpYi9xdWVyeUtleXNcIjtcclxuaW1wb3J0IHsgdXNlQm9vdHN0cmFwUXVlcnkgfSBmcm9tIFwiLi9ib290c3RyYXAtcXVlcnlcIjtcclxuaW1wb3J0IHsgaGFzVW52ZXJpZmllZFNlc3Npb24gfSBmcm9tIFwiLi4vbGliL2NhY2hlZC1zZXNzaW9uXCI7XHJcblxyXG5leHBvcnQgdHlwZSBDb21wYW55TGlzdFJlc3VsdCA9IHsgY29tcGFuaWVzOiBDb21wYW55W107IHVuYXV0aG9yaXplZDogYm9vbGVhbiB9O1xyXG5cclxuLy8gU2luZ2xlIHNvdXJjZSBvZiB0cnV0aCBmb3IgdGhlIGNvbXBhbnktbGlzdCBxdWVyeS4gRXZlcnkgY29uc3VtZXIgcmVhZHMgdGhlXHJcbi8vIHNhbWUgY2FjaGUgZW50cnksIHNvIHRoZXkgbXVzdCBhZ3JlZSBvbiB0aGUgc2hhcGUg4oCUIHJldHVybmluZyBhIGJhcmVcclxuLy8gYENvbXBhbnlbXWAgZnJvbSBvbmUgYW5kIHRoaXMgd3JhcHBlZCBvYmplY3QgZnJvbSBhbm90aGVyIHNpbGVudGx5IGNvcnJ1cHRzXHJcbi8vIHRoZSBlbnRyeSBhbmQgY3Jhc2hlcyB3aGljaGV2ZXIgcmVhZHMgdGhlIG90aGVyJ3Mgc2hhcGUuXHJcbi8vXHJcbi8vIFRoZSBlbnRyeSBpcyBrZXllZCBieSBhY2NvdW50LiBDYWxsZXJzIHRoZXJlZm9yZSBjYW5ub3QgYXNrIGZvciBcInRoZSBjb21wYW55XHJcbi8vIGxpc3RcIiB3aXRob3V0IHNheWluZyB3aG9zZSwgd2hpY2ggaXMgdGhlIHBvaW50OiB0aGUgcHJldmlvdXMgZGVzaWduIGxldCBhXHJcbi8vIGxpc3QgZmV0Y2hlZCBmb3Igb25lIGFjY291bnQgYW5zd2VyIGEgcXVlc3Rpb24gYWJvdXQgYW5vdGhlciwgYW5kIGV2ZXJ5XHJcbi8vIGNvbnN1bWVyIGhhZCB0byBkZWZlbmQgYWdhaW5zdCB0aGF0IGluZGl2aWR1YWxseS5cclxuZXhwb3J0IGZ1bmN0aW9uIGNvbXBhbnlMaXN0UXVlcnlPcHRpb25zKHVzZXJJZDogc3RyaW5nIHwgbnVsbCkge1xyXG4gIHJldHVybiB7XHJcbiAgICBxdWVyeUtleTogcXVlcnlLZXlzLmNvbXBhbmllcy5saXN0KHVzZXJJZCksXHJcbiAgICBxdWVyeUZuOiBhc3luYyAoKTogUHJvbWlzZTxDb21wYW55TGlzdFJlc3VsdD4gPT4ge1xyXG4gICAgICAvLyBSZXF1ZXN0IGNvYWxlc2Npbmcga2V5cyBvbiB0aGUgcGF0aCBhbG9uZSwgc28gaXQgd291bGQgaGFwcGlseSBhbnN3ZXIgYVxyXG4gICAgICAvLyBmZXRjaCBmb3IgdGhpcyBhY2NvdW50IHdpdGggYSBgL2NvbXBhbmllc2AgcmVxdWVzdCBpc3N1ZWQgdW5kZXIgdGhlXHJcbiAgICAgIC8vIHByZXZpb3VzIG9uZSDigJQgcHV0dGluZyB0aGUgd3JvbmcgYWNjb3VudCdzIGxpc3QgaW4gYW4gYWNjb3VudC1rZXllZFxyXG4gICAgICAvLyBlbnRyeS4gQ29hbGVzY2luZyBoYXMgbm90aGluZyB0byBvZmZlciBoZXJlIGFueXdheTogUmVhY3QgUXVlcnkgYWxyZWFkeVxyXG4gICAgICAvLyBkZWR1cGVzIGNvbmN1cnJlbnQgZmV0Y2hlcyB3aXRoaW4gYSBrZXksIGFuZCAqYWNyb3NzKiBrZXlzIHRoZSBhY2NvdW50c1xyXG4gICAgICAvLyBkaWZmZXIgYnkgY29uc3RydWN0aW9uLCB3aGljaCBpcyBleGFjdGx5IHdoZW4gc2hhcmluZyBpcyB3cm9uZy5cclxuICAgICAgY29tcGFuaWVzQXBpLmRldGFjaEluZmxpZ2h0TGlzdCgpO1xyXG4gICAgICB0cnkge1xyXG4gICAgICAgIHJldHVybiB7IGNvbXBhbmllczogYXdhaXQgY29tcGFuaWVzQXBpLmxpc3QoKSwgdW5hdXRob3JpemVkOiBmYWxzZSB9O1xyXG4gICAgICB9IGNhdGNoIChlcnIpIHtcclxuICAgICAgICBpZiAoZXJyIGluc3RhbmNlb2YgQXBpRXJyb3IgJiYgKGVyci5zdGF0dXMgPT09IDQwMSB8fCBlcnIuc3RhdHVzID09PSA0MDMpKSB7XHJcbiAgICAgICAgICByZXR1cm4geyBjb21wYW5pZXM6IFtdLCB1bmF1dGhvcml6ZWQ6IHRydWUgfTtcclxuICAgICAgICB9XHJcbiAgICAgICAgdGhyb3cgZXJyO1xyXG4gICAgICB9XHJcbiAgICB9LFxyXG4gIH0gYXMgY29uc3Q7XHJcbn1cclxuXHJcbi8qKiBUaGUgYWRtaW5pc3RyYXRpb24gZGlyZWN0b3J5IGhhcyBpdHMgb3duIGFjY291bnQtc2NvcGVkIGNhY2hlIGFuZCByZXF1ZXN0LiAqL1xyXG5leHBvcnQgZnVuY3Rpb24gY29tcGFueURpcmVjdG9yeVF1ZXJ5T3B0aW9ucyh1c2VySWQ6IHN0cmluZyB8IG51bGwpIHtcclxuICByZXR1cm4ge1xyXG4gICAgcXVlcnlLZXk6IHF1ZXJ5S2V5cy5jb21wYW5pZXMuZGlyZWN0b3J5KHVzZXJJZCksXHJcbiAgICBxdWVyeUZuOiBhc3luYyAoKSA9PiB7XHJcbiAgICAgIGNvbXBhbmllc0FwaS5kZXRhY2hJbmZsaWdodERpcmVjdG9yeSgpO1xyXG4gICAgICByZXR1cm4gY29tcGFuaWVzQXBpLmRpcmVjdG9yeSgpO1xyXG4gICAgfSxcclxuICB9IGFzIGNvbnN0O1xyXG59XHJcblxyXG5jb25zdCBzZXNzaW9uUXVlcnlPcHRpb25zID0ge1xyXG4gIHF1ZXJ5S2V5OiBxdWVyeUtleXMuYXV0aC5zZXNzaW9uLFxyXG4gIHF1ZXJ5Rm46ICgpID0+IGF1dGhBcGkuZ2V0U2Vzc2lvbigpLFxyXG59IGFzIGNvbnN0O1xyXG5cclxuLyoqIE9ic2VydmUgdGhlIHNoYXJlZCBzZXNzaW9uIHJlYWQgd2hlbiBhIHN1cmZhY2UgbmVlZHMgZXJyb3IgYW5kIHJldHJ5IHN0YXRlLiAqL1xyXG5leHBvcnQgZnVuY3Rpb24gdXNlQWNjb3VudFNlc3Npb25RdWVyeSgpIHtcclxuICByZXR1cm4gdXNlUXVlcnkoc2Vzc2lvblF1ZXJ5T3B0aW9ucyk7XHJcbn1cclxuXHJcbi8qKlxyXG4gKiBUaGUgc2lnbmVkLWluIGFjY291bnQsIGFzIHRoZSBjYWNoZSBjdXJyZW50bHkgdW5kZXJzdGFuZHMgaXQuXHJcbiAqXHJcbiAqIGBzZXR0bGVkYCBtZWFucyB0aGUgc2Vzc2lvbiBxdWVyeSAqYW5zd2VyZWQqLCBub3QgbWVyZWx5IHRoYXQgaXQgc3RvcHBlZFxyXG4gKiBiZWluZyBwZW5kaW5nLiBUaGUgZGlzdGluY3Rpb24gaXMgdGhlIHdob2xlIHBvaW50IG9mIHRoaXMgaGVscGVyLiBgbnVsbGAgaXMgYVxyXG4gKiByZWFsIGFuc3dlciDigJQgYGF1dGhBcGkuZ2V0U2Vzc2lvbmAgcmV0dXJucyBpdCBmb3IgYSA0MDEsIG1lYW5pbmcgXCJzaWduZWQgb3V0XCJcclxuICog4oCUIGJ1dCBhIHNlc3Npb24gcmVxdWVzdCB0aGF0ICpmYWlsZWQqIGFuc3dlcnMgbm90aGluZywgYW5kIGl0IHRocm93cyByYXRoZXJcclxuICogdGhhbiByZXR1cm5pbmcgbnVsbC4gVHJlYXRpbmcgdGhhdCBmYWlsdXJlIGFzIGBudWxsYCB3b3VsZCBrZXkgYW4gYWNjb3VudCdzXHJcbiAqIGxpc3QgdG8gYGFub255bW91c2Agd2hpbGUgdGhlIHJlcXVlc3Qgc3RpbGwgY2FycmllZCB0aGVpciBjb29raWUsIHdyaXRpbmcgYVxyXG4gKiBjcmVkZW50aWFsZWQgcmVzcG9uc2UgaW50byB0aGUgZW50cnkgZXZlcnkgc2lnbmVkLW91dCByZWFkZXIgdHJ1c3RzLiBXaGljaCBpc1xyXG4gKiB0aGUgb3JpZ2luYWwgYnVnLCByZWJ1aWx0IGZvciBhbm9ueW1vdXMuXHJcbiAqXHJcbiAqIFNvOiBzZXR0bGVkIG9uIHN1Y2Nlc3Mgb25seS4gQSBmYWlsZWQgc2Vzc2lvbiBsb29rdXAgbGVhdmVzIHRoZSBsaXN0IHVuZmV0Y2hlZFxyXG4gKiB1bnRpbCB0aGUgcXVlcnkgcmVjb3ZlcnMsIHdoaWNoIGl0IGRvZXMgb24gdGhlIG5leHQgcmVmZXRjaC5cclxuICovXHJcbmV4cG9ydCBmdW5jdGlvbiB1c2VBY2NvdW50SWRlbnRpdHkoKToge1xyXG4gIHVzZXJJZDogc3RyaW5nIHwgbnVsbDtcclxuICBzZXR0bGVkOiBib29sZWFuO1xyXG4gIGZhaWxlZDogYm9vbGVhbjtcclxuICBib290c3RyYXA6IEJvYXJkQm9vdHN0cmFwIHwgdW5kZWZpbmVkO1xyXG4gIHVwZGF0ZWRBdDogbnVtYmVyO1xyXG59IHtcclxuICBjb25zdCB7IGRhdGE6IHNlc3Npb24sIGlzU3VjY2VzcywgaXNFcnJvciwgZGF0YVVwZGF0ZWRBdCB9ID0gdXNlQWNjb3VudFNlc3Npb25RdWVyeSgpO1xyXG4gIGNvbnN0IHVzZXJJZCA9IHNlc3Npb24/LnVzZXIuaWQgPz8gbnVsbDtcclxuICByZXR1cm4ge1xyXG4gICAgdXNlcklkLCBzZXR0bGVkOiBpc1N1Y2Nlc3MsIGZhaWxlZDogaXNFcnJvciwgdXBkYXRlZEF0OiBkYXRhVXBkYXRlZEF0LFxyXG4gICAgYm9vdHN0cmFwOiBpc1N1Y2Nlc3MgJiYgc2Vzc2lvbj8uYm9hcmRCb290c3RyYXA/LnVzZXJJZCA9PT0gdXNlcklkID8gc2Vzc2lvbi5ib2FyZEJvb3RzdHJhcCA6IHVuZGVmaW5lZCxcclxuICB9O1xyXG59XHJcblxyXG4vKipcclxuICogT2JzZXJ2ZSB0aGUgY29tcGFueSBsaXN0IGZvciB0aGUgYWNjb3VudCBzaWduZWQgaW4gbm93LlxyXG4gKlxyXG4gKiBQYXNzIGBlbmFibGVkOiBmYWxzZWAgdG8gaG9sZCBmb3IgYSBjYWxsZXIncyBvd24gcmVhc29uczsgdGhlIHNlc3Npb24gZ2F0ZSBpc1xyXG4gKiBhcHBsaWVkIG9uIHRvcCBvZiBpdCBlaXRoZXIgd2F5LlxyXG4gKi9cclxuZXhwb3J0IGZ1bmN0aW9uIHVzZUNvbXBhbnlMaXN0UXVlcnkoXHJcbiAgb3B0aW9uczogeyBlbmFibGVkPzogYm9vbGVhbjsgc3RhbGVUaW1lPzogbnVtYmVyOyByZXRyeT86IG51bWJlciB8IGJvb2xlYW4gfSA9IHt9LFxyXG4pIHtcclxuICBjb25zdCB7IHVzZXJJZCwgc2V0dGxlZCwgYm9vdHN0cmFwLCB1cGRhdGVkQXQgfSA9IHVzZUFjY291bnRJZGVudGl0eSgpO1xyXG4gIGNvbnN0IHF1ZXJ5ID0gdXNlQm9vdHN0cmFwUXVlcnk8Q29tcGFueUxpc3RSZXN1bHQ+KHtcclxuICAgIC4uLmNvbXBhbnlMaXN0UXVlcnlPcHRpb25zKHVzZXJJZCksXHJcbiAgICAuLi5vcHRpb25zLFxyXG4gICAgZW5hYmxlZDogc2V0dGxlZCAmJiAob3B0aW9ucy5lbmFibGVkID8/IHRydWUpLFxyXG4gIH0sIGJvb3RzdHJhcCA/IHsgaWRlbnRpdHk6IGJvb3RzdHJhcCwgZGF0YTogeyBjb21wYW5pZXM6IGJvb3RzdHJhcC5jb21wYW5pZXMsIHVuYXV0aG9yaXplZDogZmFsc2UgfSwgdXBkYXRlZEF0IH0gOiB1bmRlZmluZWQpO1xyXG5cclxuICAvLyBXaGlsZSB0aGUgYWNjb3VudCBpcyB1bmtub3duIHRoaXMgcXVlcnkgaXMgZGlzYWJsZWQsIGFuZCBhIGRpc2FibGVkIHF1ZXJ5XHJcbiAgLy8gcmVwb3J0cyBgaXNMb2FkaW5nOiBmYWxzZWAgd2l0aCBgZGF0YTogdW5kZWZpbmVkYCDigJQgd2hpY2ggY29uc3VtZXJzIGRlZmF1bHRcclxuICAvLyB0byBhbiBlbXB0eSBsaXN0IGFuZCByZWFkIGFzIFwiYXNrZWQsIGFuZCBvd25zIG5vdGhpbmdcIi4gVGhhdCBpcyB0aGVcclxuICAvLyBkZXN0cnVjdGl2ZSByZWFkaW5nOiBgc2hvdWxkQ2xlYXJTdG9yZWRDb21wYW55U2VsZWN0aW9uYCB3b3VsZCB0aHJvdyBhd2F5XHJcbiAgLy8gdGhlIGN1c3RvbWVyJ3Mgc3RvcmVkIGNvbXBhbnkgb24gZXZlcnkgY29sZCBib290LCBiZWZvcmUgdGhlIHNlc3Npb24gaGFkXHJcbiAgLy8gZXZlbiBsYW5kZWQuXHJcbiAgLy9cclxuICAvLyBXYWl0aW5nIGZvciB0aGUgYWNjb3VudCBpcyBwYXJ0IG9mIGdldHRpbmcgdGhlIGxpc3QsIHNvIGl0IGlzIHJlcG9ydGVkIGFzXHJcbiAgLy8gcGFydCBvZiBnZXR0aW5nIHRoZSBsaXN0LiBDb25zdW1lcnMgZ2F0ZSBvbiB0aGVzZSB0d28sIGFuZCBib3RoIG11c3QgbWVhblxyXG4gIC8vIFwibm8gYW5zd2VyIHlldFwiIGZvciB0aGUgd2hvbGUgd2luZG93IGluIHdoaWNoIHRoZXJlIGlzIG5vIGFuc3dlci5cclxuICBjb25zdCB3YWl0aW5nRm9yQWNjb3VudCA9ICFzZXR0bGVkICYmIChvcHRpb25zLmVuYWJsZWQgPz8gdHJ1ZSk7XHJcbiAgcmV0dXJuIHtcclxuICAgIC4uLnF1ZXJ5LFxyXG4gICAgaXNMb2FkaW5nOiBxdWVyeS5pc0xvYWRpbmcgfHwgd2FpdGluZ0ZvckFjY291bnQsXHJcbiAgICBpc0ZldGNoaW5nOiBxdWVyeS5pc0ZldGNoaW5nIHx8IHdhaXRpbmdGb3JBY2NvdW50LFxyXG4gIH07XHJcbn1cclxuXHJcbi8qKlxyXG4gKiBSZXNvbHZlIHRoZSBhY2NvdW50IGlkZW50aXR5IGZvciBhbiBpbXBlcmF0aXZlIHBhdGgsIGZldGNoaW5nIHRoZSBzZXNzaW9uIGlmXHJcbiAqIHRoZSBjYWNoZSBoYXMgbm8gYW5zd2VyIHlldC5cclxuICpcclxuICogTm90IGBnZXRRdWVyeURhdGFgIHdpdGggYSBgPz8gbnVsbGAgZmFsbGJhY2s6IGFuIGVtcHR5IG9yIGVycm9yZWQgc2Vzc2lvblxyXG4gKiBlbnRyeSB3b3VsZCByZWFkIGFzIFwic2lnbmVkIG91dFwiIGFuZCBrZXkgYW4gYXV0aGVudGljYXRlZCByZXNwb25zZSB0b1xyXG4gKiBgYW5vbnltb3VzYC4gVGhlcmUgaXMgbm8gc2FmZSBkZWZhdWx0IGhlcmUg4oCUIHRoZSBpZGVudGl0eSBpcyBlaXRoZXIga25vd24gb3JcclxuICogbXVzdCBiZSBvYnRhaW5lZCwgYW5kIGlmIGl0IGNhbm5vdCBiZSBvYnRhaW5lZCB0aGUgY2FsbGVyIG11c3QgZmFpbCByYXRoZXJcclxuICogdGhhbiBndWVzcy5cclxuICovXHJcbmV4cG9ydCBhc3luYyBmdW5jdGlvbiByZXNvbHZlQWNjb3VudFVzZXJJZChxdWVyeUNsaWVudDogUXVlcnlDbGllbnQpOiBQcm9taXNlPHN0cmluZyB8IG51bGw+IHtcclxuICBjb25zdCBzdGF0ZSA9IHF1ZXJ5Q2xpZW50LmdldFF1ZXJ5U3RhdGU8QXdhaXRlZDxSZXR1cm5UeXBlPHR5cGVvZiBhdXRoQXBpLmdldFNlc3Npb24+Pj4oXHJcbiAgICBxdWVyeUtleXMuYXV0aC5zZXNzaW9uLFxyXG4gICk7XHJcbiAgLy8gYGlzSW52YWxpZGF0ZWRgIG1hdHRlcnMgYXMgbXVjaCBhcyBgc3RhdHVzYCBoZXJlLiBJbnZhbGlkYXRpb24gaXMgaG93IHRoZVxyXG4gIC8vIGFwcCBzYXlzIFwidGhpcyBpcyB0aGUgcHJldmlvdXMgYWNjb3VudCdzIGFuc3dlclwiIOKAlCBJbnZpdGVMYW5kaW5nIGludmFsaWRhdGVzXHJcbiAgLy8gdGhlIHNlc3Npb24gaW1tZWRpYXRlbHkgYWZ0ZXIgYSBzaWduLWluIGFuZCByZXNvbHZlcyBhbiBpZGVudGl0eSBpbiB0aGUgbmV4dFxyXG4gIC8vIGJyZWF0aC4gVGhlIGVudHJ5IGlzIHN0aWxsIGBzdWNjZXNzYCwgc3RpbGwgaG9sZGluZyB0aGUgKm9sZCogdXNlciwgdW50aWwgYVxyXG4gIC8vIHJlZmV0Y2ggbGFuZHM7IHRydXN0aW5nIGl0IHdvdWxkIGtleSB0aGUgbmV3IGFjY291bnQncyBsaXN0IHRvIHRoZSBvbGRcclxuICAvLyBhY2NvdW50J3MgaWQsIHdoaWNoIGlzIHRoZSBtaXNhdHRyaWJ1dGlvbiB0aGlzIHdob2xlIGZpbGUgZXhpc3RzIHRvIHByZXZlbnQuXHJcbiAgaWYgKHN0YXRlPy5zdGF0dXMgPT09IFwic3VjY2Vzc1wiICYmICFzdGF0ZS5pc0ludmFsaWRhdGVkICYmICFoYXNVbnZlcmlmaWVkU2Vzc2lvbihxdWVyeUNsaWVudCkpIHtcclxuICAgIHJldHVybiBzdGF0ZS5kYXRhPy51c2VyLmlkID8/IG51bGw7XHJcbiAgfVxyXG4gIGNvbnN0IHNlc3Npb24gPSBhd2FpdCBxdWVyeUNsaWVudC5mZXRjaFF1ZXJ5KHsgLi4uc2Vzc2lvblF1ZXJ5T3B0aW9ucywgc3RhbGVUaW1lOiAwIH0pO1xyXG4gIHJldHVybiBzZXNzaW9uPy51c2VyLmlkID8/IG51bGw7XHJcbn1cclxuXHJcbi8qKiBGZXRjaCB0aGUgY29tcGFueSBsaXN0IGZvciB0aGUgYWNjb3VudCBzaWduZWQgaW4gbm93LCBpZ25vcmluZyB3aGF0IGlzIGNhY2hlZC4gKi9cclxuZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIGZldGNoQ29tcGFueUxpc3RGb3JDdXJyZW50QWNjb3VudChcclxuICBxdWVyeUNsaWVudDogUXVlcnlDbGllbnQsXHJcbik6IFByb21pc2U8Q29tcGFueUxpc3RSZXN1bHQ+IHtcclxuICBjb25zdCB1c2VySWQgPSBhd2FpdCByZXNvbHZlQWNjb3VudFVzZXJJZChxdWVyeUNsaWVudCk7XHJcbiAgcmV0dXJuIHF1ZXJ5Q2xpZW50LmZldGNoUXVlcnkoe1xyXG4gICAgLi4uY29tcGFueUxpc3RRdWVyeU9wdGlvbnModXNlcklkKSxcclxuICAgIHN0YWxlVGltZTogMCxcclxuICB9KTtcclxufVxyXG4iXX0=

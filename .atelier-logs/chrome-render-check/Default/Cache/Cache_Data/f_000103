@@ -1,0 +1,271 @@
+/**
+* The rich markdown editor mounts MDXEditor with `suppressHtmlProcessing`, which
+* strips the HTML visitor out of the import pipeline. Anything the markdown
+* parser tokenizes as an HTML construct therefore arrives with no visitor able
+* to handle it and throws `UnrecognizedMarkdownConstructError`, dropping the
+* whole component into its raw-source fallback.
+*
+* The parser opens an HTML construct on a bare `<` followed by a letter, `!`,
+* `/` or `?` — which is ordinary prose, not markup: a `<name>` placeholder, an
+* inline `</close>`, an `<!-- note -->`. `escapeUnsupportedAngleBrackets`
+* rewrites exactly those `<` to `\<` on the way into the editor so the parser
+* sees literal text, and `unescapeAngleBracketEscapes` reverses it on the way
+* out so the stored value keeps its clean, human-authored form. These fields
+* feed agent prompts, so the escape is a transport detail that must never
+* survive into storage.
+*
+* The pair is byte-lossless across the editor's own parse/serialize round trip:
+* `mdast-util-to-markdown` re-escapes `<` to `\<` in precisely the contexts
+* escaped here, and in no others (`<=` stays bare; code spans and code blocks
+* are never escaped).
+*
+* One deliberate normalization: markdown that *already* contains `\<name>` is
+* left alone on the way in and comes back out as `<name>`, because both forms
+* mean the same literal text and the clean form is what this product stores.
+* That only happens when the user actually edits the field.
+*
+* Contexts skipped, because the parser does not open an HTML construct there
+* and rewriting would corrupt the content:
+*   - fenced code blocks (including fences carried by blockquote/list prefixes)
+*   - indented code blocks
+*   - inline code spans (matched backtick runs only — an unmatched or
+*     backslash-escaped backtick is literal text and protects nothing)
+*   - autolinks: `<scheme:...>` and `<user@host>`
+*   - pointed-bracket link destinations: `](<...>)`
+*   - an already-escaped `\<`
+*
+* Fence tracking mirrors `blockquote-markdown.ts`. The two scanners stay
+* separate on purpose: that one only inspects the leading marker of a line,
+* while this one has to classify every line as code or inline content and then
+* walk the inline runs character by character.
+*/
+/** Characters that make the markdown parser treat a `<` as opening HTML. */
+const HTML_OPENER_RE = /[A-Za-z!/?]/;
+// An opening fence may follow blockquote/list container markers. Capture the
+// whole prefix so the closing scan can preserve that container context.
+const FENCE_OPEN_RE = /^( {0,3}(?:(?:> ?|(?:[-+*]|\d{1,9}[.)]) +))*)(`{3,}|~{3,})(.*)$/;
+const LIST_MARKER_RE = /(?:[-+*]|\d{1,9}[.)]) +/g;
+const BLOCKQUOTE_MARKER_RE = />/g;
+const FENCE_CLOSE_RE = /^( *)(`{3,}|~{3,})[ \t]*$/;
+/** Blockquote container markers, stripped before measuring block indent. */
+const BLOCKQUOTE_PREFIX_RE = /^ {0,3}(?:> ?)+/;
+/** Four spaces or a tab: the indent that opens a CommonMark indented code block. */
+const INDENTED_CODE_RE = /^(?: {4}|\t)/;
+// CommonMark autolinks. The scheme needs 2–32 characters, which is why `<x:y>`
+// is not an autolink (it is also not HTML, so escaping it is harmless).
+const AUTOLINK_URI_RE = /^<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>\x00-\x1f]*>/;
+const AUTOLINK_EMAIL_RE = /^<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/;
+/** A pointed-bracket link destination may hold spaces but never `<` or `>`. */
+const POINTED_DESTINATION_RE = /^<[^<>\n]*>/;
+function isHtmlOpener(char) {
+	return char !== undefined && HTML_OPENER_RE.test(char);
+}
+function stripBlockquotePrefix(line, depth) {
+	let rest = line;
+	for (let i = 0; i < depth; i += 1) {
+		const marker = /^ {0,3}> ?/.exec(rest);
+		if (!marker) return null;
+		rest = rest.slice(marker[0].length);
+	}
+	return rest;
+}
+/**
+* Index just past the backtick run that closes a code span opened at
+* `contentStart` with `runLength` backticks, or -1 when nothing closes it.
+*
+* Only a run of exactly the same length closes the span, and backslashes are
+* literal inside a code span — so the closing scan must not skip a backtick
+* that happens to follow one.
+*/
+function findCodeSpanEnd(text, contentStart, runLength) {
+	let i = contentStart;
+	while (i < text.length) {
+		if (text[i] !== "`") {
+			i += 1;
+			continue;
+		}
+		let run = 1;
+		while (text[i + run] === "`") run += 1;
+		if (run === runLength) return i + run;
+		i += run;
+	}
+	return -1;
+}
+/**
+* The non-HTML constructs a `<` can open: an autolink, or a pointed-bracket
+* link destination. Returns the whole construct, or null when the `<` opens
+* neither.
+*
+* Both modes consult this one definition on purpose. Escape mode leaves these
+* brackets bare, so unescape mode must refuse to *create* one — otherwise the
+* pair is not an inverse, and an author's escaped `\<https://x>` would silently
+* become a live link the first time the document is edited.
+*
+* `rest` starts at the `<`. `emitted` is the output so far, whose tail is what
+* identifies a link destination.
+*/
+function matchProtectedConstruct(rest, emitted) {
+	const autolink = AUTOLINK_URI_RE.exec(rest) ?? AUTOLINK_EMAIL_RE.exec(rest);
+	if (autolink) return autolink[0];
+	if (emitted.endsWith("](")) {
+		const destination = POINTED_DESTINATION_RE.exec(rest);
+		if (destination) return destination[0];
+	}
+	return null;
+}
+/**
+* Walk one run of inline content (one or more consecutive non-code lines) and
+* rewrite the angle brackets the parser would treat as HTML.
+*/
+function transformInlineChunk(text, mode) {
+	let out = "";
+	let i = 0;
+	while (i < text.length) {
+		const char = text[i];
+		if (char === "`") {
+			let run = 1;
+			while (text[i + run] === "`") run += 1;
+			const end = findCodeSpanEnd(text, i + run, run);
+			if (end !== -1) {
+				// A matched code span: its contents are literal, copy them through.
+				out += text.slice(i, end);
+				i = end;
+				continue;
+			}
+			// An unmatched run is ordinary text and protects nothing after it.
+			out += text.slice(i, i + run);
+			i += run;
+			continue;
+		}
+		if (char === "\\") {
+			if (mode === "unescape" && text[i + 1] === "<" && isHtmlOpener(text[i + 2]) && matchProtectedConstruct(text.slice(i + 1), out) === null) {
+				out += "<";
+				i += 2;
+				continue;
+			}
+			// Copy the escape pair through untouched. This is what keeps backslash
+			// parity intact: `\\<name>` is a literal backslash followed by markup, so
+			// the `<` after it is still eligible for escaping, while the `<` in an
+			// already-escaped `\<name>` is skipped.
+			out += text.slice(i, i + 2);
+			i += 2;
+			continue;
+		}
+		if (mode === "escape" && char === "<" && isHtmlOpener(text[i + 1])) {
+			const protectedConstruct = matchProtectedConstruct(text.slice(i), out);
+			if (protectedConstruct) {
+				out += protectedConstruct;
+				i += protectedConstruct.length;
+				continue;
+			}
+			out += "\\<";
+			i += 1;
+			continue;
+		}
+		out += char;
+		i += 1;
+	}
+	return out;
+}
+function transformAngleBrackets(markdown, mode) {
+	const lines = markdown.split("\n");
+	const out = [];
+	let chunk = [];
+	const flushChunk = () => {
+		if (chunk.length === 0) return;
+		out.push(transformInlineChunk(chunk.join("\n"), mode));
+		chunk = [];
+	};
+	let fenceChar = "";
+	let fenceLen = 0;
+	let fenceBlockquoteDepth = 0;
+	let fenceCloseIndentMax = 3;
+	// A paragraph is open while the previous line held inline content. Indented
+	// code cannot interrupt a paragraph, so a 4-space-indented line is a lazy
+	// continuation of the prose above it rather than code.
+	let paragraphOpen = false;
+	for (const line of lines) {
+		if (fenceChar) {
+			flushChunk();
+			out.push(line);
+			const closeCandidate = stripBlockquotePrefix(line, fenceBlockquoteDepth);
+			const closeMatch = closeCandidate ? FENCE_CLOSE_RE.exec(closeCandidate) : null;
+			if (closeMatch) {
+				const indent = closeMatch[1].length;
+				const run = closeMatch[2];
+				if (indent <= fenceCloseIndentMax && run[0] === fenceChar && run.length >= fenceLen) {
+					fenceChar = "";
+					fenceLen = 0;
+					fenceBlockquoteDepth = 0;
+					fenceCloseIndentMax = 3;
+				}
+			}
+			continue;
+		}
+		const fenceMatch = FENCE_OPEN_RE.exec(line);
+		if (fenceMatch) {
+			const prefix = fenceMatch[1];
+			const run = fenceMatch[2];
+			const char = run[0];
+			const rest = fenceMatch[3];
+			// A backtick info string may not itself contain a backtick (CommonMark);
+			// such a line is not a valid opening fence.
+			if (!(char === "`" && rest.includes("`"))) {
+				const listMarkers = prefix.match(LIST_MARKER_RE) ?? [];
+				flushChunk();
+				out.push(line);
+				fenceChar = char;
+				fenceLen = run.length;
+				fenceBlockquoteDepth = (prefix.match(BLOCKQUOTE_MARKER_RE) ?? []).length;
+				// A list's continuation indent includes its marker and following spaces.
+				// A closing fence may add CommonMark's normal 0–3 spaces after that.
+				fenceCloseIndentMax = (listMarkers.length > 0 ? listMarkers.reduce((sum, marker) => sum + marker.length, 0) : 0) + 3;
+				paragraphOpen = false;
+				continue;
+			}
+		}
+		// Block structure is measured on the line's own content, after any
+		// blockquote markers, so quoted prose and quoted code are classified the
+		// same way as their unquoted equivalents.
+		const content = line.replace(BLOCKQUOTE_PREFIX_RE, "");
+		if (content.trim().length === 0) {
+			flushChunk();
+			out.push(line);
+			paragraphOpen = false;
+			continue;
+		}
+		if (!paragraphOpen && INDENTED_CODE_RE.test(content)) {
+			flushChunk();
+			out.push(line);
+			continue;
+		}
+		paragraphOpen = true;
+		chunk.push(line);
+	}
+	flushChunk();
+	return out.join("\n");
+}
+/**
+* Rewrite `<` to `\<` wherever the markdown parser would otherwise open an HTML
+* construct, leaving code, autolinks, link destinations and existing escapes
+* untouched. Idempotent.
+*/
+export function escapeUnsupportedAngleBrackets(markdown) {
+	if (!markdown.includes("<")) return markdown;
+	return transformAngleBrackets(markdown, "escape");
+}
+/**
+* The inverse of {@link escapeUnsupportedAngleBrackets}: drop the backslash
+* from `\<` wherever it only exists to hide an HTML construct from the parser.
+*
+* An escape is kept when removing it would open an autolink or a pointed link
+* destination, because those are constructs the escape half deliberately leaves
+* bare — unescaping one would turn an author's literal `\<https://x>` into a
+* live link rather than reversing anything. Idempotent.
+*/
+export function unescapeAngleBracketEscapes(markdown) {
+	if (!markdown.includes("\\<")) return markdown;
+	return transformAngleBrackets(markdown, "unescape");
+}
+
+//# sourceMappingURL=data:application/json;base64,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QUk7SUFDYixZQUFZO0lBQ1osV0FBVyxJQUFJO0lBQ2Ysd0JBQXdCLE9BQU8sTUFBTSxvQkFBb0IsS0FBSyxDQUFDLEVBQUMsQ0FBRTs7O0lBR2xFLHVCQUNHLFlBQVksU0FBUyxJQUFJLFlBQVksUUFBUSxLQUFLLFdBQVcsTUFBTSxPQUFPLFFBQVEsQ0FBQyxJQUFJLEtBQUs7SUFDL0YsZ0JBQWdCO0lBQ2hCO0dBQ0Y7RUFDRjs7OztFQUtBLE1BQU0sVUFBVSxLQUFLLFFBQVEsc0JBQXNCLEVBQUU7RUFFckQsSUFBSSxRQUFRLEtBQUssQ0FBQyxDQUFDLFdBQVcsR0FBRztHQUMvQixXQUFXO0dBQ1gsSUFBSSxLQUFLLElBQUk7R0FDYixnQkFBZ0I7R0FDaEI7RUFDRjtFQUVBLElBQUksQ0FBQyxpQkFBaUIsaUJBQWlCLEtBQUssT0FBTyxHQUFHO0dBQ3BELFdBQVc7R0FDWCxJQUFJLEtBQUssSUFBSTtHQUNiO0VBQ0Y7RUFFQSxnQkFBZ0I7RUFDaEIsTUFBTSxLQUFLLElBQUk7Q0FDakI7Q0FFQSxXQUFXO0NBQ1gsT0FBTyxJQUFJLEtBQUssSUFBSTtBQUN0Qjs7Ozs7O0FBT0EsT0FBTyxTQUFTLCtCQUErQixVQUEwQjtDQUN2RSxJQUFJLENBQUMsU0FBUyxTQUFTLEdBQUcsR0FBRyxPQUFPO0NBQ3BDLE9BQU8sdUJBQXVCLFVBQVUsUUFBUTtBQUNsRDs7Ozs7Ozs7OztBQVdBLE9BQU8sU0FBUyw0QkFBNEIsVUFBMEI7Q0FDcEUsSUFBSSxDQUFDLFNBQVMsU0FBUyxLQUFLLEdBQUcsT0FBTztDQUN0QyxPQUFPLHVCQUF1QixVQUFVLFVBQVU7QUFDcEQiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsiYW5nbGUtYnJhY2tldC1tYXJrZG93bi50cyJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyIvKipcclxuICogVGhlIHJpY2ggbWFya2Rvd24gZWRpdG9yIG1vdW50cyBNRFhFZGl0b3Igd2l0aCBgc3VwcHJlc3NIdG1sUHJvY2Vzc2luZ2AsIHdoaWNoXHJcbiAqIHN0cmlwcyB0aGUgSFRNTCB2aXNpdG9yIG91dCBvZiB0aGUgaW1wb3J0IHBpcGVsaW5lLiBBbnl0aGluZyB0aGUgbWFya2Rvd25cclxuICogcGFyc2VyIHRva2VuaXplcyBhcyBhbiBIVE1MIGNvbnN0cnVjdCB0aGVyZWZvcmUgYXJyaXZlcyB3aXRoIG5vIHZpc2l0b3IgYWJsZVxyXG4gKiB0byBoYW5kbGUgaXQgYW5kIHRocm93cyBgVW5yZWNvZ25pemVkTWFya2Rvd25Db25zdHJ1Y3RFcnJvcmAsIGRyb3BwaW5nIHRoZVxyXG4gKiB3aG9sZSBjb21wb25lbnQgaW50byBpdHMgcmF3LXNvdXJjZSBmYWxsYmFjay5cclxuICpcclxuICogVGhlIHBhcnNlciBvcGVucyBhbiBIVE1MIGNvbnN0cnVjdCBvbiBhIGJhcmUgYDxgIGZvbGxvd2VkIGJ5IGEgbGV0dGVyLCBgIWAsXHJcbiAqIGAvYCBvciBgP2Ag4oCUIHdoaWNoIGlzIG9yZGluYXJ5IHByb3NlLCBub3QgbWFya3VwOiBhIGA8bmFtZT5gIHBsYWNlaG9sZGVyLCBhblxyXG4gKiBpbmxpbmUgYDwvY2xvc2U+YCwgYW4gYDwhLS0gbm90ZSAtLT5gLiBgZXNjYXBlVW5zdXBwb3J0ZWRBbmdsZUJyYWNrZXRzYFxyXG4gKiByZXdyaXRlcyBleGFjdGx5IHRob3NlIGA8YCB0byBgXFw8YCBvbiB0aGUgd2F5IGludG8gdGhlIGVkaXRvciBzbyB0aGUgcGFyc2VyXHJcbiAqIHNlZXMgbGl0ZXJhbCB0ZXh0LCBhbmQgYHVuZXNjYXBlQW5nbGVCcmFja2V0RXNjYXBlc2AgcmV2ZXJzZXMgaXQgb24gdGhlIHdheVxyXG4gKiBvdXQgc28gdGhlIHN0b3JlZCB2YWx1ZSBrZWVwcyBpdHMgY2xlYW4sIGh1bWFuLWF1dGhvcmVkIGZvcm0uIFRoZXNlIGZpZWxkc1xyXG4gKiBmZWVkIGFnZW50IHByb21wdHMsIHNvIHRoZSBlc2NhcGUgaXMgYSB0cmFuc3BvcnQgZGV0YWlsIHRoYXQgbXVzdCBuZXZlclxyXG4gKiBzdXJ2aXZlIGludG8gc3RvcmFnZS5cclxuICpcclxuICogVGhlIHBhaXIgaXMgYnl0ZS1sb3NzbGVzcyBhY3Jvc3MgdGhlIGVkaXRvcidzIG93biBwYXJzZS9zZXJpYWxpemUgcm91bmQgdHJpcDpcclxuICogYG1kYXN0LXV0aWwtdG8tbWFya2Rvd25gIHJlLWVzY2FwZXMgYDxgIHRvIGBcXDxgIGluIHByZWNpc2VseSB0aGUgY29udGV4dHNcclxuICogZXNjYXBlZCBoZXJlLCBhbmQgaW4gbm8gb3RoZXJzIChgPD1gIHN0YXlzIGJhcmU7IGNvZGUgc3BhbnMgYW5kIGNvZGUgYmxvY2tzXHJcbiAqIGFyZSBuZXZlciBlc2NhcGVkKS5cclxuICpcclxuICogT25lIGRlbGliZXJhdGUgbm9ybWFsaXphdGlvbjogbWFya2Rvd24gdGhhdCAqYWxyZWFkeSogY29udGFpbnMgYFxcPG5hbWU+YCBpc1xyXG4gKiBsZWZ0IGFsb25lIG9uIHRoZSB3YXkgaW4gYW5kIGNvbWVzIGJhY2sgb3V0IGFzIGA8bmFtZT5gLCBiZWNhdXNlIGJvdGggZm9ybXNcclxuICogbWVhbiB0aGUgc2FtZSBsaXRlcmFsIHRleHQgYW5kIHRoZSBjbGVhbiBmb3JtIGlzIHdoYXQgdGhpcyBwcm9kdWN0IHN0b3Jlcy5cclxuICogVGhhdCBvbmx5IGhhcHBlbnMgd2hlbiB0aGUgdXNlciBhY3R1YWxseSBlZGl0cyB0aGUgZmllbGQuXHJcbiAqXHJcbiAqIENvbnRleHRzIHNraXBwZWQsIGJlY2F1c2UgdGhlIHBhcnNlciBkb2VzIG5vdCBvcGVuIGFuIEhUTUwgY29uc3RydWN0IHRoZXJlXHJcbiAqIGFuZCByZXdyaXRpbmcgd291bGQgY29ycnVwdCB0aGUgY29udGVudDpcclxuICogICAtIGZlbmNlZCBjb2RlIGJsb2NrcyAoaW5jbHVkaW5nIGZlbmNlcyBjYXJyaWVkIGJ5IGJsb2NrcXVvdGUvbGlzdCBwcmVmaXhlcylcclxuICogICAtIGluZGVudGVkIGNvZGUgYmxvY2tzXHJcbiAqICAgLSBpbmxpbmUgY29kZSBzcGFucyAobWF0Y2hlZCBiYWNrdGljayBydW5zIG9ubHkg4oCUIGFuIHVubWF0Y2hlZCBvclxyXG4gKiAgICAgYmFja3NsYXNoLWVzY2FwZWQgYmFja3RpY2sgaXMgbGl0ZXJhbCB0ZXh0IGFuZCBwcm90ZWN0cyBub3RoaW5nKVxyXG4gKiAgIC0gYXV0b2xpbmtzOiBgPHNjaGVtZTouLi4+YCBhbmQgYDx1c2VyQGhvc3Q+YFxyXG4gKiAgIC0gcG9pbnRlZC1icmFja2V0IGxpbmsgZGVzdGluYXRpb25zOiBgXSg8Li4uPilgXHJcbiAqICAgLSBhbiBhbHJlYWR5LWVzY2FwZWQgYFxcPGBcclxuICpcclxuICogRmVuY2UgdHJhY2tpbmcgbWlycm9ycyBgYmxvY2txdW90ZS1tYXJrZG93bi50c2AuIFRoZSB0d28gc2Nhbm5lcnMgc3RheVxyXG4gKiBzZXBhcmF0ZSBvbiBwdXJwb3NlOiB0aGF0IG9uZSBvbmx5IGluc3BlY3RzIHRoZSBsZWFkaW5nIG1hcmtlciBvZiBhIGxpbmUsXHJcbiAqIHdoaWxlIHRoaXMgb25lIGhhcyB0byBjbGFzc2lmeSBldmVyeSBsaW5lIGFzIGNvZGUgb3IgaW5saW5lIGNvbnRlbnQgYW5kIHRoZW5cclxuICogd2FsayB0aGUgaW5saW5lIHJ1bnMgY2hhcmFjdGVyIGJ5IGNoYXJhY3Rlci5cclxuICovXHJcblxyXG4vKiogQ2hhcmFjdGVycyB0aGF0IG1ha2UgdGhlIG1hcmtkb3duIHBhcnNlciB0cmVhdCBhIGA8YCBhcyBvcGVuaW5nIEhUTUwuICovXHJcbmNvbnN0IEhUTUxfT1BFTkVSX1JFID0gL1tBLVphLXohLz9dLztcclxuXHJcbi8vIEFuIG9wZW5pbmcgZmVuY2UgbWF5IGZvbGxvdyBibG9ja3F1b3RlL2xpc3QgY29udGFpbmVyIG1hcmtlcnMuIENhcHR1cmUgdGhlXHJcbi8vIHdob2xlIHByZWZpeCBzbyB0aGUgY2xvc2luZyBzY2FuIGNhbiBwcmVzZXJ2ZSB0aGF0IGNvbnRhaW5lciBjb250ZXh0LlxyXG5jb25zdCBGRU5DRV9PUEVOX1JFID1cclxuICAvXiggezAsM30oPzooPzo+ID98KD86Wy0rKl18XFxkezEsOX1bLildKSArKSkqKShgezMsfXx+ezMsfSkoLiopJC87XHJcbmNvbnN0IExJU1RfTUFSS0VSX1JFID0gLyg/OlstKypdfFxcZHsxLDl9Wy4pXSkgKy9nO1xyXG5jb25zdCBCTE9DS1FVT1RFX01BUktFUl9SRSA9IC8+L2c7XHJcbmNvbnN0IEZFTkNFX0NMT1NFX1JFID0gL14oICopKGB7Myx9fH57Myx9KVsgXFx0XSokLztcclxuLyoqIEJsb2NrcXVvdGUgY29udGFpbmVyIG1hcmtlcnMsIHN0cmlwcGVkIGJlZm9yZSBtZWFzdXJpbmcgYmxvY2sgaW5kZW50LiAqL1xyXG5jb25zdCBCTE9DS1FVT1RFX1BSRUZJWF9SRSA9IC9eIHswLDN9KD86PiA/KSsvO1xyXG4vKiogRm91ciBzcGFjZXMgb3IgYSB0YWI6IHRoZSBpbmRlbnQgdGhhdCBvcGVucyBhIENvbW1vbk1hcmsgaW5kZW50ZWQgY29kZSBibG9jay4gKi9cclxuY29uc3QgSU5ERU5URURfQ09ERV9SRSA9IC9eKD86IHs0fXxcXHQpLztcclxuXHJcbi8vIENvbW1vbk1hcmsgYXV0b2xpbmtzLiBUaGUgc2NoZW1lIG5lZWRzIDLigJMzMiBjaGFyYWN0ZXJzLCB3aGljaCBpcyB3aHkgYDx4Onk+YFxyXG4vLyBpcyBub3QgYW4gYXV0b2xpbmsgKGl0IGlzIGFsc28gbm90IEhUTUwsIHNvIGVzY2FwaW5nIGl0IGlzIGhhcm1sZXNzKS5cclxuY29uc3QgQVVUT0xJTktfVVJJX1JFID0gL148W0EtWmEtel1bQS1aYS16MC05Ky4tXXsxLDMxfTpbXlxcczw+XFx4MDAtXFx4MWZdKj4vO1xyXG5jb25zdCBBVVRPTElOS19FTUFJTF9SRSA9XHJcbiAgL148W0EtWmEtejAtOS4hIyQlJicqKy89P15fYHt8fX4tXStAW0EtWmEtejAtOV0oPzpbQS1aYS16MC05LV17MCw2MX1bQS1aYS16MC05XSk/KD86XFwuW0EtWmEtejAtOV0oPzpbQS1aYS16MC05LV17MCw2MX1bQS1aYS16MC05XSk/KSo+LztcclxuLyoqIEEgcG9pbnRlZC1icmFja2V0IGxpbmsgZGVzdGluYXRpb24gbWF5IGhvbGQgc3BhY2VzIGJ1dCBuZXZlciBgPGAgb3IgYD5gLiAqL1xyXG5jb25zdCBQT0lOVEVEX0RFU1RJTkFUSU9OX1JFID0gL148W148Plxcbl0qPi87XHJcblxyXG50eXBlIE1vZGUgPSBcImVzY2FwZVwiIHwgXCJ1bmVzY2FwZVwiO1xyXG5cclxuZnVuY3Rpb24gaXNIdG1sT3BlbmVyKGNoYXI6IHN0cmluZyB8IHVuZGVmaW5lZCk6IGJvb2xlYW4ge1xyXG4gIHJldHVybiBjaGFyICE9PSB1bmRlZmluZWQgJiYgSFRNTF9PUEVORVJfUkUudGVzdChjaGFyKTtcclxufVxyXG5cclxuZnVuY3Rpb24gc3RyaXBCbG9ja3F1b3RlUHJlZml4KGxpbmU6IHN0cmluZywgZGVwdGg6IG51bWJlcik6IHN0cmluZyB8IG51bGwge1xyXG4gIGxldCByZXN0ID0gbGluZTtcclxuXHJcbiAgZm9yIChsZXQgaSA9IDA7IGkgPCBkZXB0aDsgaSArPSAxKSB7XHJcbiAgICBjb25zdCBtYXJrZXIgPSAvXiB7MCwzfT4gPy8uZXhlYyhyZXN0KTtcclxuICAgIGlmICghbWFya2VyKSByZXR1cm4gbnVsbDtcclxuICAgIHJlc3QgPSByZXN0LnNsaWNlKG1hcmtlclswXS5sZW5ndGgpO1xyXG4gIH1cclxuXHJcbiAgcmV0dXJuIHJlc3Q7XHJcbn1cclxuXHJcbi8qKlxyXG4gKiBJbmRleCBqdXN0IHBhc3QgdGhlIGJhY2t0aWNrIHJ1biB0aGF0IGNsb3NlcyBhIGNvZGUgc3BhbiBvcGVuZWQgYXRcclxuICogYGNvbnRlbnRTdGFydGAgd2l0aCBgcnVuTGVuZ3RoYCBiYWNrdGlja3MsIG9yIC0xIHdoZW4gbm90aGluZyBjbG9zZXMgaXQuXHJcbiAqXHJcbiAqIE9ubHkgYSBydW4gb2YgZXhhY3RseSB0aGUgc2FtZSBsZW5ndGggY2xvc2VzIHRoZSBzcGFuLCBhbmQgYmFja3NsYXNoZXMgYXJlXHJcbiAqIGxpdGVyYWwgaW5zaWRlIGEgY29kZSBzcGFuIOKAlCBzbyB0aGUgY2xvc2luZyBzY2FuIG11c3Qgbm90IHNraXAgYSBiYWNrdGlja1xyXG4gKiB0aGF0IGhhcHBlbnMgdG8gZm9sbG93IG9uZS5cclxuICovXHJcbmZ1bmN0aW9uIGZpbmRDb2RlU3BhbkVuZCh0ZXh0OiBzdHJpbmcsIGNvbnRlbnRTdGFydDogbnVtYmVyLCBydW5MZW5ndGg6IG51bWJlcik6IG51bWJlciB7XHJcbiAgbGV0IGkgPSBjb250ZW50U3RhcnQ7XHJcblxyXG4gIHdoaWxlIChpIDwgdGV4dC5sZW5ndGgpIHtcclxuICAgIGlmICh0ZXh0W2ldICE9PSBcImBcIikge1xyXG4gICAgICBpICs9IDE7XHJcbiAgICAgIGNvbnRpbnVlO1xyXG4gICAgfVxyXG4gICAgbGV0IHJ1biA9IDE7XHJcbiAgICB3aGlsZSAodGV4dFtpICsgcnVuXSA9PT0gXCJgXCIpIHJ1biArPSAxO1xyXG4gICAgaWYgKHJ1biA9PT0gcnVuTGVuZ3RoKSByZXR1cm4gaSArIHJ1bjtcclxuICAgIGkgKz0gcnVuO1xyXG4gIH1cclxuXHJcbiAgcmV0dXJuIC0xO1xyXG59XHJcblxyXG4vKipcclxuICogVGhlIG5vbi1IVE1MIGNvbnN0cnVjdHMgYSBgPGAgY2FuIG9wZW46IGFuIGF1dG9saW5rLCBvciBhIHBvaW50ZWQtYnJhY2tldFxyXG4gKiBsaW5rIGRlc3RpbmF0aW9uLiBSZXR1cm5zIHRoZSB3aG9sZSBjb25zdHJ1Y3QsIG9yIG51bGwgd2hlbiB0aGUgYDxgIG9wZW5zXHJcbiAqIG5laXRoZXIuXHJcbiAqXHJcbiAqIEJvdGggbW9kZXMgY29uc3VsdCB0aGlzIG9uZSBkZWZpbml0aW9uIG9uIHB1cnBvc2UuIEVzY2FwZSBtb2RlIGxlYXZlcyB0aGVzZVxyXG4gKiBicmFja2V0cyBiYXJlLCBzbyB1bmVzY2FwZSBtb2RlIG11c3QgcmVmdXNlIHRvICpjcmVhdGUqIG9uZSDigJQgb3RoZXJ3aXNlIHRoZVxyXG4gKiBwYWlyIGlzIG5vdCBhbiBpbnZlcnNlLCBhbmQgYW4gYXV0aG9yJ3MgZXNjYXBlZCBgXFw8aHR0cHM6Ly94PmAgd291bGQgc2lsZW50bHlcclxuICogYmVjb21lIGEgbGl2ZSBsaW5rIHRoZSBmaXJzdCB0aW1lIHRoZSBkb2N1bWVudCBpcyBlZGl0ZWQuXHJcbiAqXHJcbiAqIGByZXN0YCBzdGFydHMgYXQgdGhlIGA8YC4gYGVtaXR0ZWRgIGlzIHRoZSBvdXRwdXQgc28gZmFyLCB3aG9zZSB0YWlsIGlzIHdoYXRcclxuICogaWRlbnRpZmllcyBhIGxpbmsgZGVzdGluYXRpb24uXHJcbiAqL1xyXG5mdW5jdGlvbiBtYXRjaFByb3RlY3RlZENvbnN0cnVjdChyZXN0OiBzdHJpbmcsIGVtaXR0ZWQ6IHN0cmluZyk6IHN0cmluZyB8IG51bGwge1xyXG4gIGNvbnN0IGF1dG9saW5rID0gQVVUT0xJTktfVVJJX1JFLmV4ZWMocmVzdCkgPz8gQVVUT0xJTktfRU1BSUxfUkUuZXhlYyhyZXN0KTtcclxuICBpZiAoYXV0b2xpbmspIHJldHVybiBhdXRvbGlua1swXTtcclxuXHJcbiAgaWYgKGVtaXR0ZWQuZW5kc1dpdGgoXCJdKFwiKSkge1xyXG4gICAgY29uc3QgZGVzdGluYXRpb24gPSBQT0lOVEVEX0RFU1RJTkFUSU9OX1JFLmV4ZWMocmVzdCk7XHJcbiAgICBpZiAoZGVzdGluYXRpb24pIHJldHVybiBkZXN0aW5hdGlvblswXTtcclxuICB9XHJcblxyXG4gIHJldHVybiBudWxsO1xyXG59XHJcblxyXG4vKipcclxuICogV2FsayBvbmUgcnVuIG9mIGlubGluZSBjb250ZW50IChvbmUgb3IgbW9yZSBjb25zZWN1dGl2ZSBub24tY29kZSBsaW5lcykgYW5kXHJcbiAqIHJld3JpdGUgdGhlIGFuZ2xlIGJyYWNrZXRzIHRoZSBwYXJzZXIgd291bGQgdHJlYXQgYXMgSFRNTC5cclxuICovXHJcbmZ1bmN0aW9uIHRyYW5zZm9ybUlubGluZUNodW5rKHRleHQ6IHN0cmluZywgbW9kZTogTW9kZSk6IHN0cmluZyB7XHJcbiAgbGV0IG91dCA9IFwiXCI7XHJcbiAgbGV0IGkgPSAwO1xyXG5cclxuICB3aGlsZSAoaSA8IHRleHQubGVuZ3RoKSB7XHJcbiAgICBjb25zdCBjaGFyID0gdGV4dFtpXTtcclxuXHJcbiAgICBpZiAoY2hhciA9PT0gXCJgXCIpIHtcclxuICAgICAgbGV0IHJ1biA9IDE7XHJcbiAgICAgIHdoaWxlICh0ZXh0W2kgKyBydW5dID09PSBcImBcIikgcnVuICs9IDE7XHJcbiAgICAgIGNvbnN0IGVuZCA9IGZpbmRDb2RlU3BhbkVuZCh0ZXh0LCBpICsgcnVuLCBydW4pO1xyXG4gICAgICBpZiAoZW5kICE9PSAtMSkge1xyXG4gICAgICAgIC8vIEEgbWF0Y2hlZCBjb2RlIHNwYW46IGl0cyBjb250ZW50cyBhcmUgbGl0ZXJhbCwgY29weSB0aGVtIHRocm91Z2guXHJcbiAgICAgICAgb3V0ICs9IHRleHQuc2xpY2UoaSwgZW5kKTtcclxuICAgICAgICBpID0gZW5kO1xyXG4gICAgICAgIGNvbnRpbnVlO1xyXG4gICAgICB9XHJcbiAgICAgIC8vIEFuIHVubWF0Y2hlZCBydW4gaXMgb3JkaW5hcnkgdGV4dCBhbmQgcHJvdGVjdHMgbm90aGluZyBhZnRlciBpdC5cclxuICAgICAgb3V0ICs9IHRleHQuc2xpY2UoaSwgaSArIHJ1bik7XHJcbiAgICAgIGkgKz0gcnVuO1xyXG4gICAgICBjb250aW51ZTtcclxuICAgIH1cclxuXHJcbiAgICBpZiAoY2hhciA9PT0gXCJcXFxcXCIpIHtcclxuICAgICAgaWYgKFxyXG4gICAgICAgIG1vZGUgPT09IFwidW5lc2NhcGVcIlxyXG4gICAgICAgICYmIHRleHRbaSArIDFdID09PSBcIjxcIlxyXG4gICAgICAgICYmIGlzSHRtbE9wZW5lcih0ZXh0W2kgKyAyXSlcclxuICAgICAgICAmJiBtYXRjaFByb3RlY3RlZENvbnN0cnVjdCh0ZXh0LnNsaWNlKGkgKyAxKSwgb3V0KSA9PT0gbnVsbFxyXG4gICAgICApIHtcclxuICAgICAgICBvdXQgKz0gXCI8XCI7XHJcbiAgICAgICAgaSArPSAyO1xyXG4gICAgICAgIGNvbnRpbnVlO1xyXG4gICAgICB9XHJcbiAgICAgIC8vIENvcHkgdGhlIGVzY2FwZSBwYWlyIHRocm91Z2ggdW50b3VjaGVkLiBUaGlzIGlzIHdoYXQga2VlcHMgYmFja3NsYXNoXHJcbiAgICAgIC8vIHBhcml0eSBpbnRhY3Q6IGBcXFxcPG5hbWU+YCBpcyBhIGxpdGVyYWwgYmFja3NsYXNoIGZvbGxvd2VkIGJ5IG1hcmt1cCwgc29cclxuICAgICAgLy8gdGhlIGA8YCBhZnRlciBpdCBpcyBzdGlsbCBlbGlnaWJsZSBmb3IgZXNjYXBpbmcsIHdoaWxlIHRoZSBgPGAgaW4gYW5cclxuICAgICAgLy8gYWxyZWFkeS1lc2NhcGVkIGBcXDxuYW1lPmAgaXMgc2tpcHBlZC5cclxuICAgICAgb3V0ICs9IHRleHQuc2xpY2UoaSwgaSArIDIpO1xyXG4gICAgICBpICs9IDI7XHJcbiAgICAgIGNvbnRpbnVlO1xyXG4gICAgfVxyXG5cclxuICAgIGlmIChtb2RlID09PSBcImVzY2FwZVwiICYmIGNoYXIgPT09IFwiPFwiICYmIGlzSHRtbE9wZW5lcih0ZXh0W2kgKyAxXSkpIHtcclxuICAgICAgY29uc3QgcHJvdGVjdGVkQ29uc3RydWN0ID0gbWF0Y2hQcm90ZWN0ZWRDb25zdHJ1Y3QodGV4dC5zbGljZShpKSwgb3V0KTtcclxuICAgICAgaWYgKHByb3RlY3RlZENvbnN0cnVjdCkge1xyXG4gICAgICAgIG91dCArPSBwcm90ZWN0ZWRDb25zdHJ1Y3Q7XHJcbiAgICAgICAgaSArPSBwcm90ZWN0ZWRDb25zdHJ1Y3QubGVuZ3RoO1xyXG4gICAgICAgIGNvbnRpbnVlO1xyXG4gICAgICB9XHJcblxyXG4gICAgICBvdXQgKz0gXCJcXFxcPFwiO1xyXG4gICAgICBpICs9IDE7XHJcbiAgICAgIGNvbnRpbnVlO1xyXG4gICAgfVxyXG5cclxuICAgIG91dCArPSBjaGFyO1xyXG4gICAgaSArPSAxO1xyXG4gIH1cclxuXHJcbiAgcmV0dXJuIG91dDtcclxufVxyXG5cclxuZnVuY3Rpb24gdHJhbnNmb3JtQW5nbGVCcmFja2V0cyhtYXJrZG93bjogc3RyaW5nLCBtb2RlOiBNb2RlKTogc3RyaW5nIHtcclxuICBjb25zdCBsaW5lcyA9IG1hcmtkb3duLnNwbGl0KFwiXFxuXCIpO1xyXG4gIGNvbnN0IG91dDogc3RyaW5nW10gPSBbXTtcclxuICBsZXQgY2h1bms6IHN0cmluZ1tdID0gW107XHJcblxyXG4gIGNvbnN0IGZsdXNoQ2h1bmsgPSAoKSA9PiB7XHJcbiAgICBpZiAoY2h1bmsubGVuZ3RoID09PSAwKSByZXR1cm47XHJcbiAgICBvdXQucHVzaCh0cmFuc2Zvcm1JbmxpbmVDaHVuayhjaHVuay5qb2luKFwiXFxuXCIpLCBtb2RlKSk7XHJcbiAgICBjaHVuayA9IFtdO1xyXG4gIH07XHJcblxyXG4gIGxldCBmZW5jZUNoYXIgPSBcIlwiOyAvLyBcIlwiIHdoZW4gbm90IGluc2lkZSBhIGZlbmNlZCBjb2RlIGJsb2NrXHJcbiAgbGV0IGZlbmNlTGVuID0gMDtcclxuICBsZXQgZmVuY2VCbG9ja3F1b3RlRGVwdGggPSAwO1xyXG4gIGxldCBmZW5jZUNsb3NlSW5kZW50TWF4ID0gMztcclxuICAvLyBBIHBhcmFncmFwaCBpcyBvcGVuIHdoaWxlIHRoZSBwcmV2aW91cyBsaW5lIGhlbGQgaW5saW5lIGNvbnRlbnQuIEluZGVudGVkXHJcbiAgLy8gY29kZSBjYW5ub3QgaW50ZXJydXB0IGEgcGFyYWdyYXBoLCBzbyBhIDQtc3BhY2UtaW5kZW50ZWQgbGluZSBpcyBhIGxhenlcclxuICAvLyBjb250aW51YXRpb24gb2YgdGhlIHByb3NlIGFib3ZlIGl0IHJhdGhlciB0aGFuIGNvZGUuXHJcbiAgbGV0IHBhcmFncmFwaE9wZW4gPSBmYWxzZTtcclxuXHJcbiAgZm9yIChjb25zdCBsaW5lIG9mIGxpbmVzKSB7XHJcbiAgICBpZiAoZmVuY2VDaGFyKSB7XHJcbiAgICAgIGZsdXNoQ2h1bmsoKTtcclxuICAgICAgb3V0LnB1c2gobGluZSk7XHJcblxyXG4gICAgICBjb25zdCBjbG9zZUNhbmRpZGF0ZSA9IHN0cmlwQmxvY2txdW90ZVByZWZpeChsaW5lLCBmZW5jZUJsb2NrcXVvdGVEZXB0aCk7XHJcbiAgICAgIGNvbnN0IGNsb3NlTWF0Y2ggPSBjbG9zZUNhbmRpZGF0ZSA/IEZFTkNFX0NMT1NFX1JFLmV4ZWMoY2xvc2VDYW5kaWRhdGUpIDogbnVsbDtcclxuXHJcbiAgICAgIGlmIChjbG9zZU1hdGNoKSB7XHJcbiAgICAgICAgY29uc3QgaW5kZW50ID0gY2xvc2VNYXRjaFsxXS5sZW5ndGg7XHJcbiAgICAgICAgY29uc3QgcnVuID0gY2xvc2VNYXRjaFsyXTtcclxuICAgICAgICBpZiAoaW5kZW50IDw9IGZlbmNlQ2xvc2VJbmRlbnRNYXggJiYgcnVuWzBdID09PSBmZW5jZUNoYXIgJiYgcnVuLmxlbmd0aCA+PSBmZW5jZUxlbikge1xyXG4gICAgICAgICAgZmVuY2VDaGFyID0gXCJcIjtcclxuICAgICAgICAgIGZlbmNlTGVuID0gMDtcclxuICAgICAgICAgIGZlbmNlQmxvY2txdW90ZURlcHRoID0gMDtcclxuICAgICAgICAgIGZlbmNlQ2xvc2VJbmRlbnRNYXggPSAzO1xyXG4gICAgICAgIH1cclxuICAgICAgfVxyXG5cclxuICAgICAgY29udGludWU7XHJcbiAgICB9XHJcblxyXG4gICAgY29uc3QgZmVuY2VNYXRjaCA9IEZFTkNFX09QRU5fUkUuZXhlYyhsaW5lKTtcclxuXHJcbiAgICBpZiAoZmVuY2VNYXRjaCkge1xyXG4gICAgICBjb25zdCBwcmVmaXggPSBmZW5jZU1hdGNoWzFdO1xyXG4gICAgICBjb25zdCBydW4gPSBmZW5jZU1hdGNoWzJdO1xyXG4gICAgICBjb25zdCBjaGFyID0gcnVuWzBdO1xyXG4gICAgICBjb25zdCByZXN0ID0gZmVuY2VNYXRjaFszXTtcclxuXHJcbiAgICAgIC8vIEEgYmFja3RpY2sgaW5mbyBzdHJpbmcgbWF5IG5vdCBpdHNlbGYgY29udGFpbiBhIGJhY2t0aWNrIChDb21tb25NYXJrKTtcclxuICAgICAgLy8gc3VjaCBhIGxpbmUgaXMgbm90IGEgdmFsaWQgb3BlbmluZyBmZW5jZS5cclxuICAgICAgaWYgKCEoY2hhciA9PT0gXCJgXCIgJiYgcmVzdC5pbmNsdWRlcyhcImBcIikpKSB7XHJcbiAgICAgICAgY29uc3QgbGlzdE1hcmtlcnMgPSBwcmVmaXgubWF0Y2goTElTVF9NQVJLRVJfUkUpID8/IFtdO1xyXG4gICAgICAgIGZsdXNoQ2h1bmsoKTtcclxuICAgICAgICBvdXQucHVzaChsaW5lKTtcclxuICAgICAgICBmZW5jZUNoYXIgPSBjaGFyO1xyXG4gICAgICAgIGZlbmNlTGVuID0gcnVuLmxlbmd0aDtcclxuICAgICAgICBmZW5jZUJsb2NrcXVvdGVEZXB0aCA9IChwcmVmaXgubWF0Y2goQkxPQ0tRVU9URV9NQVJLRVJfUkUpID8/IFtdKS5sZW5ndGg7XHJcbiAgICAgICAgLy8gQSBsaXN0J3MgY29udGludWF0aW9uIGluZGVudCBpbmNsdWRlcyBpdHMgbWFya2VyIGFuZCBmb2xsb3dpbmcgc3BhY2VzLlxyXG4gICAgICAgIC8vIEEgY2xvc2luZyBmZW5jZSBtYXkgYWRkIENvbW1vbk1hcmsncyBub3JtYWwgMOKAkzMgc3BhY2VzIGFmdGVyIHRoYXQuXHJcbiAgICAgICAgZmVuY2VDbG9zZUluZGVudE1heCA9XHJcbiAgICAgICAgICAobGlzdE1hcmtlcnMubGVuZ3RoID4gMCA/IGxpc3RNYXJrZXJzLnJlZHVjZSgoc3VtLCBtYXJrZXIpID0+IHN1bSArIG1hcmtlci5sZW5ndGgsIDApIDogMCkgKyAzO1xyXG4gICAgICAgIHBhcmFncmFwaE9wZW4gPSBmYWxzZTtcclxuICAgICAgICBjb250aW51ZTtcclxuICAgICAgfVxyXG4gICAgfVxyXG5cclxuICAgIC8vIEJsb2NrIHN0cnVjdHVyZSBpcyBtZWFzdXJlZCBvbiB0aGUgbGluZSdzIG93biBjb250ZW50LCBhZnRlciBhbnlcclxuICAgIC8vIGJsb2NrcXVvdGUgbWFya2Vycywgc28gcXVvdGVkIHByb3NlIGFuZCBxdW90ZWQgY29kZSBhcmUgY2xhc3NpZmllZCB0aGVcclxuICAgIC8vIHNhbWUgd2F5IGFzIHRoZWlyIHVucXVvdGVkIGVxdWl2YWxlbnRzLlxyXG4gICAgY29uc3QgY29udGVudCA9IGxpbmUucmVwbGFjZShCTE9DS1FVT1RFX1BSRUZJWF9SRSwgXCJcIik7XHJcblxyXG4gICAgaWYgKGNvbnRlbnQudHJpbSgpLmxlbmd0aCA9PT0gMCkge1xyXG4gICAgICBmbHVzaENodW5rKCk7XHJcbiAgICAgIG91dC5wdXNoKGxpbmUpO1xyXG4gICAgICBwYXJhZ3JhcGhPcGVuID0gZmFsc2U7XHJcbiAgICAgIGNvbnRpbnVlO1xyXG4gICAgfVxyXG5cclxuICAgIGlmICghcGFyYWdyYXBoT3BlbiAmJiBJTkRFTlRFRF9DT0RFX1JFLnRlc3QoY29udGVudCkpIHtcclxuICAgICAgZmx1c2hDaHVuaygpO1xyXG4gICAgICBvdXQucHVzaChsaW5lKTtcclxuICAgICAgY29udGludWU7XHJcbiAgICB9XHJcblxyXG4gICAgcGFyYWdyYXBoT3BlbiA9IHRydWU7XHJcbiAgICBjaHVuay5wdXNoKGxpbmUpO1xyXG4gIH1cclxuXHJcbiAgZmx1c2hDaHVuaygpO1xyXG4gIHJldHVybiBvdXQuam9pbihcIlxcblwiKTtcclxufVxyXG5cclxuLyoqXHJcbiAqIFJld3JpdGUgYDxgIHRvIGBcXDxgIHdoZXJldmVyIHRoZSBtYXJrZG93biBwYXJzZXIgd291bGQgb3RoZXJ3aXNlIG9wZW4gYW4gSFRNTFxyXG4gKiBjb25zdHJ1Y3QsIGxlYXZpbmcgY29kZSwgYXV0b2xpbmtzLCBsaW5rIGRlc3RpbmF0aW9ucyBhbmQgZXhpc3RpbmcgZXNjYXBlc1xyXG4gKiB1bnRvdWNoZWQuIElkZW1wb3RlbnQuXHJcbiAqL1xyXG5leHBvcnQgZnVuY3Rpb24gZXNjYXBlVW5zdXBwb3J0ZWRBbmdsZUJyYWNrZXRzKG1hcmtkb3duOiBzdHJpbmcpOiBzdHJpbmcge1xyXG4gIGlmICghbWFya2Rvd24uaW5jbHVkZXMoXCI8XCIpKSByZXR1cm4gbWFya2Rvd247XHJcbiAgcmV0dXJuIHRyYW5zZm9ybUFuZ2xlQnJhY2tldHMobWFya2Rvd24sIFwiZXNjYXBlXCIpO1xyXG59XHJcblxyXG4vKipcclxuICogVGhlIGludmVyc2Ugb2Yge0BsaW5rIGVzY2FwZVVuc3VwcG9ydGVkQW5nbGVCcmFja2V0c306IGRyb3AgdGhlIGJhY2tzbGFzaFxyXG4gKiBmcm9tIGBcXDxgIHdoZXJldmVyIGl0IG9ubHkgZXhpc3RzIHRvIGhpZGUgYW4gSFRNTCBjb25zdHJ1Y3QgZnJvbSB0aGUgcGFyc2VyLlxyXG4gKlxyXG4gKiBBbiBlc2NhcGUgaXMga2VwdCB3aGVuIHJlbW92aW5nIGl0IHdvdWxkIG9wZW4gYW4gYXV0b2xpbmsgb3IgYSBwb2ludGVkIGxpbmtcclxuICogZGVzdGluYXRpb24sIGJlY2F1c2UgdGhvc2UgYXJlIGNvbnN0cnVjdHMgdGhlIGVzY2FwZSBoYWxmIGRlbGliZXJhdGVseSBsZWF2ZXNcclxuICogYmFyZSDigJQgdW5lc2NhcGluZyBvbmUgd291bGQgdHVybiBhbiBhdXRob3IncyBsaXRlcmFsIGBcXDxodHRwczovL3g+YCBpbnRvIGFcclxuICogbGl2ZSBsaW5rIHJhdGhlciB0aGFuIHJldmVyc2luZyBhbnl0aGluZy4gSWRlbXBvdGVudC5cclxuICovXHJcbmV4cG9ydCBmdW5jdGlvbiB1bmVzY2FwZUFuZ2xlQnJhY2tldEVzY2FwZXMobWFya2Rvd246IHN0cmluZyk6IHN0cmluZyB7XHJcbiAgaWYgKCFtYXJrZG93bi5pbmNsdWRlcyhcIlxcXFw8XCIpKSByZXR1cm4gbWFya2Rvd247XHJcbiAgcmV0dXJuIHRyYW5zZm9ybUFuZ2xlQnJhY2tldHMobWFya2Rvd24sIFwidW5lc2NhcGVcIik7XHJcbn1cclxuIl19

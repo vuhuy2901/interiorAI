@@ -1,0 +1,116 @@
+import { PUBLIC_MCP_SCOPES } from "/@fs/C:/QLDAPM-final/interiorAI/paperclip/packages/shared/src/public-mcp.ts";
+export const assistantClientNames = {
+	codex: "Codex",
+	claude: "Claude Code",
+	opencode: "OpenCode",
+	browser: "ChatGPT / Claude web",
+	headless: "Headless",
+	other: "Other"
+};
+export function mcpSetupUrl(serverUrl, companyId) {
+	const url = new URL("/mcp/setup", serverUrl);
+	if (companyId) url.searchParams.set("company", companyId);
+	return url.toString();
+}
+export function mcpInvitation(serverUrl, company) {
+	return `Connect to my ${company ? `${company.name} ` : ""}Paperclip organization using the instructions at ${mcpSetupUrl(serverUrl, company?.id)}. Start authorization, give me the approval link, and verify the connection after I approve.`;
+}
+export function mcpSetupSteps(serverUrl, assistant) {
+	const quoted = `'${serverUrl.replaceAll("'", "'\"'\"'")}'`;
+	const scopes = PUBLIC_MCP_SCOPES.join(" ");
+	switch (assistant) {
+		case "codex": return [
+			{
+				text: "Check for an existing Paperclip server first. Reuse it only if its URL matches this instance. Add the remote server with the Codex CLI.",
+				code: `codex mcp add paperclip --url ${quoted}`
+			},
+			{
+				text: "Start browser authorization and give the user the approval link.",
+				code: "codex mcp login paperclip --scopes paperclip:read,paperclip:write,paperclip:configure,offline_access"
+			},
+			{ text: "If the current conversation does not reload its MCP tools, start a new conversation or restart the client. Verify the connection with paperclip_connection before claiming success." }
+		];
+		case "claude": return [
+			{
+				text: "Check existing servers and reuse a matching instance. Add the remote server using Claude Code.",
+				code: `claude mcp add --transport http paperclip ${quoted}`
+			},
+			{ text: "In Claude Code, run /mcp, select paperclip, and choose Authenticate. Versions that offer `claude mcp login --help` can also start authorization with `claude mcp login paperclip`. Give the user the approval link." },
+			{ text: "Reconnect through /mcp, or start a new session if needed. Verify the account and organization with paperclip_connection." }
+		];
+		case "opencode": return [
+			{
+				text: "Check `opencode --version` and existing configuration. For OpenCode 1.x, merge this entry into opencode.json without replacing other settings. OpenCode 2.x uses mcp.servers; use that version's documented format instead.",
+				code: JSON.stringify({ mcp: { paperclip: {
+					type: "remote",
+					url: serverUrl,
+					enabled: true,
+					oauth: { scope: scopes }
+				} } }, null, 2)
+			},
+			{
+				text: "Run from the same project directory. OpenCode opens Paperclip's sign-in and consent page; give the user the approval link.",
+				code: "opencode mcp auth paperclip"
+			},
+			{
+				text: "If OpenCode was already running, restart it to load the connection. For the browser app, use this command. Verify the tools with paperclip_connection.",
+				code: "opencode web"
+			}
+		];
+		case "browser": return [{
+			text: "Open your assistant's Apps / Connectors settings and add a custom remote MCP connection using this URL. Availability depends on the account and workspace policy. Reading this page in chat does not install a connector.",
+			code: serverUrl
+		}, { text: "Choose OAuth / browser sign-in. Approve the connection in Paperclip, then select the connector in your conversation. If custom connectors are unavailable, use a supported local client. Verify the connected account and organization before doing work." }];
+		case "headless": return [
+			{
+				text: "Use a Paperclip CLI version with `mcp login --device` support. This needs no callback listener; it prints a verification URL and user code, then waits for human approval.",
+				code: `paperclipai mcp login --device --url ${quoted}`
+			},
+			{
+				text: "After approval, configure a local stdio MCP server running the command below. Credentials stay in the CLI's private credential store. Do not copy tokens or device codes into chat or project configuration.",
+				code: `paperclipai mcp proxy --url ${quoted}`
+			},
+			{ text: "The user code is for the human to verify the request. The private device code remains inside the CLI. After connecting, call paperclip_connection to verify the account and organization." }
+		];
+		default: return [{
+			text: "Add a remote HTTP MCP server at this URL, then choose OAuth / browser sign-in.",
+			code: serverUrl
+		}, { text: "If the client cannot install MCP servers from chat, use its connection settings. If it cannot receive a browser callback, use the Headless instructions. After approval, verify the account and organization with paperclip_connection." }];
+	}
+}
+export const mcpAuthorizationHandoffInstructions = "Authorization commands wait for human approval. When using an assistant shell tool, keep the command running in a persistent terminal or background process, capture its output privately, and share the approval URL immediately while it is still running. Client callback deadlines still apply. If the command timed out or stopped, start a fresh authorization request before sharing a link. If the host cannot keep the command alive across turns, ask the user to run it in their own terminal.";
+export function mcpSetupMarkdown(serverUrl, companyId) {
+	return [
+		"# Connect your assistant to Paperclip",
+		"",
+		"These are setup instructions, not an access credential. Ask the human to approve the identified client in Paperclip. Never approve on their behalf or reuse browser cookies as MCP credentials.",
+		"",
+		`MCP server: ${serverUrl}`,
+		...companyId ? [`Requested organization ID: ${companyId} (a hint, not authority).`] : [],
+		"",
+		"Keep existing client settings. If the name paperclip already points elsewhere, use a distinct server name and the same name in the login command. Stop and explain if the host cannot configure MCP. A restart or new conversation may be required; do not claim tools are available until a real call succeeds.",
+		"",
+		mcpAuthorizationHandoffInstructions,
+		"",
+		...Object.entries(assistantClientNames).flatMap(([client, name]) => [
+			`## ${name}`,
+			"",
+			...mcpSetupSteps(serverUrl, client).flatMap((step) => [
+				step.text,
+				...step.code ? [
+					"",
+					"```",
+					step.code,
+					"```"
+				] : [],
+				""
+			])
+		]),
+		"## After approval",
+		"",
+		"Call paperclip_connection, verify the human and organization, then summarize agents and open tasks. If the approved organization differs from the requested one, stop and reconnect. Do not create tasks or comments merely to test a connection. Creating tasks or comments can start paid agent work; do that only when requested. Access is governed by the consenting human's permissions, not a selected agent's identity.",
+		""
+	].join("\n");
+}
+
+//# sourceMappingURL=data:application/json;base64,eyJtYXBwaW5ncyI6IkFBQUEsU0FBUyx5QkFBeUI7QUFHbEMsT0FBTyxNQUFNLHVCQUF3RDtDQUNuRSxPQUFPO0NBQVMsUUFBUTtDQUFlLFVBQVU7Q0FBWSxTQUFTO0NBQXdCLFVBQVU7Q0FBWSxPQUFPO0FBQzdIO0FBQ0EsT0FBTyxTQUFTLFlBQVksV0FBbUIsV0FBb0I7Q0FDakUsTUFBTSxNQUFNLElBQUksSUFBSSxjQUFjLFNBQVM7Q0FDM0MsSUFBSSxXQUFXLElBQUksYUFBYSxJQUFJLFdBQVcsU0FBUztDQUN4RCxPQUFPLElBQUksU0FBUztBQUN0QjtBQUNBLE9BQU8sU0FBUyxjQUFjLFdBQW1CLFNBQXdDO0NBQ3ZGLE9BQU8saUJBQWlCLFVBQVUsR0FBRyxRQUFRLEtBQUssS0FBSyxHQUFHLG1EQUFtRCxZQUFZLFdBQVcsU0FBUyxFQUFFLEVBQUU7QUFDbko7QUFDQSxPQUFPLFNBQVMsY0FBYyxXQUFtQixXQUE0QjtDQUMzRSxNQUFNLFNBQVMsSUFBSSxVQUFVLFdBQVcsS0FBSyxTQUFTLEVBQUU7Q0FDeEQsTUFBTSxTQUFTLGtCQUFrQixLQUFLLEdBQUc7Q0FDekMsUUFBUSxXQUFSO0VBQ0UsS0FBSyxTQUFTLE9BQU87R0FDbkI7SUFBRSxNQUFNO0lBQTJJLE1BQU0saUNBQWlDO0dBQVM7R0FDbk07SUFBRSxNQUFNO0lBQW9FLE1BQU07R0FBdUc7R0FDekwsRUFBRSxNQUFNLHNMQUFzTDtFQUNoTTtFQUNBLEtBQUssVUFBVSxPQUFPO0dBQ3BCO0lBQUUsTUFBTTtJQUFrRyxNQUFNLDZDQUE2QztHQUFTO0dBQ3RLLEVBQUUsTUFBTSxzTkFBc047R0FDOU4sRUFBRSxNQUFNLDJIQUEySDtFQUNySTtFQUNBLEtBQUssWUFBWSxPQUFPO0dBQ3RCO0lBQUUsTUFBTTtJQUErTixNQUFNLEtBQUssVUFBVSxFQUFFLEtBQUssRUFBRSxXQUFXO0tBQUUsTUFBTTtLQUFVLEtBQUs7S0FBVyxTQUFTO0tBQU0sT0FBTyxFQUFFLE9BQU8sT0FBTztJQUFFLEVBQUUsRUFBRSxHQUFHLE1BQU0sQ0FBQztHQUFFO0dBQzFXO0lBQUUsTUFBTTtJQUE4SCxNQUFNO0dBQThCO0dBQzFLO0lBQUUsTUFBTTtJQUEwSixNQUFNO0dBQWU7RUFDekw7RUFDQSxLQUFLLFdBQVcsT0FBTyxDQUNyQjtHQUFFLE1BQU07R0FBNk4sTUFBTTtFQUFVLEdBQ3JQLEVBQUUsTUFBTSw0UEFBNFAsQ0FDdFE7RUFDQSxLQUFLLFlBQVksT0FBTztHQUN0QjtJQUFFLE1BQU07SUFBOEssTUFBTSx3Q0FBd0M7R0FBUztHQUM3TztJQUFFLE1BQU07SUFBZ04sTUFBTSwrQkFBK0I7R0FBUztHQUN0USxFQUFFLE1BQU0sNExBQTRMO0VBQ3RNO0VBQ0EsU0FBUyxPQUFPLENBQ2Q7R0FBRSxNQUFNO0dBQWtGLE1BQU07RUFBVSxHQUMxRyxFQUFFLE1BQU0sME9BQTBPLENBQ3BQO0NBQ0Y7QUFDRjtBQUVBLE9BQU8sTUFBTSxzQ0FBc0M7QUFFbkQsT0FBTyxTQUFTLGlCQUFpQixXQUFtQixXQUFvQjtDQUN0RSxPQUFPO0VBQUM7RUFBeUM7RUFDL0M7RUFBbU07RUFDbk0sZUFBZTtFQUFhLEdBQUksWUFBWSxDQUFDLDhCQUE4QixVQUFVLDBCQUEwQixJQUFJLENBQUM7RUFBSTtFQUN4SDtFQUFvVDtFQUNwVDtFQUFxQztFQUNyQyxHQUFHLE9BQU8sUUFBUSxvQkFBb0IsQ0FBQyxDQUFDLFNBQVMsQ0FBQyxRQUFRLFVBQVU7R0FBQyxNQUFNO0dBQVE7R0FBSSxHQUFHLGNBQWMsV0FBVyxNQUF5QixDQUFDLENBQUMsU0FBUyxTQUFTO0lBQUMsS0FBSztJQUFNLEdBQUksS0FBSyxPQUFPO0tBQUM7S0FBSTtLQUFPLEtBQUs7S0FBTTtJQUFLLElBQUksQ0FBQztJQUFJO0dBQUUsQ0FBQztFQUFDLENBQUM7RUFDdE87RUFBcUI7RUFDckI7RUFBbWE7Q0FDcmEsQ0FBQyxDQUFDLEtBQUssSUFBSTtBQUNiIiwibmFtZXMiOltdLCJzb3VyY2VzIjpbIm1jcC1zZXR1cC50cyJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyBQVUJMSUNfTUNQX1NDT1BFUyB9IGZyb20gXCIuL3B1YmxpYy1tY3AuanNcIjtcclxuXHJcbmV4cG9ydCB0eXBlIEFzc2lzdGFudENsaWVudCA9IFwiY29kZXhcIiB8IFwiY2xhdWRlXCIgfCBcIm9wZW5jb2RlXCIgfCBcImJyb3dzZXJcIiB8IFwiaGVhZGxlc3NcIiB8IFwib3RoZXJcIjtcclxuZXhwb3J0IGNvbnN0IGFzc2lzdGFudENsaWVudE5hbWVzOiBSZWNvcmQ8QXNzaXN0YW50Q2xpZW50LCBzdHJpbmc+ID0ge1xyXG4gIGNvZGV4OiBcIkNvZGV4XCIsIGNsYXVkZTogXCJDbGF1ZGUgQ29kZVwiLCBvcGVuY29kZTogXCJPcGVuQ29kZVwiLCBicm93c2VyOiBcIkNoYXRHUFQgLyBDbGF1ZGUgd2ViXCIsIGhlYWRsZXNzOiBcIkhlYWRsZXNzXCIsIG90aGVyOiBcIk90aGVyXCIsXHJcbn07XHJcbmV4cG9ydCBmdW5jdGlvbiBtY3BTZXR1cFVybChzZXJ2ZXJVcmw6IHN0cmluZywgY29tcGFueUlkPzogc3RyaW5nKSB7XHJcbiAgY29uc3QgdXJsID0gbmV3IFVSTChcIi9tY3Avc2V0dXBcIiwgc2VydmVyVXJsKTtcclxuICBpZiAoY29tcGFueUlkKSB1cmwuc2VhcmNoUGFyYW1zLnNldChcImNvbXBhbnlcIiwgY29tcGFueUlkKTtcclxuICByZXR1cm4gdXJsLnRvU3RyaW5nKCk7XHJcbn1cclxuZXhwb3J0IGZ1bmN0aW9uIG1jcEludml0YXRpb24oc2VydmVyVXJsOiBzdHJpbmcsIGNvbXBhbnk/OiB7IGlkOiBzdHJpbmc7IG5hbWU6IHN0cmluZyB9KSB7XHJcbiAgcmV0dXJuIGBDb25uZWN0IHRvIG15ICR7Y29tcGFueSA/IGAke2NvbXBhbnkubmFtZX0gYCA6IFwiXCJ9UGFwZXJjbGlwIG9yZ2FuaXphdGlvbiB1c2luZyB0aGUgaW5zdHJ1Y3Rpb25zIGF0ICR7bWNwU2V0dXBVcmwoc2VydmVyVXJsLCBjb21wYW55Py5pZCl9LiBTdGFydCBhdXRob3JpemF0aW9uLCBnaXZlIG1lIHRoZSBhcHByb3ZhbCBsaW5rLCBhbmQgdmVyaWZ5IHRoZSBjb25uZWN0aW9uIGFmdGVyIEkgYXBwcm92ZS5gO1xyXG59XHJcbmV4cG9ydCBmdW5jdGlvbiBtY3BTZXR1cFN0ZXBzKHNlcnZlclVybDogc3RyaW5nLCBhc3Npc3RhbnQ6IEFzc2lzdGFudENsaWVudCkge1xyXG4gIGNvbnN0IHF1b3RlZCA9IGAnJHtzZXJ2ZXJVcmwucmVwbGFjZUFsbChcIidcIiwgXCInXFxcIidcXFwiJ1wiKX0nYDtcclxuICBjb25zdCBzY29wZXMgPSBQVUJMSUNfTUNQX1NDT1BFUy5qb2luKFwiIFwiKTtcclxuICBzd2l0Y2ggKGFzc2lzdGFudCkge1xyXG4gICAgY2FzZSBcImNvZGV4XCI6IHJldHVybiBbXHJcbiAgICAgIHsgdGV4dDogXCJDaGVjayBmb3IgYW4gZXhpc3RpbmcgUGFwZXJjbGlwIHNlcnZlciBmaXJzdC4gUmV1c2UgaXQgb25seSBpZiBpdHMgVVJMIG1hdGNoZXMgdGhpcyBpbnN0YW5jZS4gQWRkIHRoZSByZW1vdGUgc2VydmVyIHdpdGggdGhlIENvZGV4IENMSS5cIiwgY29kZTogYGNvZGV4IG1jcCBhZGQgcGFwZXJjbGlwIC0tdXJsICR7cXVvdGVkfWAgfSxcclxuICAgICAgeyB0ZXh0OiBcIlN0YXJ0IGJyb3dzZXIgYXV0aG9yaXphdGlvbiBhbmQgZ2l2ZSB0aGUgdXNlciB0aGUgYXBwcm92YWwgbGluay5cIiwgY29kZTogXCJjb2RleCBtY3AgbG9naW4gcGFwZXJjbGlwIC0tc2NvcGVzIHBhcGVyY2xpcDpyZWFkLHBhcGVyY2xpcDp3cml0ZSxwYXBlcmNsaXA6Y29uZmlndXJlLG9mZmxpbmVfYWNjZXNzXCIgfSxcclxuICAgICAgeyB0ZXh0OiBcIklmIHRoZSBjdXJyZW50IGNvbnZlcnNhdGlvbiBkb2VzIG5vdCByZWxvYWQgaXRzIE1DUCB0b29scywgc3RhcnQgYSBuZXcgY29udmVyc2F0aW9uIG9yIHJlc3RhcnQgdGhlIGNsaWVudC4gVmVyaWZ5IHRoZSBjb25uZWN0aW9uIHdpdGggcGFwZXJjbGlwX2Nvbm5lY3Rpb24gYmVmb3JlIGNsYWltaW5nIHN1Y2Nlc3MuXCIgfSxcclxuICAgIF07XHJcbiAgICBjYXNlIFwiY2xhdWRlXCI6IHJldHVybiBbXHJcbiAgICAgIHsgdGV4dDogXCJDaGVjayBleGlzdGluZyBzZXJ2ZXJzIGFuZCByZXVzZSBhIG1hdGNoaW5nIGluc3RhbmNlLiBBZGQgdGhlIHJlbW90ZSBzZXJ2ZXIgdXNpbmcgQ2xhdWRlIENvZGUuXCIsIGNvZGU6IGBjbGF1ZGUgbWNwIGFkZCAtLXRyYW5zcG9ydCBodHRwIHBhcGVyY2xpcCAke3F1b3RlZH1gIH0sXHJcbiAgICAgIHsgdGV4dDogXCJJbiBDbGF1ZGUgQ29kZSwgcnVuIC9tY3AsIHNlbGVjdCBwYXBlcmNsaXAsIGFuZCBjaG9vc2UgQXV0aGVudGljYXRlLiBWZXJzaW9ucyB0aGF0IG9mZmVyIGBjbGF1ZGUgbWNwIGxvZ2luIC0taGVscGAgY2FuIGFsc28gc3RhcnQgYXV0aG9yaXphdGlvbiB3aXRoIGBjbGF1ZGUgbWNwIGxvZ2luIHBhcGVyY2xpcGAuIEdpdmUgdGhlIHVzZXIgdGhlIGFwcHJvdmFsIGxpbmsuXCIgfSxcclxuICAgICAgeyB0ZXh0OiBcIlJlY29ubmVjdCB0aHJvdWdoIC9tY3AsIG9yIHN0YXJ0IGEgbmV3IHNlc3Npb24gaWYgbmVlZGVkLiBWZXJpZnkgdGhlIGFjY291bnQgYW5kIG9yZ2FuaXphdGlvbiB3aXRoIHBhcGVyY2xpcF9jb25uZWN0aW9uLlwiIH0sXHJcbiAgICBdO1xyXG4gICAgY2FzZSBcIm9wZW5jb2RlXCI6IHJldHVybiBbXHJcbiAgICAgIHsgdGV4dDogXCJDaGVjayBgb3BlbmNvZGUgLS12ZXJzaW9uYCBhbmQgZXhpc3RpbmcgY29uZmlndXJhdGlvbi4gRm9yIE9wZW5Db2RlIDEueCwgbWVyZ2UgdGhpcyBlbnRyeSBpbnRvIG9wZW5jb2RlLmpzb24gd2l0aG91dCByZXBsYWNpbmcgb3RoZXIgc2V0dGluZ3MuIE9wZW5Db2RlIDIueCB1c2VzIG1jcC5zZXJ2ZXJzOyB1c2UgdGhhdCB2ZXJzaW9uJ3MgZG9jdW1lbnRlZCBmb3JtYXQgaW5zdGVhZC5cIiwgY29kZTogSlNPTi5zdHJpbmdpZnkoeyBtY3A6IHsgcGFwZXJjbGlwOiB7IHR5cGU6IFwicmVtb3RlXCIsIHVybDogc2VydmVyVXJsLCBlbmFibGVkOiB0cnVlLCBvYXV0aDogeyBzY29wZTogc2NvcGVzIH0gfSB9IH0sIG51bGwsIDIpIH0sXHJcbiAgICAgIHsgdGV4dDogXCJSdW4gZnJvbSB0aGUgc2FtZSBwcm9qZWN0IGRpcmVjdG9yeS4gT3BlbkNvZGUgb3BlbnMgUGFwZXJjbGlwJ3Mgc2lnbi1pbiBhbmQgY29uc2VudCBwYWdlOyBnaXZlIHRoZSB1c2VyIHRoZSBhcHByb3ZhbCBsaW5rLlwiLCBjb2RlOiBcIm9wZW5jb2RlIG1jcCBhdXRoIHBhcGVyY2xpcFwiIH0sXHJcbiAgICAgIHsgdGV4dDogXCJJZiBPcGVuQ29kZSB3YXMgYWxyZWFkeSBydW5uaW5nLCByZXN0YXJ0IGl0IHRvIGxvYWQgdGhlIGNvbm5lY3Rpb24uIEZvciB0aGUgYnJvd3NlciBhcHAsIHVzZSB0aGlzIGNvbW1hbmQuIFZlcmlmeSB0aGUgdG9vbHMgd2l0aCBwYXBlcmNsaXBfY29ubmVjdGlvbi5cIiwgY29kZTogXCJvcGVuY29kZSB3ZWJcIiB9LFxyXG4gICAgXTtcclxuICAgIGNhc2UgXCJicm93c2VyXCI6IHJldHVybiBbXHJcbiAgICAgIHsgdGV4dDogXCJPcGVuIHlvdXIgYXNzaXN0YW50J3MgQXBwcyAvIENvbm5lY3RvcnMgc2V0dGluZ3MgYW5kIGFkZCBhIGN1c3RvbSByZW1vdGUgTUNQIGNvbm5lY3Rpb24gdXNpbmcgdGhpcyBVUkwuIEF2YWlsYWJpbGl0eSBkZXBlbmRzIG9uIHRoZSBhY2NvdW50IGFuZCB3b3Jrc3BhY2UgcG9saWN5LiBSZWFkaW5nIHRoaXMgcGFnZSBpbiBjaGF0IGRvZXMgbm90IGluc3RhbGwgYSBjb25uZWN0b3IuXCIsIGNvZGU6IHNlcnZlclVybCB9LFxyXG4gICAgICB7IHRleHQ6IFwiQ2hvb3NlIE9BdXRoIC8gYnJvd3NlciBzaWduLWluLiBBcHByb3ZlIHRoZSBjb25uZWN0aW9uIGluIFBhcGVyY2xpcCwgdGhlbiBzZWxlY3QgdGhlIGNvbm5lY3RvciBpbiB5b3VyIGNvbnZlcnNhdGlvbi4gSWYgY3VzdG9tIGNvbm5lY3RvcnMgYXJlIHVuYXZhaWxhYmxlLCB1c2UgYSBzdXBwb3J0ZWQgbG9jYWwgY2xpZW50LiBWZXJpZnkgdGhlIGNvbm5lY3RlZCBhY2NvdW50IGFuZCBvcmdhbml6YXRpb24gYmVmb3JlIGRvaW5nIHdvcmsuXCIgfSxcclxuICAgIF07XHJcbiAgICBjYXNlIFwiaGVhZGxlc3NcIjogcmV0dXJuIFtcclxuICAgICAgeyB0ZXh0OiBcIlVzZSBhIFBhcGVyY2xpcCBDTEkgdmVyc2lvbiB3aXRoIGBtY3AgbG9naW4gLS1kZXZpY2VgIHN1cHBvcnQuIFRoaXMgbmVlZHMgbm8gY2FsbGJhY2sgbGlzdGVuZXI7IGl0IHByaW50cyBhIHZlcmlmaWNhdGlvbiBVUkwgYW5kIHVzZXIgY29kZSwgdGhlbiB3YWl0cyBmb3IgaHVtYW4gYXBwcm92YWwuXCIsIGNvZGU6IGBwYXBlcmNsaXBhaSBtY3AgbG9naW4gLS1kZXZpY2UgLS11cmwgJHtxdW90ZWR9YCB9LFxyXG4gICAgICB7IHRleHQ6IFwiQWZ0ZXIgYXBwcm92YWwsIGNvbmZpZ3VyZSBhIGxvY2FsIHN0ZGlvIE1DUCBzZXJ2ZXIgcnVubmluZyB0aGUgY29tbWFuZCBiZWxvdy4gQ3JlZGVudGlhbHMgc3RheSBpbiB0aGUgQ0xJJ3MgcHJpdmF0ZSBjcmVkZW50aWFsIHN0b3JlLiBEbyBub3QgY29weSB0b2tlbnMgb3IgZGV2aWNlIGNvZGVzIGludG8gY2hhdCBvciBwcm9qZWN0IGNvbmZpZ3VyYXRpb24uXCIsIGNvZGU6IGBwYXBlcmNsaXBhaSBtY3AgcHJveHkgLS11cmwgJHtxdW90ZWR9YCB9LFxyXG4gICAgICB7IHRleHQ6IFwiVGhlIHVzZXIgY29kZSBpcyBmb3IgdGhlIGh1bWFuIHRvIHZlcmlmeSB0aGUgcmVxdWVzdC4gVGhlIHByaXZhdGUgZGV2aWNlIGNvZGUgcmVtYWlucyBpbnNpZGUgdGhlIENMSS4gQWZ0ZXIgY29ubmVjdGluZywgY2FsbCBwYXBlcmNsaXBfY29ubmVjdGlvbiB0byB2ZXJpZnkgdGhlIGFjY291bnQgYW5kIG9yZ2FuaXphdGlvbi5cIiB9LFxyXG4gICAgXTtcclxuICAgIGRlZmF1bHQ6IHJldHVybiBbXHJcbiAgICAgIHsgdGV4dDogXCJBZGQgYSByZW1vdGUgSFRUUCBNQ1Agc2VydmVyIGF0IHRoaXMgVVJMLCB0aGVuIGNob29zZSBPQXV0aCAvIGJyb3dzZXIgc2lnbi1pbi5cIiwgY29kZTogc2VydmVyVXJsIH0sXHJcbiAgICAgIHsgdGV4dDogXCJJZiB0aGUgY2xpZW50IGNhbm5vdCBpbnN0YWxsIE1DUCBzZXJ2ZXJzIGZyb20gY2hhdCwgdXNlIGl0cyBjb25uZWN0aW9uIHNldHRpbmdzLiBJZiBpdCBjYW5ub3QgcmVjZWl2ZSBhIGJyb3dzZXIgY2FsbGJhY2ssIHVzZSB0aGUgSGVhZGxlc3MgaW5zdHJ1Y3Rpb25zLiBBZnRlciBhcHByb3ZhbCwgdmVyaWZ5IHRoZSBhY2NvdW50IGFuZCBvcmdhbml6YXRpb24gd2l0aCBwYXBlcmNsaXBfY29ubmVjdGlvbi5cIiB9LFxyXG4gICAgXTtcclxuICB9XHJcbn1cclxuXHJcbmV4cG9ydCBjb25zdCBtY3BBdXRob3JpemF0aW9uSGFuZG9mZkluc3RydWN0aW9ucyA9IFwiQXV0aG9yaXphdGlvbiBjb21tYW5kcyB3YWl0IGZvciBodW1hbiBhcHByb3ZhbC4gV2hlbiB1c2luZyBhbiBhc3Npc3RhbnQgc2hlbGwgdG9vbCwga2VlcCB0aGUgY29tbWFuZCBydW5uaW5nIGluIGEgcGVyc2lzdGVudCB0ZXJtaW5hbCBvciBiYWNrZ3JvdW5kIHByb2Nlc3MsIGNhcHR1cmUgaXRzIG91dHB1dCBwcml2YXRlbHksIGFuZCBzaGFyZSB0aGUgYXBwcm92YWwgVVJMIGltbWVkaWF0ZWx5IHdoaWxlIGl0IGlzIHN0aWxsIHJ1bm5pbmcuIENsaWVudCBjYWxsYmFjayBkZWFkbGluZXMgc3RpbGwgYXBwbHkuIElmIHRoZSBjb21tYW5kIHRpbWVkIG91dCBvciBzdG9wcGVkLCBzdGFydCBhIGZyZXNoIGF1dGhvcml6YXRpb24gcmVxdWVzdCBiZWZvcmUgc2hhcmluZyBhIGxpbmsuIElmIHRoZSBob3N0IGNhbm5vdCBrZWVwIHRoZSBjb21tYW5kIGFsaXZlIGFjcm9zcyB0dXJucywgYXNrIHRoZSB1c2VyIHRvIHJ1biBpdCBpbiB0aGVpciBvd24gdGVybWluYWwuXCI7XHJcblxyXG5leHBvcnQgZnVuY3Rpb24gbWNwU2V0dXBNYXJrZG93bihzZXJ2ZXJVcmw6IHN0cmluZywgY29tcGFueUlkPzogc3RyaW5nKSB7XHJcbiAgcmV0dXJuIFtcIiMgQ29ubmVjdCB5b3VyIGFzc2lzdGFudCB0byBQYXBlcmNsaXBcIiwgXCJcIixcclxuICAgIFwiVGhlc2UgYXJlIHNldHVwIGluc3RydWN0aW9ucywgbm90IGFuIGFjY2VzcyBjcmVkZW50aWFsLiBBc2sgdGhlIGh1bWFuIHRvIGFwcHJvdmUgdGhlIGlkZW50aWZpZWQgY2xpZW50IGluIFBhcGVyY2xpcC4gTmV2ZXIgYXBwcm92ZSBvbiB0aGVpciBiZWhhbGYgb3IgcmV1c2UgYnJvd3NlciBjb29raWVzIGFzIE1DUCBjcmVkZW50aWFscy5cIiwgXCJcIixcclxuICAgIGBNQ1Agc2VydmVyOiAke3NlcnZlclVybH1gLCAuLi4oY29tcGFueUlkID8gW2BSZXF1ZXN0ZWQgb3JnYW5pemF0aW9uIElEOiAke2NvbXBhbnlJZH0gKGEgaGludCwgbm90IGF1dGhvcml0eSkuYF0gOiBbXSksIFwiXCIsXHJcbiAgICBcIktlZXAgZXhpc3RpbmcgY2xpZW50IHNldHRpbmdzLiBJZiB0aGUgbmFtZSBwYXBlcmNsaXAgYWxyZWFkeSBwb2ludHMgZWxzZXdoZXJlLCB1c2UgYSBkaXN0aW5jdCBzZXJ2ZXIgbmFtZSBhbmQgdGhlIHNhbWUgbmFtZSBpbiB0aGUgbG9naW4gY29tbWFuZC4gU3RvcCBhbmQgZXhwbGFpbiBpZiB0aGUgaG9zdCBjYW5ub3QgY29uZmlndXJlIE1DUC4gQSByZXN0YXJ0IG9yIG5ldyBjb252ZXJzYXRpb24gbWF5IGJlIHJlcXVpcmVkOyBkbyBub3QgY2xhaW0gdG9vbHMgYXJlIGF2YWlsYWJsZSB1bnRpbCBhIHJlYWwgY2FsbCBzdWNjZWVkcy5cIiwgXCJcIixcclxuICAgIG1jcEF1dGhvcml6YXRpb25IYW5kb2ZmSW5zdHJ1Y3Rpb25zLCBcIlwiLFxyXG4gICAgLi4uT2JqZWN0LmVudHJpZXMoYXNzaXN0YW50Q2xpZW50TmFtZXMpLmZsYXRNYXAoKFtjbGllbnQsIG5hbWVdKSA9PiBbYCMjICR7bmFtZX1gLCBcIlwiLCAuLi5tY3BTZXR1cFN0ZXBzKHNlcnZlclVybCwgY2xpZW50IGFzIEFzc2lzdGFudENsaWVudCkuZmxhdE1hcCgoc3RlcCkgPT4gW3N0ZXAudGV4dCwgLi4uKHN0ZXAuY29kZSA/IFtcIlwiLCBcImBgYFwiLCBzdGVwLmNvZGUsIFwiYGBgXCJdIDogW10pLCBcIlwiXSldKSxcclxuICAgIFwiIyMgQWZ0ZXIgYXBwcm92YWxcIiwgXCJcIixcclxuICAgIFwiQ2FsbCBwYXBlcmNsaXBfY29ubmVjdGlvbiwgdmVyaWZ5IHRoZSBodW1hbiBhbmQgb3JnYW5pemF0aW9uLCB0aGVuIHN1bW1hcml6ZSBhZ2VudHMgYW5kIG9wZW4gdGFza3MuIElmIHRoZSBhcHByb3ZlZCBvcmdhbml6YXRpb24gZGlmZmVycyBmcm9tIHRoZSByZXF1ZXN0ZWQgb25lLCBzdG9wIGFuZCByZWNvbm5lY3QuIERvIG5vdCBjcmVhdGUgdGFza3Mgb3IgY29tbWVudHMgbWVyZWx5IHRvIHRlc3QgYSBjb25uZWN0aW9uLiBDcmVhdGluZyB0YXNrcyBvciBjb21tZW50cyBjYW4gc3RhcnQgcGFpZCBhZ2VudCB3b3JrOyBkbyB0aGF0IG9ubHkgd2hlbiByZXF1ZXN0ZWQuIEFjY2VzcyBpcyBnb3Zlcm5lZCBieSB0aGUgY29uc2VudGluZyBodW1hbidzIHBlcm1pc3Npb25zLCBub3QgYSBzZWxlY3RlZCBhZ2VudCdzIGlkZW50aXR5LlwiLCBcIlwiLFxyXG4gIF0uam9pbihcIlxcblwiKTtcclxufVxyXG4iXX0=

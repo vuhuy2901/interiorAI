@@ -1,0 +1,326 @@
+/**
+* Canonical status & priority color definitions.
+*
+* Every component that renders a status indicator (StatusIcon, StatusBadge,
+* agent status dots, etc.) should import from here so colors stay consistent.
+*/
+// ---------------------------------------------------------------------------
+// Issue status colors
+// ---------------------------------------------------------------------------
+// PAP-75 brand mapping ("blue = liveness"): todo → amber (queued), in_progress
+// → blue (live). See `issueStatusColor` below for the canonical chip palette.
+//
+// The brand mapping is the default status palette. Chat-specific gating stays
+// isolated to the Conference Room route/nav/API and does not control task
+// status presentation.
+/** StatusIcon circle: text + border classes */
+export const issueStatusIcon = {
+	backlog: "text-muted-foreground border-muted-foreground",
+	todo: "text-amber-600 border-amber-600 dark:text-amber-400 dark:border-amber-400",
+	in_progress: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
+	in_review: "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400",
+	done: "text-green-600 border-green-600 dark:text-green-400 dark:border-green-400",
+	cancelled: "text-neutral-500 border-neutral-500",
+	blocked: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400"
+};
+export const issueStatusIconDefault = "text-muted-foreground border-muted-foreground";
+/** Text-only color for issue statuses (dropdowns, labels) */
+export const issueStatusText = {
+	backlog: "text-muted-foreground",
+	todo: "text-amber-600 dark:text-amber-400",
+	in_progress: "text-blue-600 dark:text-blue-400",
+	in_review: "text-violet-600 dark:text-violet-400",
+	done: "text-green-600 dark:text-green-400",
+	cancelled: "text-neutral-500",
+	blocked: "text-red-600 dark:text-red-400"
+};
+export const issueStatusTextDefault = "text-muted-foreground";
+export const brandChipBadge = {
+	gray: "bg-[#F5F3F0] text-[#52585D] border-[#A8AEB2] dark:bg-[#6e696024] dark:text-[#9A958A] dark:border-[#9e958a73]",
+	blue: "bg-[#DBEAFE] text-[#1D4ED8] border-[#2563EB] dark:bg-[#2563eb2e] dark:text-[#2563EB] dark:border-[#2563eb73]",
+	amber: "bg-[#FEF3C7] text-[#B45309] border-[#F59E0B] dark:bg-[#f59e0b24] dark:text-[#F59E0B] dark:border-[#f59e0b73]",
+	green: "bg-[#DCFCE7] text-[#188A3C] border-[#22C55E] dark:bg-[#22c55e1f] dark:text-[#22C55E] dark:border-[#22c55e73]",
+	violet: "bg-[#EDE9FE] text-[#5B21B6] border-[#7C3AED] dark:bg-[#7c3aed2e] dark:text-[#7C3AED] dark:border-[#7c3aed73]",
+	red: "bg-[#FEE2E2] text-[#991B1B] border-[#DC2626] dark:bg-[#dc26262e] dark:text-[#DC2626] dark:border-[#dc262673]"
+};
+// ---------------------------------------------------------------------------
+// Badge colors — used by StatusBadge for all entity types
+// ---------------------------------------------------------------------------
+export const statusBadge = {
+	// Agent statuses
+	// Gallery feedback r3: agent chips route through the brand chip families
+	// (bordered .task-chip recipes) instead of ad-hoc tints. NOTE: `active` has
+	// no canonical agent status — user-ruled mapping to the brand GREEN family;
+	// `idle` is the gray family (was a yellow/amber tint); `error` rides the
+	// shared run-status red entry below.
+	active: `border ${brandChipBadge.green}`,
+	running: `border ${brandChipBadge.blue}`,
+	scheduled_retry: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+	paused: `border ${brandChipBadge.amber}`,
+	idle: `border ${brandChipBadge.gray}`,
+	archived: "bg-muted text-muted-foreground",
+	// Goal statuses
+	planned: "bg-muted text-muted-foreground",
+	achieved: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	completed: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	// Run statuses
+	failed: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	timed_out: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300",
+	succeeded: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	ok: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	error: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	info: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+	terminated: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
+	// Skill Studio test-run "queued" aligns with pending (yellow). PAP-12962 D6.
+	queued: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
+	// Approval statuses
+	pending_approval: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	revision_requested: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	approved: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	rejected: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	// Case statuses (PAP-12968 E3) — `draft` is the neutral pre-work state,
+	// rendered as a muted gray alias of `backlog`/`planned`. The other case
+	// statuses (in_progress/in_review/approved/done/cancelled) already map above.
+	draft: "bg-muted text-muted-foreground",
+	// Issue statuses — consistent hues with issueStatusIcon above (PAP-75 brand
+	// mapping: todo → amber, in_progress → blue "liveness").
+	backlog: "bg-muted text-muted-foreground",
+	todo: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	in_progress: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
+	in_review: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",
+	blocked: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	done: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	cancelled: "bg-muted text-muted-foreground",
+	// Tool access — policy decisions, catalog, and runtime health (Tools & Access, PAP-10389)
+	allowed: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	denied: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	block: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	"require-approval": "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	redacted: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",
+	"rate-limit": "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300",
+	deferred: "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300",
+	hidden: "bg-muted text-muted-foreground",
+	quarantined: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	"runtime-error": "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	healthy: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	degraded: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	unchecked: "bg-muted text-muted-foreground"
+};
+export const statusBadgeDefault = "bg-muted text-muted-foreground";
+/** Agent status → brand colour name. `active` aliases idle (never assigned). */
+export const agentStatusColor = {
+	idle: "gray",
+	active: "gray",
+	running: "blue",
+	paused: "amber",
+	error: "red"
+};
+export const agentStatusColorDefault = "gray";
+// Brand `.task-chip` styles per colour name live in `brandChipBadge` below —
+// `AgentBadgeColor` is a subset of `BrandChipColor`, so agent badges index
+// straight into it. (A byte-identical `agentStatusBadge` duplicate map was
+// collapsed into `brandChipBadge` in the Run 2 review; DECISION-SHEET.md A1.)
+/** Heartbeat-capsule fill (solid) per colour name. gray darkens in dark mode. */
+export const agentStatusCapsule = {
+	gray: "bg-[#A8AEB2] dark:bg-[#6E6960]",
+	blue: "bg-[#2563EB]",
+	amber: "bg-[#F59E0B]",
+	red: "bg-[#DC2626]"
+};
+/** Per-status capsule motion (running pulses, error blinks). Honors reduced-motion. */
+export const agentStatusMotion = {
+	running: "hb-pulse",
+	error: "hb-blink"
+};
+/**
+* Brand blue TEXT pair (the text hues of `brandChipBadge.blue`) for non-chip
+* "Running" labels — Gallery feedback round 1: running-state copy uses the
+* canonical status blue, not cyan/teal. Kept here so components stay free of
+* hex literals (token-gate scope).
+*/
+export const runningLabelText = "text-[#1D4ED8] dark:text-[#2563EB]";
+/**
+* Liveness-blue badge recipe — the shared "Live" / "Running" pill treatment
+* (translucent blue fill + border + blue text). One source of truth so every
+* live/running indicator reads as the same blue.
+*/
+export const liveBlueBadge = "bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400";
+export const brandBanner = {
+	info: "border-[#2563EB]/40 bg-[#DBEAFE]/50 text-[#1D4ED8] dark:border-[#2563eb59] dark:bg-[#2563eb14] dark:text-[#93C5FD]",
+	warning: "border-[#F59E0B]/50 bg-[#FEF3C7]/60 text-[#B45309] dark:border-[#f59e0b59] dark:bg-[#f59e0b12] dark:text-[#F59E0B]",
+	// PAP-14031: aligned to the proven `failed`/`error` chip recipe (bg-red-100 /
+	// text-red-700 pair) so title + body both clear WCAG AA 4.5:1 in light and
+	// dark on either `--background` or `--card`. The prior `text-destructive` on
+	// `bg-destructive/10` measured ~3.7–4.3:1 — under AA for normal text. Border
+	// keeps the destructive hue for continuity with other danger surfaces.
+	danger: "border-destructive/40 bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+};
+export const issueStatusColor = {
+	backlog: "gray",
+	todo: "amber",
+	in_progress: "blue",
+	in_review: "violet",
+	done: "green",
+	blocked: "red",
+	cancelled: "gray"
+};
+export const issueStatusColorDefault = "gray";
+// ---------------------------------------------------------------------------
+// Status → base-hue CSS variable
+//
+// Each status chip / icon sets a local `--sc` to the matching var below, and
+// the `.status-chip` / `.status-fill` helpers (index.css) derive the rendered
+// fill/text/border from it for both light and dark. Agent and task keep
+// independent vars so each can be tuned without touching the other, even where
+// their defaults coincide.
+// ---------------------------------------------------------------------------
+/** Agent status → base-hue CSS var. `active` aliases idle (never assigned). */
+export const agentStatusVar = {
+	idle: "--status-agent-idle",
+	active: "--status-agent-idle",
+	running: "--status-agent-running",
+	paused: "--status-agent-paused",
+	error: "--status-agent-error"
+};
+export const agentStatusVarDefault = "--status-agent-idle";
+/** Task/issue status → base-hue CSS var (drives both the chip and the icon). */
+export const taskStatusVar = {
+	idle: "--status-task-backlog",
+	backlog: "--status-task-backlog",
+	todo: "--status-task-todo",
+	in_progress: "--status-task-in_progress",
+	monitoring: "--status-task-monitoring",
+	in_review: "--status-task-in_review",
+	done: "--status-task-done",
+	blocked: "--status-task-blocked",
+	cancelled: "--status-task-cancelled",
+	// Covered-blocked: the blocked shape on the in-progress blue (mirrors the icon var).
+	in_queue: "--status-task-in_progress"
+};
+export const taskStatusVarDefault = "--status-task-backlog";
+/**
+* Task/issue status → AA-tuned ICON-hue CSS var (PAP-238). Drives the standalone
+* {@link StatusGlyph} colour. Separate from {@link taskStatusVar} (the chip base
+* hue) because a bare glyph next to text needs a stronger hue to clear WCAG 3:1;
+* see the `--status-task-icon-*` block in `index.css`. `in_queue` is the blocked
+* shape recoloured blue, so it maps to its own var.
+*/
+export const taskStatusIconVar = {
+	idle: "--status-task-icon-backlog",
+	backlog: "--status-task-icon-backlog",
+	todo: "--status-task-icon-todo",
+	in_progress: "--status-task-icon-in_progress",
+	monitoring: "--status-task-icon-monitoring",
+	in_review: "--status-task-icon-in_review",
+	done: "--status-task-icon-done",
+	blocked: "--status-task-icon-blocked",
+	cancelled: "--status-task-icon-cancelled",
+	in_queue: "--status-task-icon-in_queue"
+};
+export const taskStatusIconVarDefault = "--status-task-icon-backlog";
+// ---------------------------------------------------------------------------
+// Agent status dot — solid background for small indicator dots
+// ---------------------------------------------------------------------------
+export const agentStatusDot = {
+	running: "bg-blue-400 animate-pulse",
+	active: "bg-green-400",
+	paused: "bg-yellow-400",
+	idle: "bg-yellow-400",
+	pending_approval: "bg-amber-400",
+	error: "bg-red-400",
+	archived: "bg-neutral-400"
+};
+export const agentStatusDotDefault = "bg-neutral-400";
+// ---------------------------------------------------------------------------
+// Priority colors
+// ---------------------------------------------------------------------------
+export const priorityColor = {
+	critical: "text-red-600 dark:text-red-400",
+	high: "text-orange-600 dark:text-orange-400",
+	medium: "text-yellow-600 dark:text-yellow-400",
+	low: "text-blue-600 dark:text-blue-400"
+};
+export const priorityColorDefault = "text-yellow-600 dark:text-yellow-400";
+// ---------------------------------------------------------------------------
+// External object status — colors & severity ranking
+// ---------------------------------------------------------------------------
+//
+// Categories come from `EXTERNAL_OBJECT_STATUS_CATEGORIES` in @paperclipai/shared.
+// The map keys here intentionally mirror the union — keep them in sync.
+//
+// Tone reuse rationale (see UX spec §1):
+//   unknown   → backlog hue (muted, dashed circle)
+//   open      → todo / blue
+//   waiting   → amber (distinct from internal in_progress yellow)
+//   running   → status blue (gallery r2; was cyan), animated when motion is allowed
+//   succeeded → done / green
+//   failed    → red
+//   blocked   → red
+//   closed    → muted neutral
+//   archived  → muted neutral
+//   auth_required → amber + dashed
+//   unreachable   → red + dashed
+export const externalObjectStatusIcon = {
+	unknown: "text-muted-foreground border-muted-foreground",
+	open: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
+	waiting: "text-amber-600 border-amber-600 dark:text-amber-400 dark:border-amber-400",
+	running: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
+	succeeded: "text-green-600 border-green-600 dark:text-green-400 dark:border-green-400",
+	merged: "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400",
+	failed: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400",
+	blocked: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400",
+	closed: "text-neutral-500 border-neutral-500",
+	archived: "text-neutral-500 border-neutral-500",
+	auth_required: "text-amber-600 border-amber-600 dark:text-amber-400 dark:border-amber-400",
+	rate_limited: "text-amber-600 border-amber-600 dark:text-amber-400 dark:border-amber-400",
+	unreachable: "text-red-600 border-red-600 dark:text-red-400 dark:border-red-400"
+};
+export const externalObjectStatusIconDefault = "text-muted-foreground border-muted-foreground";
+export const externalObjectStatusBadge = {
+	unknown: "bg-muted text-muted-foreground",
+	open: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
+	waiting: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	running: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
+	succeeded: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
+	failed: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	blocked: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
+	closed: "bg-muted text-muted-foreground",
+	archived: "bg-muted text-muted-foreground",
+	auth_required: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	rate_limited: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+	unreachable: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
+};
+export const externalObjectStatusBadgeDefault = "bg-muted text-muted-foreground";
+/**
+* Liveness overlay applied on top of the base status tone. We deliberately
+* encode it as utility classes (not a tone change) so callers can append the
+* overlay to any pill, icon, or marker without redefining colors.
+*
+* The dashed border + reduced opacity guarantees a non-color differentiator
+* for stale / auth_required / unreachable per WCAG 1.4.1.
+*/
+export const externalObjectLivenessOverlay = {
+	unknown: "",
+	fresh: "",
+	stale: "opacity-70 [border-style:dashed]",
+	auth_required: "[border-style:dashed]",
+	rate_limited: "[border-style:dashed]",
+	unreachable: "[border-style:dashed]"
+};
+/**
+* Severity ranking used by sidebar/list rollups. Higher number = more
+* attention-worthy. Anything ≤ `muted` should be hidden when summarising.
+*/
+export const externalObjectStatusToneSeverity = {
+	muted: 0,
+	neutral: 1,
+	success: 2,
+	info: 3,
+	warning: 4,
+	danger: 5
+};
+export const externalObjectStatusToneSeverityDefault = 0;
+
+//# sourceMappingURL=data:application/json;base64,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QU8sTUFBTSwyQkFBMkI7Ozs7QUFNeEMsT0FBTyxNQUFNLGlCQUF5QztDQUNwRCxTQUFTO0NBQ1QsUUFBUTtDQUNSLFFBQVE7Q0FDUixNQUFNO0NBQ04sa0JBQWtCO0NBQ2xCLE9BQU87Q0FDUCxVQUFVO0FBQ1o7QUFFQSxPQUFPLE1BQU0sd0JBQXdCOzs7O0FBTXJDLE9BQU8sTUFBTSxnQkFBd0M7Q0FDbkQsVUFBVTtDQUNWLE1BQU07Q0FDTixRQUFRO0NBQ1IsS0FBSztBQUNQO0FBRUEsT0FBTyxNQUFNLHVCQUF1Qjs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7QUFzQnBDLE9BQU8sTUFBTSwyQkFBbUQ7Q0FDOUQsU0FBUztDQUNULE1BQU07Q0FDTixTQUFTO0NBQ1QsU0FBUztDQUNULFdBQVc7Q0FDWCxRQUFRO0NBQ1IsUUFBUTtDQUNSLFNBQVM7Q0FDVCxRQUFRO0NBQ1IsVUFBVTtDQUNWLGVBQWU7Q0FDZixjQUFjO0NBQ2QsYUFBYTtBQUNmO0FBRUEsT0FBTyxNQUFNLGtDQUFrQztBQUUvQyxPQUFPLE1BQU0sNEJBQW9EO0NBQy9ELFNBQVM7Q0FDVCxNQUFNO0NBQ04sU0FBUztDQUNULFNBQVM7Q0FDVCxXQUFXO0NBQ1gsUUFBUTtDQUNSLFNBQVM7Q0FDVCxRQUFRO0NBQ1IsVUFBVTtDQUNWLGVBQWU7Q0FDZixjQUFjO0NBQ2QsYUFBYTtBQUNmO0FBRUEsT0FBTyxNQUFNLG1DQUFtQzs7Ozs7Ozs7O0FBVWhELE9BQU8sTUFBTSxnQ0FBd0Q7Q0FDbkUsU0FBUztDQUNULE9BQU87Q0FDUCxPQUFPO0NBQ1AsZUFBZTtDQUNmLGNBQWM7Q0FDZCxhQUFhO0FBQ2Y7Ozs7O0FBTUEsT0FBTyxNQUFNLG1DQUEyRDtDQUN0RSxPQUFPO0NBQ1AsU0FBUztDQUNULFNBQVM7Q0FDVCxNQUFNO0NBQ04sU0FBUztDQUNULFFBQVE7QUFDVjtBQUVBLE9BQU8sTUFBTSwwQ0FBMEMiLCJuYW1lcyI6W10sInNvdXJjZXMiOlsic3RhdHVzLWNvbG9ycy50cyJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyIvKipcclxuICogQ2Fub25pY2FsIHN0YXR1cyAmIHByaW9yaXR5IGNvbG9yIGRlZmluaXRpb25zLlxyXG4gKlxyXG4gKiBFdmVyeSBjb21wb25lbnQgdGhhdCByZW5kZXJzIGEgc3RhdHVzIGluZGljYXRvciAoU3RhdHVzSWNvbiwgU3RhdHVzQmFkZ2UsXHJcbiAqIGFnZW50IHN0YXR1cyBkb3RzLCBldGMuKSBzaG91bGQgaW1wb3J0IGZyb20gaGVyZSBzbyBjb2xvcnMgc3RheSBjb25zaXN0ZW50LlxyXG4gKi9cclxuXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG4vLyBJc3N1ZSBzdGF0dXMgY29sb3JzXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG5cclxuLy8gUEFQLTc1IGJyYW5kIG1hcHBpbmcgKFwiYmx1ZSA9IGxpdmVuZXNzXCIpOiB0b2RvIOKGkiBhbWJlciAocXVldWVkKSwgaW5fcHJvZ3Jlc3NcclxuLy8g4oaSIGJsdWUgKGxpdmUpLiBTZWUgYGlzc3VlU3RhdHVzQ29sb3JgIGJlbG93IGZvciB0aGUgY2Fub25pY2FsIGNoaXAgcGFsZXR0ZS5cclxuLy9cclxuLy8gVGhlIGJyYW5kIG1hcHBpbmcgaXMgdGhlIGRlZmF1bHQgc3RhdHVzIHBhbGV0dGUuIENoYXQtc3BlY2lmaWMgZ2F0aW5nIHN0YXlzXHJcbi8vIGlzb2xhdGVkIHRvIHRoZSBDb25mZXJlbmNlIFJvb20gcm91dGUvbmF2L0FQSSBhbmQgZG9lcyBub3QgY29udHJvbCB0YXNrXHJcbi8vIHN0YXR1cyBwcmVzZW50YXRpb24uXHJcblxyXG4vKiogU3RhdHVzSWNvbiBjaXJjbGU6IHRleHQgKyBib3JkZXIgY2xhc3NlcyAqL1xyXG5leHBvcnQgY29uc3QgaXNzdWVTdGF0dXNJY29uOiBSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+ID0ge1xyXG4gIGJhY2tsb2c6IFwidGV4dC1tdXRlZC1mb3JlZ3JvdW5kIGJvcmRlci1tdXRlZC1mb3JlZ3JvdW5kXCIsXHJcbiAgdG9kbzogXCJ0ZXh0LWFtYmVyLTYwMCBib3JkZXItYW1iZXItNjAwIGRhcms6dGV4dC1hbWJlci00MDAgZGFyazpib3JkZXItYW1iZXItNDAwXCIsXHJcbiAgaW5fcHJvZ3Jlc3M6IFwidGV4dC1ibHVlLTYwMCBib3JkZXItYmx1ZS02MDAgZGFyazp0ZXh0LWJsdWUtNDAwIGRhcms6Ym9yZGVyLWJsdWUtNDAwXCIsXHJcbiAgaW5fcmV2aWV3OiBcInRleHQtdmlvbGV0LTYwMCBib3JkZXItdmlvbGV0LTYwMCBkYXJrOnRleHQtdmlvbGV0LTQwMCBkYXJrOmJvcmRlci12aW9sZXQtNDAwXCIsXHJcbiAgZG9uZTogXCJ0ZXh0LWdyZWVuLTYwMCBib3JkZXItZ3JlZW4tNjAwIGRhcms6dGV4dC1ncmVlbi00MDAgZGFyazpib3JkZXItZ3JlZW4tNDAwXCIsXHJcbiAgY2FuY2VsbGVkOiBcInRleHQtbmV1dHJhbC01MDAgYm9yZGVyLW5ldXRyYWwtNTAwXCIsXHJcbiAgYmxvY2tlZDogXCJ0ZXh0LXJlZC02MDAgYm9yZGVyLXJlZC02MDAgZGFyazp0ZXh0LXJlZC00MDAgZGFyazpib3JkZXItcmVkLTQwMFwiLFxyXG59O1xyXG5cclxuZXhwb3J0IGNvbnN0IGlzc3VlU3RhdHVzSWNvbkRlZmF1bHQgPSBcInRleHQtbXV0ZWQtZm9yZWdyb3VuZCBib3JkZXItbXV0ZWQtZm9yZWdyb3VuZFwiO1xyXG5cclxuLyoqIFRleHQtb25seSBjb2xvciBmb3IgaXNzdWUgc3RhdHVzZXMgKGRyb3Bkb3ducywgbGFiZWxzKSAqL1xyXG5leHBvcnQgY29uc3QgaXNzdWVTdGF0dXNUZXh0OiBSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+ID0ge1xyXG4gIGJhY2tsb2c6IFwidGV4dC1tdXRlZC1mb3JlZ3JvdW5kXCIsXHJcbiAgdG9kbzogXCJ0ZXh0LWFtYmVyLTYwMCBkYXJrOnRleHQtYW1iZXItNDAwXCIsXHJcbiAgaW5fcHJvZ3Jlc3M6IFwidGV4dC1ibHVlLTYwMCBkYXJrOnRleHQtYmx1ZS00MDBcIixcclxuICBpbl9yZXZpZXc6IFwidGV4dC12aW9sZXQtNjAwIGRhcms6dGV4dC12aW9sZXQtNDAwXCIsXHJcbiAgZG9uZTogXCJ0ZXh0LWdyZWVuLTYwMCBkYXJrOnRleHQtZ3JlZW4tNDAwXCIsXHJcbiAgY2FuY2VsbGVkOiBcInRleHQtbmV1dHJhbC01MDBcIixcclxuICBibG9ja2VkOiBcInRleHQtcmVkLTYwMCBkYXJrOnRleHQtcmVkLTQwMFwiLFxyXG59O1xyXG5cclxuZXhwb3J0IGNvbnN0IGlzc3VlU3RhdHVzVGV4dERlZmF1bHQgPSBcInRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiO1xyXG5cclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcbi8vIEJyYW5kIGAudGFzay1jaGlwYCBzdGF0dXMgcGFsZXR0ZSAoUEFQLTc1IC8gc3RhdHVzLXJlZmVyZW5jZS5odG1sKVxyXG4vL1xyXG4vLyBDb2xvdXItbmFtZWQsIDFweCBib3JkZXIsIGxpZ2h0ICsgZGFyayDigJQgdmFsdWVzIHN0cmFpZ2h0IGZyb20gcGFwZXJjbGlwLmluZ1xyXG4vLyBgYnJhbmQuY3NzYC4gU2hhcmVkIGJ5IHRoZSBhZ2VudHMgc2VjdGlvbiAoUEFQLTgwKSBhbmQgdGhlIEFsbCBQcm9qZWN0cyBwYWdlXHJcbi8vIChQQVAtOTEpOyBQQVAtOTkgYnJpbmdzIGl0IHRvIGlzc3VlL3Rhc2sgc3RhdHVzIGNoaXBzLCBhZGRpbmcgYHZpb2xldGAgZm9yXHJcbi8vIGBpbl9yZXZpZXdgLlxyXG4vLyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cclxuXHJcbmV4cG9ydCB0eXBlIEJyYW5kQ2hpcENvbG9yID0gXCJncmF5XCIgfCBcImJsdWVcIiB8IFwiYW1iZXJcIiB8IFwiZ3JlZW5cIiB8IFwidmlvbGV0XCIgfCBcInJlZFwiO1xyXG5cclxuZXhwb3J0IGNvbnN0IGJyYW5kQ2hpcEJhZGdlOiBSZWNvcmQ8QnJhbmRDaGlwQ29sb3IsIHN0cmluZz4gPSB7XHJcbiAgZ3JheTogXCJiZy1bI0Y1RjNGMF0gdGV4dC1bIzUyNTg1RF0gYm9yZGVyLVsjQThBRUIyXSBkYXJrOmJnLVsjNmU2OTYwMjRdIGRhcms6dGV4dC1bIzlBOTU4QV0gZGFyazpib3JkZXItWyM5ZTk1OGE3M11cIixcclxuICBibHVlOiBcImJnLVsjREJFQUZFXSB0ZXh0LVsjMUQ0RUQ4XSBib3JkZXItWyMyNTYzRUJdIGRhcms6YmctWyMyNTYzZWIyZV0gZGFyazp0ZXh0LVsjMjU2M0VCXSBkYXJrOmJvcmRlci1bIzI1NjNlYjczXVwiLFxyXG4gIGFtYmVyOiBcImJnLVsjRkVGM0M3XSB0ZXh0LVsjQjQ1MzA5XSBib3JkZXItWyNGNTlFMEJdIGRhcms6YmctWyNmNTllMGIyNF0gZGFyazp0ZXh0LVsjRjU5RTBCXSBkYXJrOmJvcmRlci1bI2Y1OWUwYjczXVwiLFxyXG4gIGdyZWVuOiBcImJnLVsjRENGQ0U3XSB0ZXh0LVsjMTg4QTNDXSBib3JkZXItWyMyMkM1NUVdIGRhcms6YmctWyMyMmM1NWUxZl0gZGFyazp0ZXh0LVsjMjJDNTVFXSBkYXJrOmJvcmRlci1bIzIyYzU1ZTczXVwiLFxyXG4gIHZpb2xldDogXCJiZy1bI0VERTlGRV0gdGV4dC1bIzVCMjFCNl0gYm9yZGVyLVsjN0MzQUVEXSBkYXJrOmJnLVsjN2MzYWVkMmVdIGRhcms6dGV4dC1bIzdDM0FFRF0gZGFyazpib3JkZXItWyM3YzNhZWQ3M11cIixcclxuICByZWQ6IFwiYmctWyNGRUUyRTJdIHRleHQtWyM5OTFCMUJdIGJvcmRlci1bI0RDMjYyNl0gZGFyazpiZy1bI2RjMjYyNjJlXSBkYXJrOnRleHQtWyNEQzI2MjZdIGRhcms6Ym9yZGVyLVsjZGMyNjI2NzNdXCIsXHJcbn07XHJcblxyXG4vLyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cclxuLy8gQmFkZ2UgY29sb3JzIOKAlCB1c2VkIGJ5IFN0YXR1c0JhZGdlIGZvciBhbGwgZW50aXR5IHR5cGVzXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG5cclxuZXhwb3J0IGNvbnN0IHN0YXR1c0JhZGdlOiBSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+ID0ge1xyXG4gIC8vIEFnZW50IHN0YXR1c2VzXHJcbiAgLy8gR2FsbGVyeSBmZWVkYmFjayByMzogYWdlbnQgY2hpcHMgcm91dGUgdGhyb3VnaCB0aGUgYnJhbmQgY2hpcCBmYW1pbGllc1xyXG4gIC8vIChib3JkZXJlZCAudGFzay1jaGlwIHJlY2lwZXMpIGluc3RlYWQgb2YgYWQtaG9jIHRpbnRzLiBOT1RFOiBgYWN0aXZlYCBoYXNcclxuICAvLyBubyBjYW5vbmljYWwgYWdlbnQgc3RhdHVzIOKAlCB1c2VyLXJ1bGVkIG1hcHBpbmcgdG8gdGhlIGJyYW5kIEdSRUVOIGZhbWlseTtcclxuICAvLyBgaWRsZWAgaXMgdGhlIGdyYXkgZmFtaWx5ICh3YXMgYSB5ZWxsb3cvYW1iZXIgdGludCk7IGBlcnJvcmAgcmlkZXMgdGhlXHJcbiAgLy8gc2hhcmVkIHJ1bi1zdGF0dXMgcmVkIGVudHJ5IGJlbG93LlxyXG4gIGFjdGl2ZTogYGJvcmRlciAke2JyYW5kQ2hpcEJhZGdlLmdyZWVufWAsXHJcbiAgcnVubmluZzogYGJvcmRlciAke2JyYW5kQ2hpcEJhZGdlLmJsdWV9YCwgLy8gcjEgbWFkZSB0aGlzIGJsdWU7IHIzIHJvdXRlcyB0aHJvdWdoIGJyYW5kQ2hpcEJhZGdlLmJsdWUuXHJcbiAgc2NoZWR1bGVkX3JldHJ5OiBcImJnLXNreS0xMDAgdGV4dC1za3ktNzAwIGRhcms6Ymctc2t5LTkwMC81MCBkYXJrOnRleHQtc2t5LTMwMFwiLFxyXG4gIHBhdXNlZDogYGJvcmRlciAke2JyYW5kQ2hpcEJhZGdlLmFtYmVyfWAsXHJcbiAgaWRsZTogYGJvcmRlciAke2JyYW5kQ2hpcEJhZGdlLmdyYXl9YCxcclxuICBhcmNoaXZlZDogXCJiZy1tdXRlZCB0ZXh0LW11dGVkLWZvcmVncm91bmRcIixcclxuXHJcbiAgLy8gR29hbCBzdGF0dXNlc1xyXG4gIHBsYW5uZWQ6IFwiYmctbXV0ZWQgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kXCIsXHJcbiAgYWNoaWV2ZWQ6IFwiYmctZ3JlZW4tMTAwIHRleHQtZ3JlZW4tNzAwIGRhcms6YmctZ3JlZW4tOTAwLzUwIGRhcms6dGV4dC1ncmVlbi0zMDBcIixcclxuICBjb21wbGV0ZWQ6IFwiYmctZ3JlZW4tMTAwIHRleHQtZ3JlZW4tNzAwIGRhcms6YmctZ3JlZW4tOTAwLzUwIGRhcms6dGV4dC1ncmVlbi0zMDBcIixcclxuXHJcbiAgLy8gUnVuIHN0YXR1c2VzXHJcbiAgZmFpbGVkOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIHRpbWVkX291dDogXCJiZy1vcmFuZ2UtMTAwIHRleHQtb3JhbmdlLTcwMCBkYXJrOmJnLW9yYW5nZS05MDAvNTAgZGFyazp0ZXh0LW9yYW5nZS0zMDBcIixcclxuICBzdWNjZWVkZWQ6IFwiYmctZ3JlZW4tMTAwIHRleHQtZ3JlZW4tNzAwIGRhcms6YmctZ3JlZW4tOTAwLzUwIGRhcms6dGV4dC1ncmVlbi0zMDBcIixcclxuICBvazogXCJiZy1ncmVlbi0xMDAgdGV4dC1ncmVlbi03MDAgZGFyazpiZy1ncmVlbi05MDAvNTAgZGFyazp0ZXh0LWdyZWVuLTMwMFwiLFxyXG4gIHdhcm5pbmc6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICBlcnJvcjogXCJiZy1yZWQtMTAwIHRleHQtcmVkLTcwMCBkYXJrOmJnLXJlZC05MDAvNTAgZGFyazp0ZXh0LXJlZC0zMDBcIixcclxuICBpbmZvOiBcImJnLXNreS0xMDAgdGV4dC1za3ktNzAwIGRhcms6Ymctc2t5LTkwMC81MCBkYXJrOnRleHQtc2t5LTMwMFwiLFxyXG4gIHRlcm1pbmF0ZWQ6IFwiYmctcmVkLTEwMCB0ZXh0LXJlZC03MDAgZGFyazpiZy1yZWQtOTAwLzUwIGRhcms6dGV4dC1yZWQtMzAwXCIsXHJcbiAgcGVuZGluZzogXCJiZy15ZWxsb3ctMTAwIHRleHQteWVsbG93LTcwMCBkYXJrOmJnLXllbGxvdy05MDAvNTAgZGFyazp0ZXh0LXllbGxvdy0zMDBcIixcclxuICAvLyBTa2lsbCBTdHVkaW8gdGVzdC1ydW4gXCJxdWV1ZWRcIiBhbGlnbnMgd2l0aCBwZW5kaW5nICh5ZWxsb3cpLiBQQVAtMTI5NjIgRDYuXHJcbiAgcXVldWVkOiBcImJnLXllbGxvdy0xMDAgdGV4dC15ZWxsb3ctNzAwIGRhcms6YmcteWVsbG93LTkwMC81MCBkYXJrOnRleHQteWVsbG93LTMwMFwiLFxyXG5cclxuICAvLyBBcHByb3ZhbCBzdGF0dXNlc1xyXG4gIHBlbmRpbmdfYXBwcm92YWw6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICByZXZpc2lvbl9yZXF1ZXN0ZWQ6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICBhcHByb3ZlZDogXCJiZy1ncmVlbi0xMDAgdGV4dC1ncmVlbi03MDAgZGFyazpiZy1ncmVlbi05MDAvNTAgZGFyazp0ZXh0LWdyZWVuLTMwMFwiLFxyXG4gIHJlamVjdGVkOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG5cclxuICAvLyBDYXNlIHN0YXR1c2VzIChQQVAtMTI5NjggRTMpIOKAlCBgZHJhZnRgIGlzIHRoZSBuZXV0cmFsIHByZS13b3JrIHN0YXRlLFxyXG4gIC8vIHJlbmRlcmVkIGFzIGEgbXV0ZWQgZ3JheSBhbGlhcyBvZiBgYmFja2xvZ2AvYHBsYW5uZWRgLiBUaGUgb3RoZXIgY2FzZVxyXG4gIC8vIHN0YXR1c2VzIChpbl9wcm9ncmVzcy9pbl9yZXZpZXcvYXBwcm92ZWQvZG9uZS9jYW5jZWxsZWQpIGFscmVhZHkgbWFwIGFib3ZlLlxyXG4gIGRyYWZ0OiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG5cclxuICAvLyBJc3N1ZSBzdGF0dXNlcyDigJQgY29uc2lzdGVudCBodWVzIHdpdGggaXNzdWVTdGF0dXNJY29uIGFib3ZlIChQQVAtNzUgYnJhbmRcclxuICAvLyBtYXBwaW5nOiB0b2RvIOKGkiBhbWJlciwgaW5fcHJvZ3Jlc3Mg4oaSIGJsdWUgXCJsaXZlbmVzc1wiKS5cclxuICBiYWNrbG9nOiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIHRvZG86IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICBpbl9wcm9ncmVzczogXCJiZy1ibHVlLTEwMCB0ZXh0LWJsdWUtNzAwIGRhcms6YmctYmx1ZS05MDAvNTAgZGFyazp0ZXh0LWJsdWUtMzAwXCIsXHJcbiAgaW5fcmV2aWV3OiBcImJnLXZpb2xldC0xMDAgdGV4dC12aW9sZXQtNzAwIGRhcms6YmctdmlvbGV0LTkwMC81MCBkYXJrOnRleHQtdmlvbGV0LTMwMFwiLFxyXG4gIGJsb2NrZWQ6IFwiYmctcmVkLTEwMCB0ZXh0LXJlZC03MDAgZGFyazpiZy1yZWQtOTAwLzUwIGRhcms6dGV4dC1yZWQtMzAwXCIsXHJcbiAgZG9uZTogXCJiZy1ncmVlbi0xMDAgdGV4dC1ncmVlbi03MDAgZGFyazpiZy1ncmVlbi05MDAvNTAgZGFyazp0ZXh0LWdyZWVuLTMwMFwiLFxyXG4gIGNhbmNlbGxlZDogXCJiZy1tdXRlZCB0ZXh0LW11dGVkLWZvcmVncm91bmRcIixcclxuXHJcbiAgLy8gVG9vbCBhY2Nlc3Mg4oCUIHBvbGljeSBkZWNpc2lvbnMsIGNhdGFsb2csIGFuZCBydW50aW1lIGhlYWx0aCAoVG9vbHMgJiBBY2Nlc3MsIFBBUC0xMDM4OSlcclxuICBhbGxvd2VkOiBcImJnLWdyZWVuLTEwMCB0ZXh0LWdyZWVuLTcwMCBkYXJrOmJnLWdyZWVuLTkwMC81MCBkYXJrOnRleHQtZ3JlZW4tMzAwXCIsXHJcbiAgZGVuaWVkOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIGJsb2NrOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIFwicmVxdWlyZS1hcHByb3ZhbFwiOiBcImJnLWFtYmVyLTEwMCB0ZXh0LWFtYmVyLTcwMCBkYXJrOmJnLWFtYmVyLTkwMC81MCBkYXJrOnRleHQtYW1iZXItMzAwXCIsXHJcbiAgcmVkYWN0ZWQ6IFwiYmctdmlvbGV0LTEwMCB0ZXh0LXZpb2xldC03MDAgZGFyazpiZy12aW9sZXQtOTAwLzUwIGRhcms6dGV4dC12aW9sZXQtMzAwXCIsXHJcbiAgXCJyYXRlLWxpbWl0XCI6IFwiYmctb3JhbmdlLTEwMCB0ZXh0LW9yYW5nZS03MDAgZGFyazpiZy1vcmFuZ2UtOTAwLzUwIGRhcms6dGV4dC1vcmFuZ2UtMzAwXCIsXHJcbiAgZGVmZXJyZWQ6IFwiYmctc2t5LTEwMCB0ZXh0LXNreS03MDAgZGFyazpiZy1za3ktOTAwLzUwIGRhcms6dGV4dC1za3ktMzAwXCIsXHJcbiAgaGlkZGVuOiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIHF1YXJhbnRpbmVkOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIFwicnVudGltZS1lcnJvclwiOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIGhlYWx0aHk6IFwiYmctZ3JlZW4tMTAwIHRleHQtZ3JlZW4tNzAwIGRhcms6YmctZ3JlZW4tOTAwLzUwIGRhcms6dGV4dC1ncmVlbi0zMDBcIixcclxuICBkZWdyYWRlZDogXCJiZy1hbWJlci0xMDAgdGV4dC1hbWJlci03MDAgZGFyazpiZy1hbWJlci05MDAvNTAgZGFyazp0ZXh0LWFtYmVyLTMwMFwiLFxyXG4gIHVuY2hlY2tlZDogXCJiZy1tdXRlZCB0ZXh0LW11dGVkLWZvcmVncm91bmRcIixcclxufTtcclxuXHJcbmV4cG9ydCBjb25zdCBzdGF0dXNCYWRnZURlZmF1bHQgPSBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiO1xyXG5cclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcbi8vIEFnZW50IHN0YXR1cyDigJQgYnJhbmQgc3RhdGUgc3lzdGVtIChQQVAtNzUpXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG5cclxuZXhwb3J0IHR5cGUgQWdlbnRCYWRnZUNvbG9yID0gXCJncmF5XCIgfCBcImJsdWVcIiB8IFwiYW1iZXJcIiB8IFwicmVkXCI7XHJcblxyXG4vKiogQWdlbnQgc3RhdHVzIOKGkiBicmFuZCBjb2xvdXIgbmFtZS4gYGFjdGl2ZWAgYWxpYXNlcyBpZGxlIChuZXZlciBhc3NpZ25lZCkuICovXHJcbmV4cG9ydCBjb25zdCBhZ2VudFN0YXR1c0NvbG9yOiBSZWNvcmQ8c3RyaW5nLCBBZ2VudEJhZGdlQ29sb3I+ID0ge1xyXG4gIGlkbGU6IFwiZ3JheVwiLFxyXG4gIGFjdGl2ZTogXCJncmF5XCIsXHJcbiAgcnVubmluZzogXCJibHVlXCIsXHJcbiAgcGF1c2VkOiBcImFtYmVyXCIsXHJcbiAgZXJyb3I6IFwicmVkXCIsXHJcbn07XHJcblxyXG5leHBvcnQgY29uc3QgYWdlbnRTdGF0dXNDb2xvckRlZmF1bHQ6IEFnZW50QmFkZ2VDb2xvciA9IFwiZ3JheVwiO1xyXG5cclxuLy8gQnJhbmQgYC50YXNrLWNoaXBgIHN0eWxlcyBwZXIgY29sb3VyIG5hbWUgbGl2ZSBpbiBgYnJhbmRDaGlwQmFkZ2VgIGJlbG93IOKAlFxyXG4vLyBgQWdlbnRCYWRnZUNvbG9yYCBpcyBhIHN1YnNldCBvZiBgQnJhbmRDaGlwQ29sb3JgLCBzbyBhZ2VudCBiYWRnZXMgaW5kZXhcclxuLy8gc3RyYWlnaHQgaW50byBpdC4gKEEgYnl0ZS1pZGVudGljYWwgYGFnZW50U3RhdHVzQmFkZ2VgIGR1cGxpY2F0ZSBtYXAgd2FzXHJcbi8vIGNvbGxhcHNlZCBpbnRvIGBicmFuZENoaXBCYWRnZWAgaW4gdGhlIFJ1biAyIHJldmlldzsgREVDSVNJT04tU0hFRVQubWQgQTEuKVxyXG5cclxuLyoqIEhlYXJ0YmVhdC1jYXBzdWxlIGZpbGwgKHNvbGlkKSBwZXIgY29sb3VyIG5hbWUuIGdyYXkgZGFya2VucyBpbiBkYXJrIG1vZGUuICovXHJcbmV4cG9ydCBjb25zdCBhZ2VudFN0YXR1c0NhcHN1bGU6IFJlY29yZDxBZ2VudEJhZGdlQ29sb3IsIHN0cmluZz4gPSB7XHJcbiAgZ3JheTogXCJiZy1bI0E4QUVCMl0gZGFyazpiZy1bIzZFNjk2MF1cIixcclxuICBibHVlOiBcImJnLVsjMjU2M0VCXVwiLFxyXG4gIGFtYmVyOiBcImJnLVsjRjU5RTBCXVwiLFxyXG4gIHJlZDogXCJiZy1bI0RDMjYyNl1cIixcclxufTtcclxuXHJcbi8qKiBQZXItc3RhdHVzIGNhcHN1bGUgbW90aW9uIChydW5uaW5nIHB1bHNlcywgZXJyb3IgYmxpbmtzKS4gSG9ub3JzIHJlZHVjZWQtbW90aW9uLiAqL1xyXG5leHBvcnQgY29uc3QgYWdlbnRTdGF0dXNNb3Rpb246IFJlY29yZDxzdHJpbmcsIHN0cmluZz4gPSB7XHJcbiAgcnVubmluZzogXCJoYi1wdWxzZVwiLFxyXG4gIGVycm9yOiBcImhiLWJsaW5rXCIsXHJcbn07XHJcblxyXG5cclxuLyoqXHJcbiAqIEJyYW5kIGJsdWUgVEVYVCBwYWlyICh0aGUgdGV4dCBodWVzIG9mIGBicmFuZENoaXBCYWRnZS5ibHVlYCkgZm9yIG5vbi1jaGlwXHJcbiAqIFwiUnVubmluZ1wiIGxhYmVscyDigJQgR2FsbGVyeSBmZWVkYmFjayByb3VuZCAxOiBydW5uaW5nLXN0YXRlIGNvcHkgdXNlcyB0aGVcclxuICogY2Fub25pY2FsIHN0YXR1cyBibHVlLCBub3QgY3lhbi90ZWFsLiBLZXB0IGhlcmUgc28gY29tcG9uZW50cyBzdGF5IGZyZWUgb2ZcclxuICogaGV4IGxpdGVyYWxzICh0b2tlbi1nYXRlIHNjb3BlKS5cclxuICovXHJcbmV4cG9ydCBjb25zdCBydW5uaW5nTGFiZWxUZXh0ID0gXCJ0ZXh0LVsjMUQ0RUQ4XSBkYXJrOnRleHQtWyMyNTYzRUJdXCI7XHJcblxyXG4vKipcclxuICogTGl2ZW5lc3MtYmx1ZSBiYWRnZSByZWNpcGUg4oCUIHRoZSBzaGFyZWQgXCJMaXZlXCIgLyBcIlJ1bm5pbmdcIiBwaWxsIHRyZWF0bWVudFxyXG4gKiAodHJhbnNsdWNlbnQgYmx1ZSBmaWxsICsgYm9yZGVyICsgYmx1ZSB0ZXh0KS4gT25lIHNvdXJjZSBvZiB0cnV0aCBzbyBldmVyeVxyXG4gKiBsaXZlL3J1bm5pbmcgaW5kaWNhdG9yIHJlYWRzIGFzIHRoZSBzYW1lIGJsdWUuXHJcbiAqL1xyXG5leHBvcnQgY29uc3QgbGl2ZUJsdWVCYWRnZSA9IFwiYmctYmx1ZS01MDAvMTAgYm9yZGVyLWJsdWUtNTAwLzMwIHRleHQtYmx1ZS02MDAgZGFyazp0ZXh0LWJsdWUtNDAwXCI7XHJcblxyXG4vKipcclxuICogSXNzdWUvdGFzayBzdGF0dXMg4oaSIGJyYW5kIGNvbG91ciBuYW1lIChQQVAtNzUpLiBgaW5fcHJvZ3Jlc3NgIGlzIGJsdWVcclxuICogKGxpdmVuZXNzKSwgYHRvZG9gIGFtYmVyIChxdWV1ZWQpLCBgaW5fcmV2aWV3YCB2aW9sZXQgKGF3YWl0aW5nIHJldmlldyksXHJcbiAqIGBkb25lYCBncmVlbiwgYGJsb2NrZWRgIHJlZCwgYGJhY2tsb2dgL2BjYW5jZWxsZWRgIGdyYXkgKGluZXJ0KS5cclxuICovXHJcblxyXG4vLyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cclxuLy8gSW5saW5lIGJhbm5lciB0b25lcyAoYnVpbHQtaW4gYWdlbnRzIHByb3ZlbmFuY2UgLyBwYXVzZWQgbm90aWNlcylcclxuLy9cclxuLy8gU29mdGVyLCBmdWxsLXdpZHRoIGJhbm5lciBzdXJmYWNlIGRlcml2ZWQgZnJvbSB0aGUgc2FtZSBicmFuZCBodWUgYW5jaG9ycyBhc1xyXG4vLyBgYnJhbmRDaGlwQmFkZ2VgLiBgaW5mb2AgY2FycmllcyBwcm92ZW5hbmNlL2luZm9ybWF0aW9uYWwgY29udGV4dCwgYHdhcm5pbmdgXHJcbi8vIGNhcnJpZXMgcGF1c2VkL2F0dGVudGlvbiBjb250ZXh0LCBhbmQgYGRhbmdlcmAgY2FycmllcyBmYWlsZWQgYWN0aW9ucy4gQ29uc3VtZWQgYnlcclxuLy8gYDxJbmxpbmVCYW5uZXI+YCBzbyBmZWF0dXJlIGJhbm5lcnMgc3RheSB0b2tlbi1iYWNrZWQgaW5zdGVhZCBvZiBoYW5kLXJvbGxpbmdcclxuLy8gcGVyLWluc3RhbmNlIGBiZy15ZWxsb3ctKmAvYGJnLWJsdWUtKmAgcmVjaXBlcy5cclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcblxyXG5leHBvcnQgdHlwZSBCYW5uZXJUb25lID0gXCJpbmZvXCIgfCBcIndhcm5pbmdcIiB8IFwiZGFuZ2VyXCI7XHJcblxyXG5leHBvcnQgY29uc3QgYnJhbmRCYW5uZXI6IFJlY29yZDxCYW5uZXJUb25lLCBzdHJpbmc+ID0ge1xyXG4gIGluZm86IFwiYm9yZGVyLVsjMjU2M0VCXS80MCBiZy1bI0RCRUFGRV0vNTAgdGV4dC1bIzFENEVEOF0gZGFyazpib3JkZXItWyMyNTYzZWI1OV0gZGFyazpiZy1bIzI1NjNlYjE0XSBkYXJrOnRleHQtWyM5M0M1RkRdXCIsXHJcbiAgd2FybmluZzogXCJib3JkZXItWyNGNTlFMEJdLzUwIGJnLVsjRkVGM0M3XS82MCB0ZXh0LVsjQjQ1MzA5XSBkYXJrOmJvcmRlci1bI2Y1OWUwYjU5XSBkYXJrOmJnLVsjZjU5ZTBiMTJdIGRhcms6dGV4dC1bI0Y1OUUwQl1cIixcclxuICAvLyBQQVAtMTQwMzE6IGFsaWduZWQgdG8gdGhlIHByb3ZlbiBgZmFpbGVkYC9gZXJyb3JgIGNoaXAgcmVjaXBlIChiZy1yZWQtMTAwIC9cclxuICAvLyB0ZXh0LXJlZC03MDAgcGFpcikgc28gdGl0bGUgKyBib2R5IGJvdGggY2xlYXIgV0NBRyBBQSA0LjU6MSBpbiBsaWdodCBhbmRcclxuICAvLyBkYXJrIG9uIGVpdGhlciBgLS1iYWNrZ3JvdW5kYCBvciBgLS1jYXJkYC4gVGhlIHByaW9yIGB0ZXh0LWRlc3RydWN0aXZlYCBvblxyXG4gIC8vIGBiZy1kZXN0cnVjdGl2ZS8xMGAgbWVhc3VyZWQgfjMuN+KAkzQuMzoxIOKAlCB1bmRlciBBQSBmb3Igbm9ybWFsIHRleHQuIEJvcmRlclxyXG4gIC8vIGtlZXBzIHRoZSBkZXN0cnVjdGl2ZSBodWUgZm9yIGNvbnRpbnVpdHkgd2l0aCBvdGhlciBkYW5nZXIgc3VyZmFjZXMuXHJcbiAgZGFuZ2VyOiBcImJvcmRlci1kZXN0cnVjdGl2ZS80MCBiZy1yZWQtMTAwIHRleHQtcmVkLTcwMCBkYXJrOmJnLXJlZC05MDAvNTAgZGFyazp0ZXh0LXJlZC0zMDBcIixcclxufTtcclxuXHJcbmV4cG9ydCBjb25zdCBpc3N1ZVN0YXR1c0NvbG9yOiBSZWNvcmQ8c3RyaW5nLCBCcmFuZENoaXBDb2xvcj4gPSB7XHJcbiAgYmFja2xvZzogXCJncmF5XCIsXHJcbiAgdG9kbzogXCJhbWJlclwiLFxyXG4gIGluX3Byb2dyZXNzOiBcImJsdWVcIixcclxuICBpbl9yZXZpZXc6IFwidmlvbGV0XCIsXHJcbiAgZG9uZTogXCJncmVlblwiLFxyXG4gIGJsb2NrZWQ6IFwicmVkXCIsXHJcbiAgY2FuY2VsbGVkOiBcImdyYXlcIixcclxufTtcclxuXHJcbmV4cG9ydCBjb25zdCBpc3N1ZVN0YXR1c0NvbG9yRGVmYXVsdDogQnJhbmRDaGlwQ29sb3IgPSBcImdyYXlcIjtcclxuXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG4vLyBTdGF0dXMg4oaSIGJhc2UtaHVlIENTUyB2YXJpYWJsZVxyXG4vL1xyXG4vLyBFYWNoIHN0YXR1cyBjaGlwIC8gaWNvbiBzZXRzIGEgbG9jYWwgYC0tc2NgIHRvIHRoZSBtYXRjaGluZyB2YXIgYmVsb3csIGFuZFxyXG4vLyB0aGUgYC5zdGF0dXMtY2hpcGAgLyBgLnN0YXR1cy1maWxsYCBoZWxwZXJzIChpbmRleC5jc3MpIGRlcml2ZSB0aGUgcmVuZGVyZWRcclxuLy8gZmlsbC90ZXh0L2JvcmRlciBmcm9tIGl0IGZvciBib3RoIGxpZ2h0IGFuZCBkYXJrLiBBZ2VudCBhbmQgdGFzayBrZWVwXHJcbi8vIGluZGVwZW5kZW50IHZhcnMgc28gZWFjaCBjYW4gYmUgdHVuZWQgd2l0aG91dCB0b3VjaGluZyB0aGUgb3RoZXIsIGV2ZW4gd2hlcmVcclxuLy8gdGhlaXIgZGVmYXVsdHMgY29pbmNpZGUuXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG5cclxuLyoqIEFnZW50IHN0YXR1cyDihpIgYmFzZS1odWUgQ1NTIHZhci4gYGFjdGl2ZWAgYWxpYXNlcyBpZGxlIChuZXZlciBhc3NpZ25lZCkuICovXHJcbmV4cG9ydCBjb25zdCBhZ2VudFN0YXR1c1ZhcjogUmVjb3JkPHN0cmluZywgc3RyaW5nPiA9IHtcclxuICBpZGxlOiBcIi0tc3RhdHVzLWFnZW50LWlkbGVcIixcclxuICBhY3RpdmU6IFwiLS1zdGF0dXMtYWdlbnQtaWRsZVwiLFxyXG4gIHJ1bm5pbmc6IFwiLS1zdGF0dXMtYWdlbnQtcnVubmluZ1wiLFxyXG4gIHBhdXNlZDogXCItLXN0YXR1cy1hZ2VudC1wYXVzZWRcIixcclxuICBlcnJvcjogXCItLXN0YXR1cy1hZ2VudC1lcnJvclwiLFxyXG59O1xyXG5leHBvcnQgY29uc3QgYWdlbnRTdGF0dXNWYXJEZWZhdWx0ID0gXCItLXN0YXR1cy1hZ2VudC1pZGxlXCI7XHJcblxyXG4vKiogVGFzay9pc3N1ZSBzdGF0dXMg4oaSIGJhc2UtaHVlIENTUyB2YXIgKGRyaXZlcyBib3RoIHRoZSBjaGlwIGFuZCB0aGUgaWNvbikuICovXHJcbmV4cG9ydCBjb25zdCB0YXNrU3RhdHVzVmFyOiBSZWNvcmQ8c3RyaW5nLCBzdHJpbmc+ID0ge1xyXG4gIGlkbGU6IFwiLS1zdGF0dXMtdGFzay1iYWNrbG9nXCIsXHJcbiAgYmFja2xvZzogXCItLXN0YXR1cy10YXNrLWJhY2tsb2dcIixcclxuICB0b2RvOiBcIi0tc3RhdHVzLXRhc2stdG9kb1wiLFxyXG4gIGluX3Byb2dyZXNzOiBcIi0tc3RhdHVzLXRhc2staW5fcHJvZ3Jlc3NcIixcclxuICBtb25pdG9yaW5nOiBcIi0tc3RhdHVzLXRhc2stbW9uaXRvcmluZ1wiLFxyXG4gIGluX3JldmlldzogXCItLXN0YXR1cy10YXNrLWluX3Jldmlld1wiLFxyXG4gIGRvbmU6IFwiLS1zdGF0dXMtdGFzay1kb25lXCIsXHJcbiAgYmxvY2tlZDogXCItLXN0YXR1cy10YXNrLWJsb2NrZWRcIixcclxuICBjYW5jZWxsZWQ6IFwiLS1zdGF0dXMtdGFzay1jYW5jZWxsZWRcIixcclxuICAvLyBDb3ZlcmVkLWJsb2NrZWQ6IHRoZSBibG9ja2VkIHNoYXBlIG9uIHRoZSBpbi1wcm9ncmVzcyBibHVlIChtaXJyb3JzIHRoZSBpY29uIHZhcikuXHJcbiAgaW5fcXVldWU6IFwiLS1zdGF0dXMtdGFzay1pbl9wcm9ncmVzc1wiLFxyXG59O1xyXG5leHBvcnQgY29uc3QgdGFza1N0YXR1c1ZhckRlZmF1bHQgPSBcIi0tc3RhdHVzLXRhc2stYmFja2xvZ1wiO1xyXG5cclxuLyoqXHJcbiAqIFRhc2svaXNzdWUgc3RhdHVzIOKGkiBBQS10dW5lZCBJQ09OLWh1ZSBDU1MgdmFyIChQQVAtMjM4KS4gRHJpdmVzIHRoZSBzdGFuZGFsb25lXHJcbiAqIHtAbGluayBTdGF0dXNHbHlwaH0gY29sb3VyLiBTZXBhcmF0ZSBmcm9tIHtAbGluayB0YXNrU3RhdHVzVmFyfSAodGhlIGNoaXAgYmFzZVxyXG4gKiBodWUpIGJlY2F1c2UgYSBiYXJlIGdseXBoIG5leHQgdG8gdGV4dCBuZWVkcyBhIHN0cm9uZ2VyIGh1ZSB0byBjbGVhciBXQ0FHIDM6MTtcclxuICogc2VlIHRoZSBgLS1zdGF0dXMtdGFzay1pY29uLSpgIGJsb2NrIGluIGBpbmRleC5jc3NgLiBgaW5fcXVldWVgIGlzIHRoZSBibG9ja2VkXHJcbiAqIHNoYXBlIHJlY29sb3VyZWQgYmx1ZSwgc28gaXQgbWFwcyB0byBpdHMgb3duIHZhci5cclxuICovXHJcbmV4cG9ydCBjb25zdCB0YXNrU3RhdHVzSWNvblZhcjogUmVjb3JkPHN0cmluZywgc3RyaW5nPiA9IHtcclxuICBpZGxlOiBcIi0tc3RhdHVzLXRhc2staWNvbi1iYWNrbG9nXCIsXHJcbiAgYmFja2xvZzogXCItLXN0YXR1cy10YXNrLWljb24tYmFja2xvZ1wiLFxyXG4gIHRvZG86IFwiLS1zdGF0dXMtdGFzay1pY29uLXRvZG9cIixcclxuICBpbl9wcm9ncmVzczogXCItLXN0YXR1cy10YXNrLWljb24taW5fcHJvZ3Jlc3NcIixcclxuICBtb25pdG9yaW5nOiBcIi0tc3RhdHVzLXRhc2staWNvbi1tb25pdG9yaW5nXCIsXHJcbiAgaW5fcmV2aWV3OiBcIi0tc3RhdHVzLXRhc2staWNvbi1pbl9yZXZpZXdcIixcclxuICBkb25lOiBcIi0tc3RhdHVzLXRhc2staWNvbi1kb25lXCIsXHJcbiAgYmxvY2tlZDogXCItLXN0YXR1cy10YXNrLWljb24tYmxvY2tlZFwiLFxyXG4gIGNhbmNlbGxlZDogXCItLXN0YXR1cy10YXNrLWljb24tY2FuY2VsbGVkXCIsXHJcbiAgaW5fcXVldWU6IFwiLS1zdGF0dXMtdGFzay1pY29uLWluX3F1ZXVlXCIsXHJcbn07XHJcbmV4cG9ydCBjb25zdCB0YXNrU3RhdHVzSWNvblZhckRlZmF1bHQgPSBcIi0tc3RhdHVzLXRhc2staWNvbi1iYWNrbG9nXCI7XHJcblxyXG4vLyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cclxuLy8gQWdlbnQgc3RhdHVzIGRvdCDigJQgc29saWQgYmFja2dyb3VuZCBmb3Igc21hbGwgaW5kaWNhdG9yIGRvdHNcclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcblxyXG5leHBvcnQgY29uc3QgYWdlbnRTdGF0dXNEb3Q6IFJlY29yZDxzdHJpbmcsIHN0cmluZz4gPSB7XHJcbiAgcnVubmluZzogXCJiZy1ibHVlLTQwMCBhbmltYXRlLXB1bHNlXCIsIC8vIEdhbGxlcnkgZmVlZGJhY2sgcjE6IHJ1bm5pbmcgZG90ID0gYmx1ZSwgbm90IGN5YW4uXHJcbiAgYWN0aXZlOiBcImJnLWdyZWVuLTQwMFwiLFxyXG4gIHBhdXNlZDogXCJiZy15ZWxsb3ctNDAwXCIsXHJcbiAgaWRsZTogXCJiZy15ZWxsb3ctNDAwXCIsXHJcbiAgcGVuZGluZ19hcHByb3ZhbDogXCJiZy1hbWJlci00MDBcIixcclxuICBlcnJvcjogXCJiZy1yZWQtNDAwXCIsXHJcbiAgYXJjaGl2ZWQ6IFwiYmctbmV1dHJhbC00MDBcIixcclxufTtcclxuXHJcbmV4cG9ydCBjb25zdCBhZ2VudFN0YXR1c0RvdERlZmF1bHQgPSBcImJnLW5ldXRyYWwtNDAwXCI7XHJcblxyXG4vLyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS1cclxuLy8gUHJpb3JpdHkgY29sb3JzXHJcbi8vIC0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLVxyXG5cclxuZXhwb3J0IGNvbnN0IHByaW9yaXR5Q29sb3I6IFJlY29yZDxzdHJpbmcsIHN0cmluZz4gPSB7XHJcbiAgY3JpdGljYWw6IFwidGV4dC1yZWQtNjAwIGRhcms6dGV4dC1yZWQtNDAwXCIsXHJcbiAgaGlnaDogXCJ0ZXh0LW9yYW5nZS02MDAgZGFyazp0ZXh0LW9yYW5nZS00MDBcIixcclxuICBtZWRpdW06IFwidGV4dC15ZWxsb3ctNjAwIGRhcms6dGV4dC15ZWxsb3ctNDAwXCIsXHJcbiAgbG93OiBcInRleHQtYmx1ZS02MDAgZGFyazp0ZXh0LWJsdWUtNDAwXCIsXHJcbn07XHJcblxyXG5leHBvcnQgY29uc3QgcHJpb3JpdHlDb2xvckRlZmF1bHQgPSBcInRleHQteWVsbG93LTYwMCBkYXJrOnRleHQteWVsbG93LTQwMFwiO1xyXG5cclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcbi8vIEV4dGVybmFsIG9iamVjdCBzdGF0dXMg4oCUIGNvbG9ycyAmIHNldmVyaXR5IHJhbmtpbmdcclxuLy8gLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXHJcbi8vXHJcbi8vIENhdGVnb3JpZXMgY29tZSBmcm9tIGBFWFRFUk5BTF9PQkpFQ1RfU1RBVFVTX0NBVEVHT1JJRVNgIGluIEBwYXBlcmNsaXBhaS9zaGFyZWQuXHJcbi8vIFRoZSBtYXAga2V5cyBoZXJlIGludGVudGlvbmFsbHkgbWlycm9yIHRoZSB1bmlvbiDigJQga2VlcCB0aGVtIGluIHN5bmMuXHJcbi8vXHJcbi8vIFRvbmUgcmV1c2UgcmF0aW9uYWxlIChzZWUgVVggc3BlYyDCpzEpOlxyXG4vLyAgIHVua25vd24gICDihpIgYmFja2xvZyBodWUgKG11dGVkLCBkYXNoZWQgY2lyY2xlKVxyXG4vLyAgIG9wZW4gICAgICDihpIgdG9kbyAvIGJsdWVcclxuLy8gICB3YWl0aW5nICAg4oaSIGFtYmVyIChkaXN0aW5jdCBmcm9tIGludGVybmFsIGluX3Byb2dyZXNzIHllbGxvdylcclxuLy8gICBydW5uaW5nICAg4oaSIHN0YXR1cyBibHVlIChnYWxsZXJ5IHIyOyB3YXMgY3lhbiksIGFuaW1hdGVkIHdoZW4gbW90aW9uIGlzIGFsbG93ZWRcclxuLy8gICBzdWNjZWVkZWQg4oaSIGRvbmUgLyBncmVlblxyXG4vLyAgIGZhaWxlZCAgICDihpIgcmVkXHJcbi8vICAgYmxvY2tlZCAgIOKGkiByZWRcclxuLy8gICBjbG9zZWQgICAg4oaSIG11dGVkIG5ldXRyYWxcclxuLy8gICBhcmNoaXZlZCAg4oaSIG11dGVkIG5ldXRyYWxcclxuLy8gICBhdXRoX3JlcXVpcmVkIOKGkiBhbWJlciArIGRhc2hlZFxyXG4vLyAgIHVucmVhY2hhYmxlICAg4oaSIHJlZCArIGRhc2hlZFxyXG5cclxuZXhwb3J0IGNvbnN0IGV4dGVybmFsT2JqZWN0U3RhdHVzSWNvbjogUmVjb3JkPHN0cmluZywgc3RyaW5nPiA9IHtcclxuICB1bmtub3duOiBcInRleHQtbXV0ZWQtZm9yZWdyb3VuZCBib3JkZXItbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIG9wZW46IFwidGV4dC1ibHVlLTYwMCBib3JkZXItYmx1ZS02MDAgZGFyazp0ZXh0LWJsdWUtNDAwIGRhcms6Ym9yZGVyLWJsdWUtNDAwXCIsXHJcbiAgd2FpdGluZzogXCJ0ZXh0LWFtYmVyLTYwMCBib3JkZXItYW1iZXItNjAwIGRhcms6dGV4dC1hbWJlci00MDAgZGFyazpib3JkZXItYW1iZXItNDAwXCIsXHJcbiAgcnVubmluZzogXCJ0ZXh0LWJsdWUtNjAwIGJvcmRlci1ibHVlLTYwMCBkYXJrOnRleHQtYmx1ZS00MDAgZGFyazpib3JkZXItYmx1ZS00MDBcIiwgLy8gR2FsbGVyeSBmZWVkYmFjayByMjogcnVubmluZyA9IHN0YXR1cyBibHVlIChwdWxzZSBhbmltYXRpb24gc3RpbGwgZGlzdGluZ3Vpc2hlcyBpdCBmcm9tIHN0YXRpYyBibHVlIGBvcGVuYCkuXHJcbiAgc3VjY2VlZGVkOiBcInRleHQtZ3JlZW4tNjAwIGJvcmRlci1ncmVlbi02MDAgZGFyazp0ZXh0LWdyZWVuLTQwMCBkYXJrOmJvcmRlci1ncmVlbi00MDBcIixcclxuICBtZXJnZWQ6IFwidGV4dC12aW9sZXQtNjAwIGJvcmRlci12aW9sZXQtNjAwIGRhcms6dGV4dC12aW9sZXQtNDAwIGRhcms6Ym9yZGVyLXZpb2xldC00MDBcIixcclxuICBmYWlsZWQ6IFwidGV4dC1yZWQtNjAwIGJvcmRlci1yZWQtNjAwIGRhcms6dGV4dC1yZWQtNDAwIGRhcms6Ym9yZGVyLXJlZC00MDBcIixcclxuICBibG9ja2VkOiBcInRleHQtcmVkLTYwMCBib3JkZXItcmVkLTYwMCBkYXJrOnRleHQtcmVkLTQwMCBkYXJrOmJvcmRlci1yZWQtNDAwXCIsXHJcbiAgY2xvc2VkOiBcInRleHQtbmV1dHJhbC01MDAgYm9yZGVyLW5ldXRyYWwtNTAwXCIsXHJcbiAgYXJjaGl2ZWQ6IFwidGV4dC1uZXV0cmFsLTUwMCBib3JkZXItbmV1dHJhbC01MDBcIixcclxuICBhdXRoX3JlcXVpcmVkOiBcInRleHQtYW1iZXItNjAwIGJvcmRlci1hbWJlci02MDAgZGFyazp0ZXh0LWFtYmVyLTQwMCBkYXJrOmJvcmRlci1hbWJlci00MDBcIixcclxuICByYXRlX2xpbWl0ZWQ6IFwidGV4dC1hbWJlci02MDAgYm9yZGVyLWFtYmVyLTYwMCBkYXJrOnRleHQtYW1iZXItNDAwIGRhcms6Ym9yZGVyLWFtYmVyLTQwMFwiLFxyXG4gIHVucmVhY2hhYmxlOiBcInRleHQtcmVkLTYwMCBib3JkZXItcmVkLTYwMCBkYXJrOnRleHQtcmVkLTQwMCBkYXJrOmJvcmRlci1yZWQtNDAwXCIsXHJcbn07XHJcblxyXG5leHBvcnQgY29uc3QgZXh0ZXJuYWxPYmplY3RTdGF0dXNJY29uRGVmYXVsdCA9IFwidGV4dC1tdXRlZC1mb3JlZ3JvdW5kIGJvcmRlci1tdXRlZC1mb3JlZ3JvdW5kXCI7XHJcblxyXG5leHBvcnQgY29uc3QgZXh0ZXJuYWxPYmplY3RTdGF0dXNCYWRnZTogUmVjb3JkPHN0cmluZywgc3RyaW5nPiA9IHtcclxuICB1bmtub3duOiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIG9wZW46IFwiYmctYmx1ZS0xMDAgdGV4dC1ibHVlLTcwMCBkYXJrOmJnLWJsdWUtOTAwLzUwIGRhcms6dGV4dC1ibHVlLTMwMFwiLFxyXG4gIHdhaXRpbmc6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICBydW5uaW5nOiBcImJnLWJsdWUtMTAwIHRleHQtYmx1ZS03MDAgZGFyazpiZy1ibHVlLTkwMC81MCBkYXJrOnRleHQtYmx1ZS0zMDBcIiwgLy8gR2FsbGVyeSBmZWVkYmFjayByMjogcnVubmluZyA9IHN0YXR1cyBibHVlIChub3cgc2hhcmVzIHRpbnQgd2l0aCBgb3BlbmA7IGxpdmVuZXNzIGFuaW1hdGlvbiBkaWZmZXJlbnRpYXRlcykuXHJcbiAgc3VjY2VlZGVkOiBcImJnLWdyZWVuLTEwMCB0ZXh0LWdyZWVuLTcwMCBkYXJrOmJnLWdyZWVuLTkwMC81MCBkYXJrOnRleHQtZ3JlZW4tMzAwXCIsXHJcbiAgZmFpbGVkOiBcImJnLXJlZC0xMDAgdGV4dC1yZWQtNzAwIGRhcms6YmctcmVkLTkwMC81MCBkYXJrOnRleHQtcmVkLTMwMFwiLFxyXG4gIGJsb2NrZWQ6IFwiYmctcmVkLTEwMCB0ZXh0LXJlZC03MDAgZGFyazpiZy1yZWQtOTAwLzUwIGRhcms6dGV4dC1yZWQtMzAwXCIsXHJcbiAgY2xvc2VkOiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIGFyY2hpdmVkOiBcImJnLW11dGVkIHRleHQtbXV0ZWQtZm9yZWdyb3VuZFwiLFxyXG4gIGF1dGhfcmVxdWlyZWQ6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICByYXRlX2xpbWl0ZWQ6IFwiYmctYW1iZXItMTAwIHRleHQtYW1iZXItNzAwIGRhcms6YmctYW1iZXItOTAwLzUwIGRhcms6dGV4dC1hbWJlci0zMDBcIixcclxuICB1bnJlYWNoYWJsZTogXCJiZy1yZWQtMTAwIHRleHQtcmVkLTcwMCBkYXJrOmJnLXJlZC05MDAvNTAgZGFyazp0ZXh0LXJlZC0zMDBcIixcclxufTtcclxuXHJcbmV4cG9ydCBjb25zdCBleHRlcm5hbE9iamVjdFN0YXR1c0JhZGdlRGVmYXVsdCA9IFwiYmctbXV0ZWQgdGV4dC1tdXRlZC1mb3JlZ3JvdW5kXCI7XHJcblxyXG4vKipcclxuICogTGl2ZW5lc3Mgb3ZlcmxheSBhcHBsaWVkIG9uIHRvcCBvZiB0aGUgYmFzZSBzdGF0dXMgdG9uZS4gV2UgZGVsaWJlcmF0ZWx5XHJcbiAqIGVuY29kZSBpdCBhcyB1dGlsaXR5IGNsYXNzZXMgKG5vdCBhIHRvbmUgY2hhbmdlKSBzbyBjYWxsZXJzIGNhbiBhcHBlbmQgdGhlXHJcbiAqIG92ZXJsYXkgdG8gYW55IHBpbGwsIGljb24sIG9yIG1hcmtlciB3aXRob3V0IHJlZGVmaW5pbmcgY29sb3JzLlxyXG4gKlxyXG4gKiBUaGUgZGFzaGVkIGJvcmRlciArIHJlZHVjZWQgb3BhY2l0eSBndWFyYW50ZWVzIGEgbm9uLWNvbG9yIGRpZmZlcmVudGlhdG9yXHJcbiAqIGZvciBzdGFsZSAvIGF1dGhfcmVxdWlyZWQgLyB1bnJlYWNoYWJsZSBwZXIgV0NBRyAxLjQuMS5cclxuICovXHJcbmV4cG9ydCBjb25zdCBleHRlcm5hbE9iamVjdExpdmVuZXNzT3ZlcmxheTogUmVjb3JkPHN0cmluZywgc3RyaW5nPiA9IHtcclxuICB1bmtub3duOiBcIlwiLFxyXG4gIGZyZXNoOiBcIlwiLFxyXG4gIHN0YWxlOiBcIm9wYWNpdHktNzAgW2JvcmRlci1zdHlsZTpkYXNoZWRdXCIsXHJcbiAgYXV0aF9yZXF1aXJlZDogXCJbYm9yZGVyLXN0eWxlOmRhc2hlZF1cIixcclxuICByYXRlX2xpbWl0ZWQ6IFwiW2JvcmRlci1zdHlsZTpkYXNoZWRdXCIsXHJcbiAgdW5yZWFjaGFibGU6IFwiW2JvcmRlci1zdHlsZTpkYXNoZWRdXCIsXHJcbn07XHJcblxyXG4vKipcclxuICogU2V2ZXJpdHkgcmFua2luZyB1c2VkIGJ5IHNpZGViYXIvbGlzdCByb2xsdXBzLiBIaWdoZXIgbnVtYmVyID0gbW9yZVxyXG4gKiBhdHRlbnRpb24td29ydGh5LiBBbnl0aGluZyDiiaQgYG11dGVkYCBzaG91bGQgYmUgaGlkZGVuIHdoZW4gc3VtbWFyaXNpbmcuXHJcbiAqL1xyXG5leHBvcnQgY29uc3QgZXh0ZXJuYWxPYmplY3RTdGF0dXNUb25lU2V2ZXJpdHk6IFJlY29yZDxzdHJpbmcsIG51bWJlcj4gPSB7XHJcbiAgbXV0ZWQ6IDAsXHJcbiAgbmV1dHJhbDogMSxcclxuICBzdWNjZXNzOiAyLFxyXG4gIGluZm86IDMsXHJcbiAgd2FybmluZzogNCxcclxuICBkYW5nZXI6IDUsXHJcbn07XHJcblxyXG5leHBvcnQgY29uc3QgZXh0ZXJuYWxPYmplY3RTdGF0dXNUb25lU2V2ZXJpdHlEZWZhdWx0ID0gMDtcclxuIl19

@@ -1,0 +1,191 @@
+import.meta.env = {"BASE_URL": "/", "DEV": true, "MODE": "development", "PROD": false, "SSR": false};// Optional Sentry error monitoring for the browser.
+//
+// Activated only when the signed-in session carries a Sentry DSN. `SentryGate`
+// reads the DSN off `GET /api/auth/get-session` and calls
+// `initBrowserErrorMonitoring` once. A signed-out browser, or a browser with
+// no DSN, calls this module never — see `SentryGate.tsx`.
+//
+// Sign-out must stop monitoring, not just stop starting it: `SentryGate`
+// calls `teardownBrowserErrorMonitoring` when the session's DSN goes away.
+// The function detaches the client from the current scope first
+// (`Sentry.getCurrentScope().setClient(undefined)`), then closes that same
+// client (`client.close()`), so a signed-out page's global handlers find no
+// attached client at any point. Detach runs first because a client stays
+// attached, and stays enabled, for the whole close call — closing first
+// would leave the signed-out page able to send one more event to Sentry for
+// as long as the close call takes. Both calls are built-in Sentry client
+// calls — no custom filter code.
+//
+// `initBrowserErrorMonitoring`, `teardownBrowserErrorMonitoring`, and
+// `captureBrowserException` each queue their work on one shared promise
+// chain (`enqueue`) instead of running at once. One operation runs at a
+// time, in call order, so no operation can ever observe another one
+// part-finished — a sign-out always closes the client a sign-in already
+// finished starting, never one still starting.
+//
+// `@sentry/browser` loads through a dynamic import, so Vite puts it in a
+// separate chunk that a browser with no DSN never fetches.
+//
+// Default-integration privacy note: two default integrations copy values
+// this app does not want inside a Sentry event, so the initializer removes
+// them with a built-in Sentry option — no custom filter code:
+//   - `Breadcrumbs` turns a console call, a click, and a fetch call into a
+//     breadcrumb with the raw arguments and the raw request URL.
+//   - `HttpContext` copies the page URL, the query string, and the referrer
+//     onto every event.
+// The initializer keeps every other default integration, so the browser
+// still captures `window.onerror` and `window.onunhandledrejection`
+// (`GlobalHandlers`), the two React error boundaries, deduplicates a repeat
+// event (`Dedupe`), and links a caused-by chain (`LinkedErrors`).
+import { buildBrowserErrorContext, classifyRejectionReason, readBrowserErrorState, readPageLifecycle, startPageDiagnostics, takeRejectionEventSnapshot } from "/src/lib/browser-error-context.ts";
+let queue = Promise.resolve();
+/** Run gate operations one at a time, in call order. */
+function enqueue(op) {
+	const next = queue.then(op);
+	queue = next.catch(() => {});
+	return next;
+}
+let sentry = null;
+/**
+* Load `@sentry/browser` and start the client with the given DSN. Idempotent
+* — the session query can refetch and call this again, and a second call is
+* a no-op because a client is already started.
+*/
+export function initBrowserErrorMonitoring(dsn, environment) {
+	return enqueue(async () => {
+		if (sentry) return;
+		try {
+			const Sentry = await import("/node_modules/.vite/deps/@sentry_browser.js?v=1de3f9fa");
+			// Before init: the rejection snapshot listener must precede the SDK's
+			// `onunhandledrejection` handler. Diagnostics never block monitoring.
+			try {
+				startPageDiagnostics();
+			} catch {}
+			Sentry.init(buildBrowserSentryInitOptions(dsn, environment));
+			sentry = Sentry;
+		} catch (err) {
+			// The dynamic import or the init call failed. Fall through with a
+			// single diagnostic. The gate fails open — the app keeps running
+			// without error monitoring rather than crashing on an opt-in feature.
+			// eslint-disable-next-line no-console
+			console.error("[paperclip] Sentry browser bootstrap failed", err);
+		}
+	});
+}
+/**
+* Stop browser error monitoring and forget the started client. Call this on
+* sign-out, so the browser sends Sentry no more events and no more
+* breadcrumbs after the session ends. A no-op when monitoring never started.
+*
+* Detaches the client from the current scope, then closes that same client.
+* A client stays attached, and stays enabled, for the whole close call — a
+* signed-out page's `window.onerror` or `window.onunhandledrejection`
+* handler would still reach it for as long as the close call takes.
+* Detaching first removes that window instead of leaving it open.
+*/
+export function teardownBrowserErrorMonitoring() {
+	return enqueue(async () => {
+		const Sentry = sentry;
+		sentry = null;
+		if (!Sentry) return;
+		// Read the client before detaching it. The scope holds no client after
+		// detach, so the close step below needs this reference to flush and
+		// close the right client.
+		const client = Sentry.getClient();
+		// Detach first, close second — the opposite order from a plain
+		// `Sentry.close()` call, which reads the client off the current scope
+		// and would find nothing to close if detach ran first. A separate
+		// guarded try keeps this step unable to reject, unlike a bare finally
+		// block: a thrown error here would still reach the caller, and
+		// `SentryGate.tsx` discards this function's returned promise with a
+		// bare `void` call, so a rejection would surface as an unhandled
+		// promise rejection in the browser.
+		try {
+			Sentry.getCurrentScope().setClient(undefined);
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.error("[paperclip] Sentry client detach failed", err);
+		}
+		// A second, separate guarded try, for the same reason as the one
+		// above: this step must never reject the returned promise.
+		try {
+			// Awaiting matters: the client flushes buffered events to Sentry
+			// during close; a caller that does not wait may navigate away, or
+			// the page may unload, before the flush finishes.
+			await client?.close(2e3);
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.error("[paperclip] Sentry teardownBrowserErrorMonitoring failed", err);
+		}
+	});
+}
+/**
+* Report an error to Sentry. Never throws — observability must not change
+* control flow. A no-op before the gate opens, when the gate never opens (no
+* DSN on the session), or when bootstrap failed.
+*/
+export function captureBrowserException(error, details) {
+	let context;
+	try {
+		if (details) context = buildBrowserErrorContext(details);
+	} catch {}
+	void enqueue(async () => {
+		try {
+			if (context) sentry?.captureException(error, context);
+			else sentry?.captureException(error);
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.error("[paperclip] Sentry captureBrowserException failed", err);
+		}
+	});
+}
+/**
+* Build the `Sentry.init` options object. A pure function, split out from
+* `initBrowserErrorMonitoring` so a test can call it with the real
+* `@sentry/browser` module and assert the resolved integration list and the
+* captured-event shape against the true SDK, not a stand-in.
+*/
+export function buildBrowserSentryInitOptions(dsn, environment) {
+	return {
+		dsn,
+		environment: environment ?? undefined,
+		// Use the loaded bundle's build, even when the server has since deployed.
+		release: typeof __PAPERCLIP_BUILD_COMMIT__ === "string" ? __PAPERCLIP_BUILD_COMMIT__ : undefined,
+		tracesSampleRate: 0,
+		sendDefaultPii: false,
+		beforeSend: (event, hint) => {
+			// Global handlers do not pass through our React boundaries. Give their
+			// reports the same bounded document state, without URLs or breadcrumbs.
+			// Preserve a boundary's earlier snapshot across the asynchronous queue.
+			try {
+				event.contexts = {
+					...event.contexts,
+					browser_state: event.contexts?.browser_state ?? readBrowserErrorState(),
+					page_lifecycle: event.contexts?.page_lifecycle ?? readPageLifecycle()
+				};
+				event.tags = {
+					...event.tags,
+					browser_build_mode: import.meta.env.DEV ? "development" : "production"
+				};
+				if (event.exception?.values?.some((value) => value.mechanism?.type === "onunhandledrejection" || value.mechanism?.type === "auto.browser.global_handlers.onunhandledrejection")) {
+					// The SDK supplies the rejected value directly. Classify without
+					// reading object properties, coercing strings, or copying its value.
+					const kind = classifyRejectionReason(hint.originalException);
+					event.tags.browser_rejection_kind = kind;
+					// Whether the browser or a script dispatched the event, and which
+					// promise implementation carried it. Without a stack these are the
+					// remaining attribution facts for an `undefined` rejection.
+					const rejection = takeRejectionEventSnapshot(kind);
+					if (rejection) {
+						event.tags.browser_rejection_event = rejection.trusted ? "trusted" : "synthetic";
+						event.contexts.rejection_event = rejection;
+					}
+				}
+			} catch {}
+			return event;
+		},
+		integrations: (defaults) => defaults.filter((integration) => integration.name !== "HttpContext" && integration.name !== "Breadcrumbs")
+	};
+}
+
+//# sourceMappingURL=data:application/json;base64,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WSxTQUFTLGFBQzlFO0NBQ0o7QUFDRiIsIm5hbWVzIjpbXSwic291cmNlcyI6WyJzZW50cnkudHMiXSwidmVyc2lvbiI6Mywic291cmNlc0NvbnRlbnQiOlsiLy8gT3B0aW9uYWwgU2VudHJ5IGVycm9yIG1vbml0b3JpbmcgZm9yIHRoZSBicm93c2VyLlxyXG4vL1xyXG4vLyBBY3RpdmF0ZWQgb25seSB3aGVuIHRoZSBzaWduZWQtaW4gc2Vzc2lvbiBjYXJyaWVzIGEgU2VudHJ5IERTTi4gYFNlbnRyeUdhdGVgXHJcbi8vIHJlYWRzIHRoZSBEU04gb2ZmIGBHRVQgL2FwaS9hdXRoL2dldC1zZXNzaW9uYCBhbmQgY2FsbHNcclxuLy8gYGluaXRCcm93c2VyRXJyb3JNb25pdG9yaW5nYCBvbmNlLiBBIHNpZ25lZC1vdXQgYnJvd3Nlciwgb3IgYSBicm93c2VyIHdpdGhcclxuLy8gbm8gRFNOLCBjYWxscyB0aGlzIG1vZHVsZSBuZXZlciDigJQgc2VlIGBTZW50cnlHYXRlLnRzeGAuXHJcbi8vXHJcbi8vIFNpZ24tb3V0IG11c3Qgc3RvcCBtb25pdG9yaW5nLCBub3QganVzdCBzdG9wIHN0YXJ0aW5nIGl0OiBgU2VudHJ5R2F0ZWBcclxuLy8gY2FsbHMgYHRlYXJkb3duQnJvd3NlckVycm9yTW9uaXRvcmluZ2Agd2hlbiB0aGUgc2Vzc2lvbidzIERTTiBnb2VzIGF3YXkuXHJcbi8vIFRoZSBmdW5jdGlvbiBkZXRhY2hlcyB0aGUgY2xpZW50IGZyb20gdGhlIGN1cnJlbnQgc2NvcGUgZmlyc3RcclxuLy8gKGBTZW50cnkuZ2V0Q3VycmVudFNjb3BlKCkuc2V0Q2xpZW50KHVuZGVmaW5lZClgKSwgdGhlbiBjbG9zZXMgdGhhdCBzYW1lXHJcbi8vIGNsaWVudCAoYGNsaWVudC5jbG9zZSgpYCksIHNvIGEgc2lnbmVkLW91dCBwYWdlJ3MgZ2xvYmFsIGhhbmRsZXJzIGZpbmQgbm9cclxuLy8gYXR0YWNoZWQgY2xpZW50IGF0IGFueSBwb2ludC4gRGV0YWNoIHJ1bnMgZmlyc3QgYmVjYXVzZSBhIGNsaWVudCBzdGF5c1xyXG4vLyBhdHRhY2hlZCwgYW5kIHN0YXlzIGVuYWJsZWQsIGZvciB0aGUgd2hvbGUgY2xvc2UgY2FsbCDigJQgY2xvc2luZyBmaXJzdFxyXG4vLyB3b3VsZCBsZWF2ZSB0aGUgc2lnbmVkLW91dCBwYWdlIGFibGUgdG8gc2VuZCBvbmUgbW9yZSBldmVudCB0byBTZW50cnkgZm9yXHJcbi8vIGFzIGxvbmcgYXMgdGhlIGNsb3NlIGNhbGwgdGFrZXMuIEJvdGggY2FsbHMgYXJlIGJ1aWx0LWluIFNlbnRyeSBjbGllbnRcclxuLy8gY2FsbHMg4oCUIG5vIGN1c3RvbSBmaWx0ZXIgY29kZS5cclxuLy9cclxuLy8gYGluaXRCcm93c2VyRXJyb3JNb25pdG9yaW5nYCwgYHRlYXJkb3duQnJvd3NlckVycm9yTW9uaXRvcmluZ2AsIGFuZFxyXG4vLyBgY2FwdHVyZUJyb3dzZXJFeGNlcHRpb25gIGVhY2ggcXVldWUgdGhlaXIgd29yayBvbiBvbmUgc2hhcmVkIHByb21pc2VcclxuLy8gY2hhaW4gKGBlbnF1ZXVlYCkgaW5zdGVhZCBvZiBydW5uaW5nIGF0IG9uY2UuIE9uZSBvcGVyYXRpb24gcnVucyBhdCBhXHJcbi8vIHRpbWUsIGluIGNhbGwgb3JkZXIsIHNvIG5vIG9wZXJhdGlvbiBjYW4gZXZlciBvYnNlcnZlIGFub3RoZXIgb25lXHJcbi8vIHBhcnQtZmluaXNoZWQg4oCUIGEgc2lnbi1vdXQgYWx3YXlzIGNsb3NlcyB0aGUgY2xpZW50IGEgc2lnbi1pbiBhbHJlYWR5XHJcbi8vIGZpbmlzaGVkIHN0YXJ0aW5nLCBuZXZlciBvbmUgc3RpbGwgc3RhcnRpbmcuXHJcbi8vXHJcbi8vIGBAc2VudHJ5L2Jyb3dzZXJgIGxvYWRzIHRocm91Z2ggYSBkeW5hbWljIGltcG9ydCwgc28gVml0ZSBwdXRzIGl0IGluIGFcclxuLy8gc2VwYXJhdGUgY2h1bmsgdGhhdCBhIGJyb3dzZXIgd2l0aCBubyBEU04gbmV2ZXIgZmV0Y2hlcy5cclxuLy9cclxuLy8gRGVmYXVsdC1pbnRlZ3JhdGlvbiBwcml2YWN5IG5vdGU6IHR3byBkZWZhdWx0IGludGVncmF0aW9ucyBjb3B5IHZhbHVlc1xyXG4vLyB0aGlzIGFwcCBkb2VzIG5vdCB3YW50IGluc2lkZSBhIFNlbnRyeSBldmVudCwgc28gdGhlIGluaXRpYWxpemVyIHJlbW92ZXNcclxuLy8gdGhlbSB3aXRoIGEgYnVpbHQtaW4gU2VudHJ5IG9wdGlvbiDigJQgbm8gY3VzdG9tIGZpbHRlciBjb2RlOlxyXG4vLyAgIC0gYEJyZWFkY3J1bWJzYCB0dXJucyBhIGNvbnNvbGUgY2FsbCwgYSBjbGljaywgYW5kIGEgZmV0Y2ggY2FsbCBpbnRvIGFcclxuLy8gICAgIGJyZWFkY3J1bWIgd2l0aCB0aGUgcmF3IGFyZ3VtZW50cyBhbmQgdGhlIHJhdyByZXF1ZXN0IFVSTC5cclxuLy8gICAtIGBIdHRwQ29udGV4dGAgY29waWVzIHRoZSBwYWdlIFVSTCwgdGhlIHF1ZXJ5IHN0cmluZywgYW5kIHRoZSByZWZlcnJlclxyXG4vLyAgICAgb250byBldmVyeSBldmVudC5cclxuLy8gVGhlIGluaXRpYWxpemVyIGtlZXBzIGV2ZXJ5IG90aGVyIGRlZmF1bHQgaW50ZWdyYXRpb24sIHNvIHRoZSBicm93c2VyXHJcbi8vIHN0aWxsIGNhcHR1cmVzIGB3aW5kb3cub25lcnJvcmAgYW5kIGB3aW5kb3cub251bmhhbmRsZWRyZWplY3Rpb25gXHJcbi8vIChgR2xvYmFsSGFuZGxlcnNgKSwgdGhlIHR3byBSZWFjdCBlcnJvciBib3VuZGFyaWVzLCBkZWR1cGxpY2F0ZXMgYSByZXBlYXRcclxuLy8gZXZlbnQgKGBEZWR1cGVgKSwgYW5kIGxpbmtzIGEgY2F1c2VkLWJ5IGNoYWluIChgTGlua2VkRXJyb3JzYCkuXHJcblxyXG5pbXBvcnQge1xyXG4gIGJ1aWxkQnJvd3NlckVycm9yQ29udGV4dCxcclxuICBjbGFzc2lmeVJlamVjdGlvblJlYXNvbixcclxuICByZWFkQnJvd3NlckVycm9yU3RhdGUsXHJcbiAgcmVhZFBhZ2VMaWZlY3ljbGUsXHJcbiAgc3RhcnRQYWdlRGlhZ25vc3RpY3MsXHJcbiAgdGFrZVJlamVjdGlvbkV2ZW50U25hcHNob3QsXHJcbiAgdHlwZSBCcm93c2VyRXJyb3JEZXRhaWxzLFxyXG59IGZyb20gXCIuL2Jyb3dzZXItZXJyb3ItY29udGV4dFwiO1xyXG5cclxubGV0IHF1ZXVlOiBQcm9taXNlPHZvaWQ+ID0gUHJvbWlzZS5yZXNvbHZlKCk7XHJcblxyXG4vKiogUnVuIGdhdGUgb3BlcmF0aW9ucyBvbmUgYXQgYSB0aW1lLCBpbiBjYWxsIG9yZGVyLiAqL1xyXG5mdW5jdGlvbiBlbnF1ZXVlKG9wOiAoKSA9PiBQcm9taXNlPHZvaWQ+KTogUHJvbWlzZTx2b2lkPiB7XHJcbiAgY29uc3QgbmV4dCA9IHF1ZXVlLnRoZW4ob3ApO1xyXG4gIHF1ZXVlID0gbmV4dC5jYXRjaCgoKSA9PiB7fSk7XHJcbiAgcmV0dXJuIG5leHQ7XHJcbn1cclxuXHJcbi8qKiBUaGUgYEBzZW50cnkvYnJvd3NlcmAgbW9kdWxlIHNoYXBlLCByZXNvbHZlZCBvbmNlLiAqL1xyXG50eXBlIFNlbnRyeUJyb3dzZXJNb2R1bGUgPSB0eXBlb2YgaW1wb3J0KFwiQHNlbnRyeS9icm93c2VyXCIpO1xyXG5cclxuLyoqXHJcbiAqIFRoZSBgU2VudHJ5LmluaXRgIG9wdGlvbnMgdGhpcyBnYXRlIGJ1aWxkcy4gYFNlbnRyeS5pbml0YCdzIHBhcmFtZXRlciBpc1xyXG4gKiBvcHRpb25hbCwgc28gYFBhcmFtZXRlcnM8Li4uPlswXWAgYWxvbmUgY2FycmllcyBhbiBgfCB1bmRlZmluZWRgIGFybSB0aGlzXHJcbiAqIGdhdGUgbmV2ZXIgcmV0dXJucy4gYE5vbk51bGxhYmxlYCByZW1vdmVzIG9ubHkgdGhhdCBhcm0g4oCUIHRoZSBvYmplY3Qgc2hhcGVcclxuICogdW5kZXJuZWF0aCBzdGF5cyB0aGUgdHJ1ZSBgQHNlbnRyeS9icm93c2VyYCBvcHRpb24gdHlwZS5cclxuICovXHJcbnR5cGUgQnJvd3NlclNlbnRyeUluaXRPcHRpb25zID0gTm9uTnVsbGFibGU8UGFyYW1ldGVyczxTZW50cnlCcm93c2VyTW9kdWxlW1wiaW5pdFwiXT5bMF0+O1xyXG5cclxubGV0IHNlbnRyeTogU2VudHJ5QnJvd3Nlck1vZHVsZSB8IG51bGwgPSBudWxsO1xyXG5cclxuLyoqXHJcbiAqIExvYWQgYEBzZW50cnkvYnJvd3NlcmAgYW5kIHN0YXJ0IHRoZSBjbGllbnQgd2l0aCB0aGUgZ2l2ZW4gRFNOLiBJZGVtcG90ZW50XHJcbiAqIOKAlCB0aGUgc2Vzc2lvbiBxdWVyeSBjYW4gcmVmZXRjaCBhbmQgY2FsbCB0aGlzIGFnYWluLCBhbmQgYSBzZWNvbmQgY2FsbCBpc1xyXG4gKiBhIG5vLW9wIGJlY2F1c2UgYSBjbGllbnQgaXMgYWxyZWFkeSBzdGFydGVkLlxyXG4gKi9cclxuZXhwb3J0IGZ1bmN0aW9uIGluaXRCcm93c2VyRXJyb3JNb25pdG9yaW5nKGRzbjogc3RyaW5nLCBlbnZpcm9ubWVudD86IHN0cmluZyB8IG51bGwpOiBQcm9taXNlPHZvaWQ+IHtcclxuICByZXR1cm4gZW5xdWV1ZShhc3luYyAoKSA9PiB7XHJcbiAgICBpZiAoc2VudHJ5KSByZXR1cm47XHJcbiAgICB0cnkge1xyXG4gICAgICBjb25zdCBTZW50cnkgPSBhd2FpdCBpbXBvcnQoXCJAc2VudHJ5L2Jyb3dzZXJcIik7XHJcbiAgICAgIC8vIEJlZm9yZSBpbml0OiB0aGUgcmVqZWN0aW9uIHNuYXBzaG90IGxpc3RlbmVyIG11c3QgcHJlY2VkZSB0aGUgU0RLJ3NcclxuICAgICAgLy8gYG9udW5oYW5kbGVkcmVqZWN0aW9uYCBoYW5kbGVyLiBEaWFnbm9zdGljcyBuZXZlciBibG9jayBtb25pdG9yaW5nLlxyXG4gICAgICB0cnkge1xyXG4gICAgICAgIHN0YXJ0UGFnZURpYWdub3N0aWNzKCk7XHJcbiAgICAgIH0gY2F0Y2ggeyAvKiBkaWFnbm9zdGljIHVuYXZhaWxhYmxlICovIH1cclxuICAgICAgU2VudHJ5LmluaXQoYnVpbGRCcm93c2VyU2VudHJ5SW5pdE9wdGlvbnMoZHNuLCBlbnZpcm9ubWVudCkpO1xyXG4gICAgICBzZW50cnkgPSBTZW50cnk7XHJcbiAgICB9IGNhdGNoIChlcnIpIHtcclxuICAgICAgLy8gVGhlIGR5bmFtaWMgaW1wb3J0IG9yIHRoZSBpbml0IGNhbGwgZmFpbGVkLiBGYWxsIHRocm91Z2ggd2l0aCBhXHJcbiAgICAgIC8vIHNpbmdsZSBkaWFnbm9zdGljLiBUaGUgZ2F0ZSBmYWlscyBvcGVuIOKAlCB0aGUgYXBwIGtlZXBzIHJ1bm5pbmdcclxuICAgICAgLy8gd2l0aG91dCBlcnJvciBtb25pdG9yaW5nIHJhdGhlciB0aGFuIGNyYXNoaW5nIG9uIGFuIG9wdC1pbiBmZWF0dXJlLlxyXG4gICAgICAvLyBlc2xpbnQtZGlzYWJsZS1uZXh0LWxpbmUgbm8tY29uc29sZVxyXG4gICAgICBjb25zb2xlLmVycm9yKFwiW3BhcGVyY2xpcF0gU2VudHJ5IGJyb3dzZXIgYm9vdHN0cmFwIGZhaWxlZFwiLCBlcnIpO1xyXG4gICAgfVxyXG4gIH0pO1xyXG59XHJcblxyXG4vKipcclxuICogU3RvcCBicm93c2VyIGVycm9yIG1vbml0b3JpbmcgYW5kIGZvcmdldCB0aGUgc3RhcnRlZCBjbGllbnQuIENhbGwgdGhpcyBvblxyXG4gKiBzaWduLW91dCwgc28gdGhlIGJyb3dzZXIgc2VuZHMgU2VudHJ5IG5vIG1vcmUgZXZlbnRzIGFuZCBubyBtb3JlXHJcbiAqIGJyZWFkY3J1bWJzIGFmdGVyIHRoZSBzZXNzaW9uIGVuZHMuIEEgbm8tb3Agd2hlbiBtb25pdG9yaW5nIG5ldmVyIHN0YXJ0ZWQuXHJcbiAqXHJcbiAqIERldGFjaGVzIHRoZSBjbGllbnQgZnJvbSB0aGUgY3VycmVudCBzY29wZSwgdGhlbiBjbG9zZXMgdGhhdCBzYW1lIGNsaWVudC5cclxuICogQSBjbGllbnQgc3RheXMgYXR0YWNoZWQsIGFuZCBzdGF5cyBlbmFibGVkLCBmb3IgdGhlIHdob2xlIGNsb3NlIGNhbGwg4oCUIGFcclxuICogc2lnbmVkLW91dCBwYWdlJ3MgYHdpbmRvdy5vbmVycm9yYCBvciBgd2luZG93Lm9udW5oYW5kbGVkcmVqZWN0aW9uYFxyXG4gKiBoYW5kbGVyIHdvdWxkIHN0aWxsIHJlYWNoIGl0IGZvciBhcyBsb25nIGFzIHRoZSBjbG9zZSBjYWxsIHRha2VzLlxyXG4gKiBEZXRhY2hpbmcgZmlyc3QgcmVtb3ZlcyB0aGF0IHdpbmRvdyBpbnN0ZWFkIG9mIGxlYXZpbmcgaXQgb3Blbi5cclxuICovXHJcbmV4cG9ydCBmdW5jdGlvbiB0ZWFyZG93bkJyb3dzZXJFcnJvck1vbml0b3JpbmcoKTogUHJvbWlzZTx2b2lkPiB7XHJcbiAgcmV0dXJuIGVucXVldWUoYXN5bmMgKCkgPT4ge1xyXG4gICAgY29uc3QgU2VudHJ5ID0gc2VudHJ5O1xyXG4gICAgc2VudHJ5ID0gbnVsbDtcclxuICAgIGlmICghU2VudHJ5KSByZXR1cm47XHJcbiAgICAvLyBSZWFkIHRoZSBjbGllbnQgYmVmb3JlIGRldGFjaGluZyBpdC4gVGhlIHNjb3BlIGhvbGRzIG5vIGNsaWVudCBhZnRlclxyXG4gICAgLy8gZGV0YWNoLCBzbyB0aGUgY2xvc2Ugc3RlcCBiZWxvdyBuZWVkcyB0aGlzIHJlZmVyZW5jZSB0byBmbHVzaCBhbmRcclxuICAgIC8vIGNsb3NlIHRoZSByaWdodCBjbGllbnQuXHJcbiAgICBjb25zdCBjbGllbnQgPSBTZW50cnkuZ2V0Q2xpZW50KCk7XHJcbiAgICAvLyBEZXRhY2ggZmlyc3QsIGNsb3NlIHNlY29uZCDigJQgdGhlIG9wcG9zaXRlIG9yZGVyIGZyb20gYSBwbGFpblxyXG4gICAgLy8gYFNlbnRyeS5jbG9zZSgpYCBjYWxsLCB3aGljaCByZWFkcyB0aGUgY2xpZW50IG9mZiB0aGUgY3VycmVudCBzY29wZVxyXG4gICAgLy8gYW5kIHdvdWxkIGZpbmQgbm90aGluZyB0byBjbG9zZSBpZiBkZXRhY2ggcmFuIGZpcnN0LiBBIHNlcGFyYXRlXHJcbiAgICAvLyBndWFyZGVkIHRyeSBrZWVwcyB0aGlzIHN0ZXAgdW5hYmxlIHRvIHJlamVjdCwgdW5saWtlIGEgYmFyZSBmaW5hbGx5XHJcbiAgICAvLyBibG9jazogYSB0aHJvd24gZXJyb3IgaGVyZSB3b3VsZCBzdGlsbCByZWFjaCB0aGUgY2FsbGVyLCBhbmRcclxuICAgIC8vIGBTZW50cnlHYXRlLnRzeGAgZGlzY2FyZHMgdGhpcyBmdW5jdGlvbidzIHJldHVybmVkIHByb21pc2Ugd2l0aCBhXHJcbiAgICAvLyBiYXJlIGB2b2lkYCBjYWxsLCBzbyBhIHJlamVjdGlvbiB3b3VsZCBzdXJmYWNlIGFzIGFuIHVuaGFuZGxlZFxyXG4gICAgLy8gcHJvbWlzZSByZWplY3Rpb24gaW4gdGhlIGJyb3dzZXIuXHJcbiAgICB0cnkge1xyXG4gICAgICBTZW50cnkuZ2V0Q3VycmVudFNjb3BlKCkuc2V0Q2xpZW50KHVuZGVmaW5lZCk7XHJcbiAgICB9IGNhdGNoIChlcnIpIHtcclxuICAgICAgLy8gZXNsaW50LWRpc2FibGUtbmV4dC1saW5lIG5vLWNvbnNvbGVcclxuICAgICAgY29uc29sZS5lcnJvcihcIltwYXBlcmNsaXBdIFNlbnRyeSBjbGllbnQgZGV0YWNoIGZhaWxlZFwiLCBlcnIpO1xyXG4gICAgfVxyXG4gICAgLy8gQSBzZWNvbmQsIHNlcGFyYXRlIGd1YXJkZWQgdHJ5LCBmb3IgdGhlIHNhbWUgcmVhc29uIGFzIHRoZSBvbmVcclxuICAgIC8vIGFib3ZlOiB0aGlzIHN0ZXAgbXVzdCBuZXZlciByZWplY3QgdGhlIHJldHVybmVkIHByb21pc2UuXHJcbiAgICB0cnkge1xyXG4gICAgICAvLyBBd2FpdGluZyBtYXR0ZXJzOiB0aGUgY2xpZW50IGZsdXNoZXMgYnVmZmVyZWQgZXZlbnRzIHRvIFNlbnRyeVxyXG4gICAgICAvLyBkdXJpbmcgY2xvc2U7IGEgY2FsbGVyIHRoYXQgZG9lcyBub3Qgd2FpdCBtYXkgbmF2aWdhdGUgYXdheSwgb3JcclxuICAgICAgLy8gdGhlIHBhZ2UgbWF5IHVubG9hZCwgYmVmb3JlIHRoZSBmbHVzaCBmaW5pc2hlcy5cclxuICAgICAgYXdhaXQgY2xpZW50Py5jbG9zZSgyXzAwMCk7XHJcbiAgICB9IGNhdGNoIChlcnIpIHtcclxuICAgICAgLy8gZXNsaW50LWRpc2FibGUtbmV4dC1saW5lIG5vLWNvbnNvbGVcclxuICAgICAgY29uc29sZS5lcnJvcihcIltwYXBlcmNsaXBdIFNlbnRyeSB0ZWFyZG93bkJyb3dzZXJFcnJvck1vbml0b3JpbmcgZmFpbGVkXCIsIGVycik7XHJcbiAgICB9XHJcbiAgfSk7XHJcbn1cclxuXHJcbi8qKlxyXG4gKiBSZXBvcnQgYW4gZXJyb3IgdG8gU2VudHJ5LiBOZXZlciB0aHJvd3Mg4oCUIG9ic2VydmFiaWxpdHkgbXVzdCBub3QgY2hhbmdlXHJcbiAqIGNvbnRyb2wgZmxvdy4gQSBuby1vcCBiZWZvcmUgdGhlIGdhdGUgb3BlbnMsIHdoZW4gdGhlIGdhdGUgbmV2ZXIgb3BlbnMgKG5vXHJcbiAqIERTTiBvbiB0aGUgc2Vzc2lvbiksIG9yIHdoZW4gYm9vdHN0cmFwIGZhaWxlZC5cclxuICovXHJcbmV4cG9ydCBmdW5jdGlvbiBjYXB0dXJlQnJvd3NlckV4Y2VwdGlvbihlcnJvcjogdW5rbm93biwgZGV0YWlscz86IEJyb3dzZXJFcnJvckRldGFpbHMpOiB2b2lkIHtcclxuICBsZXQgY29udGV4dDogUmV0dXJuVHlwZTx0eXBlb2YgYnVpbGRCcm93c2VyRXJyb3JDb250ZXh0PiB8IHVuZGVmaW5lZDtcclxuICB0cnkge1xyXG4gICAgaWYgKGRldGFpbHMpIGNvbnRleHQgPSBidWlsZEJyb3dzZXJFcnJvckNvbnRleHQoZGV0YWlscyk7XHJcbiAgfSBjYXRjaCB7XHJcbiAgICAvLyBEaWFnbm9zdGljcyBtdXN0IG5ldmVyIHJlcGxhY2UgdGhlIG9yaWdpbmFsIGV4Y2VwdGlvbiBvciBpdHMgcmVjb3ZlcnkgVUkuXHJcbiAgfVxyXG4gIHZvaWQgZW5xdWV1ZShhc3luYyAoKSA9PiB7XHJcbiAgICB0cnkge1xyXG4gICAgICBpZiAoY29udGV4dCkgc2VudHJ5Py5jYXB0dXJlRXhjZXB0aW9uKGVycm9yLCBjb250ZXh0KTtcclxuICAgICAgZWxzZSBzZW50cnk/LmNhcHR1cmVFeGNlcHRpb24oZXJyb3IpO1xyXG4gICAgfSBjYXRjaCAoZXJyKSB7XHJcbiAgICAgIC8vIGVzbGludC1kaXNhYmxlLW5leHQtbGluZSBuby1jb25zb2xlXHJcbiAgICAgIGNvbnNvbGUuZXJyb3IoXCJbcGFwZXJjbGlwXSBTZW50cnkgY2FwdHVyZUJyb3dzZXJFeGNlcHRpb24gZmFpbGVkXCIsIGVycik7XHJcbiAgICB9XHJcbiAgfSk7XHJcbn1cclxuXHJcbi8qKlxyXG4gKiBCdWlsZCB0aGUgYFNlbnRyeS5pbml0YCBvcHRpb25zIG9iamVjdC4gQSBwdXJlIGZ1bmN0aW9uLCBzcGxpdCBvdXQgZnJvbVxyXG4gKiBgaW5pdEJyb3dzZXJFcnJvck1vbml0b3JpbmdgIHNvIGEgdGVzdCBjYW4gY2FsbCBpdCB3aXRoIHRoZSByZWFsXHJcbiAqIGBAc2VudHJ5L2Jyb3dzZXJgIG1vZHVsZSBhbmQgYXNzZXJ0IHRoZSByZXNvbHZlZCBpbnRlZ3JhdGlvbiBsaXN0IGFuZCB0aGVcclxuICogY2FwdHVyZWQtZXZlbnQgc2hhcGUgYWdhaW5zdCB0aGUgdHJ1ZSBTREssIG5vdCBhIHN0YW5kLWluLlxyXG4gKi9cclxuZXhwb3J0IGZ1bmN0aW9uIGJ1aWxkQnJvd3NlclNlbnRyeUluaXRPcHRpb25zKFxyXG4gIGRzbjogc3RyaW5nLFxyXG4gIGVudmlyb25tZW50Pzogc3RyaW5nIHwgbnVsbCxcclxuKTogQnJvd3NlclNlbnRyeUluaXRPcHRpb25zIHtcclxuICByZXR1cm4ge1xyXG4gICAgZHNuLFxyXG4gICAgZW52aXJvbm1lbnQ6IGVudmlyb25tZW50ID8/IHVuZGVmaW5lZCxcclxuICAgIC8vIFVzZSB0aGUgbG9hZGVkIGJ1bmRsZSdzIGJ1aWxkLCBldmVuIHdoZW4gdGhlIHNlcnZlciBoYXMgc2luY2UgZGVwbG95ZWQuXHJcbiAgICByZWxlYXNlOlxyXG4gICAgICB0eXBlb2YgX19QQVBFUkNMSVBfQlVJTERfQ09NTUlUX18gPT09IFwic3RyaW5nXCJcclxuICAgICAgICA/IF9fUEFQRVJDTElQX0JVSUxEX0NPTU1JVF9fXHJcbiAgICAgICAgOiB1bmRlZmluZWQsXHJcbiAgICB0cmFjZXNTYW1wbGVSYXRlOiAwLFxyXG4gICAgc2VuZERlZmF1bHRQaWk6IGZhbHNlLFxyXG4gICAgYmVmb3JlU2VuZDogKGV2ZW50LCBoaW50KSA9PiB7XHJcbiAgICAgIC8vIEdsb2JhbCBoYW5kbGVycyBkbyBub3QgcGFzcyB0aHJvdWdoIG91ciBSZWFjdCBib3VuZGFyaWVzLiBHaXZlIHRoZWlyXHJcbiAgICAgIC8vIHJlcG9ydHMgdGhlIHNhbWUgYm91bmRlZCBkb2N1bWVudCBzdGF0ZSwgd2l0aG91dCBVUkxzIG9yIGJyZWFkY3J1bWJzLlxyXG4gICAgICAvLyBQcmVzZXJ2ZSBhIGJvdW5kYXJ5J3MgZWFybGllciBzbmFwc2hvdCBhY3Jvc3MgdGhlIGFzeW5jaHJvbm91cyBxdWV1ZS5cclxuICAgICAgdHJ5IHtcclxuICAgICAgICBldmVudC5jb250ZXh0cyA9IHtcclxuICAgICAgICAgIC4uLmV2ZW50LmNvbnRleHRzLFxyXG4gICAgICAgICAgYnJvd3Nlcl9zdGF0ZTogZXZlbnQuY29udGV4dHM/LmJyb3dzZXJfc3RhdGUgPz8gcmVhZEJyb3dzZXJFcnJvclN0YXRlKCksXHJcbiAgICAgICAgICBwYWdlX2xpZmVjeWNsZTogZXZlbnQuY29udGV4dHM/LnBhZ2VfbGlmZWN5Y2xlID8/IHJlYWRQYWdlTGlmZWN5Y2xlKCksXHJcbiAgICAgICAgfTtcclxuICAgICAgICBldmVudC50YWdzID0ge1xyXG4gICAgICAgICAgLi4uZXZlbnQudGFncyxcclxuICAgICAgICAgIGJyb3dzZXJfYnVpbGRfbW9kZTogaW1wb3J0Lm1ldGEuZW52LkRFViA/IFwiZGV2ZWxvcG1lbnRcIiA6IFwicHJvZHVjdGlvblwiLFxyXG4gICAgICAgIH07XHJcbiAgICAgICAgaWYgKGV2ZW50LmV4Y2VwdGlvbj8udmFsdWVzPy5zb21lKCh2YWx1ZSkgPT5cclxuICAgICAgICAgIHZhbHVlLm1lY2hhbmlzbT8udHlwZSA9PT0gXCJvbnVuaGFuZGxlZHJlamVjdGlvblwiXHJcbiAgICAgICAgICB8fCB2YWx1ZS5tZWNoYW5pc20/LnR5cGUgPT09IFwiYXV0by5icm93c2VyLmdsb2JhbF9oYW5kbGVycy5vbnVuaGFuZGxlZHJlamVjdGlvblwiLFxyXG4gICAgICAgICkpIHtcclxuICAgICAgICAgIC8vIFRoZSBTREsgc3VwcGxpZXMgdGhlIHJlamVjdGVkIHZhbHVlIGRpcmVjdGx5LiBDbGFzc2lmeSB3aXRob3V0XHJcbiAgICAgICAgICAvLyByZWFkaW5nIG9iamVjdCBwcm9wZXJ0aWVzLCBjb2VyY2luZyBzdHJpbmdzLCBvciBjb3B5aW5nIGl0cyB2YWx1ZS5cclxuICAgICAgICAgIGNvbnN0IGtpbmQgPSBjbGFzc2lmeVJlamVjdGlvblJlYXNvbihoaW50Lm9yaWdpbmFsRXhjZXB0aW9uKTtcclxuICAgICAgICAgIGV2ZW50LnRhZ3MuYnJvd3Nlcl9yZWplY3Rpb25fa2luZCA9IGtpbmQ7XHJcbiAgICAgICAgICAvLyBXaGV0aGVyIHRoZSBicm93c2VyIG9yIGEgc2NyaXB0IGRpc3BhdGNoZWQgdGhlIGV2ZW50LCBhbmQgd2hpY2hcclxuICAgICAgICAgIC8vIHByb21pc2UgaW1wbGVtZW50YXRpb24gY2FycmllZCBpdC4gV2l0aG91dCBhIHN0YWNrIHRoZXNlIGFyZSB0aGVcclxuICAgICAgICAgIC8vIHJlbWFpbmluZyBhdHRyaWJ1dGlvbiBmYWN0cyBmb3IgYW4gYHVuZGVmaW5lZGAgcmVqZWN0aW9uLlxyXG4gICAgICAgICAgY29uc3QgcmVqZWN0aW9uID0gdGFrZVJlamVjdGlvbkV2ZW50U25hcHNob3Qoa2luZCk7XHJcbiAgICAgICAgICBpZiAocmVqZWN0aW9uKSB7XHJcbiAgICAgICAgICAgIGV2ZW50LnRhZ3MuYnJvd3Nlcl9yZWplY3Rpb25fZXZlbnQgPSByZWplY3Rpb24udHJ1c3RlZCA/IFwidHJ1c3RlZFwiIDogXCJzeW50aGV0aWNcIjtcclxuICAgICAgICAgICAgZXZlbnQuY29udGV4dHMucmVqZWN0aW9uX2V2ZW50ID0gcmVqZWN0aW9uO1xyXG4gICAgICAgICAgfVxyXG4gICAgICAgIH1cclxuICAgICAgfSBjYXRjaCB7XHJcbiAgICAgICAgLy8gRGlhZ25vc3RpY3MgbXVzdCBub3QgcmVwbGFjZSBvciBkaXNjYXJkIHRoZSBvcmlnaW5hbCBlcnJvci5cclxuICAgICAgfVxyXG4gICAgICByZXR1cm4gZXZlbnQ7XHJcbiAgICB9LFxyXG4gICAgaW50ZWdyYXRpb25zOiAoZGVmYXVsdHMpID0+XHJcbiAgICAgIGRlZmF1bHRzLmZpbHRlcihcclxuICAgICAgICAoaW50ZWdyYXRpb24pID0+IGludGVncmF0aW9uLm5hbWUgIT09IFwiSHR0cENvbnRleHRcIiAmJiBpbnRlZ3JhdGlvbi5uYW1lICE9PSBcIkJyZWFkY3J1bWJzXCIsXHJcbiAgICAgICksXHJcbiAgfTtcclxufVxyXG4iXX0=
