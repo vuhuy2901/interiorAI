@@ -51,8 +51,8 @@ export function createStudioCameraController(
   let previousTime: number | null = null
   let pointer: { id: number; x: number; y: number; distance: number; button: number } | null = null
 
-  const fit = (bounds = sceneBounds) => {
-    const direction = mode === 'top' ? TOP_DIRECTION : camera.position.clone().sub(controls.target).normalize()
+  const fit = (bounds = sceneBounds, forcedDirection?: THREE.Vector3) => {
+    const direction = forcedDirection ?? (mode === 'top' ? TOP_DIRECTION : camera.position.clone().sub(controls.target).normalize())
     controls.target.copy(fitPerspectiveCamera(camera, bounds, direction.lengthSq() ? direction : DEFAULT_DIRECTION))
     controls.update()
     render()
@@ -135,6 +135,7 @@ export function createStudioCameraController(
     fit,
     setMode(nextMode: StudioCameraMode, reset = false) {
       if (mode === nextMode && !reset) return
+      const previousMode = mode
       stopWalk()
       mode = nextMode
       controls.enabled = visible && mode !== 'walk'
@@ -146,7 +147,7 @@ export function createStudioCameraController(
         camera.lookAt(center.x, camera.position.y, sceneBounds.min.z)
         render()
       } else {
-        fit()
+        fit(sceneBounds, nextMode === 'orbit' && (reset || previousMode === 'top') ? DEFAULT_DIRECTION : undefined)
       }
     },
     setVisible(nextVisible: boolean) {

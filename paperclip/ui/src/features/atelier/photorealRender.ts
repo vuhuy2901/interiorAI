@@ -4,6 +4,12 @@ export type RenderQualityId = "draft" | "high" | "ultra";
 export type CameraSnapshot = {
   eye_m: [number, number, number];
   target_m: [number, number, number];
+  up_m: [number, number, number];
+  projection: "perspective";
+  vertical_fov_deg: number;
+  aspect_ratio: number;
+  near_m: number;
+  far_m: number;
   lens_mm: number;
   hide_ceiling: boolean;
 };
@@ -21,7 +27,8 @@ export const RENDER_QUALITIES = [
 ];
 
 export function readCurrentCameraSnapshot(): CameraSnapshot | null {
-  const framing = (window as any).__ATELIER_VIEWER_STATE__?.cameraFraming;
+  const viewerState = (window as any).__ATELIER_VIEWER_STATE__;
+  const framing = viewerState?.cameraFraming;
   const position = framing?.position;
   const target = framing?.target;
   if (!Array.isArray(position) || position.length !== 3 || !Array.isArray(target) || target.length !== 3) {
@@ -31,13 +38,21 @@ export function readCurrentCameraSnapshot(): CameraSnapshot | null {
   if (values.some((value) => !Number.isFinite(value))) return null;
 
   const verticalFovDeg = Number(framing.verticalFovDeg || 45);
+  const viewportAspect = Number(framing.aspectRatio || window.innerWidth / Math.max(1, window.innerHeight));
   const lensMm = 32 / (2 * Math.tan((Math.max(10, Math.min(100, verticalFovDeg)) * Math.PI) / 360));
-  // Three.js: X horizontal, Y vertical, Z depth. Blender bridge: X/Y horizontal, Z vertical.
+  // glTF/Three.js is Y-up. Blender's glTF importer maps depth with the opposite
+  // sign: (x, y, z) -> (x, -z, y). Keep the browser and Cycles views aligned.
   return {
-    eye_m: [values[0], values[2], values[1]],
-    target_m: [values[3], values[5], values[4]],
+    eye_m: [values[0], -values[2], values[1]],
+    target_m: [values[3], -values[5], values[4]],
+    up_m: [0, 0, 1],
+    projection: "perspective",
+    vertical_fov_deg: Number(Math.max(10, Math.min(100, verticalFovDeg)).toFixed(2)),
+    aspect_ratio: Number(Math.max(0.2, Math.min(5, viewportAspect)).toFixed(4)),
+    near_m: Number(Math.max(0.001, Number(framing.nearM || 0.01)).toFixed(4)),
+    far_m: Number(Math.max(10, Number(framing.farM || 500)).toFixed(2)),
     lens_mm: Number(Math.max(12, Math.min(120, lensMm)).toFixed(2)),
-    hide_ceiling: false,
+    hide_ceiling: viewerState?.ceilingVisible === false,
   };
 }
 

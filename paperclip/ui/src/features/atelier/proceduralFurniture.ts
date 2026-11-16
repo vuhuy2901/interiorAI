@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 
 type FurnitureDimensions = {
   width: number
@@ -64,14 +65,11 @@ export function createProceduralFurniture(options: BuildOptions): THREE.Group {
     pickable = true,
     radius = 0.012,
   ) => {
-    const geometry = new THREE.BoxGeometry(
-      Math.max(0.008, size[0]),
-      Math.max(0.008, size[1]),
-      Math.max(0.008, size[2]),
-      radius > 0 && !lowSpecMode ? 2 : 1,
-      radius > 0 && !lowSpecMode ? 2 : 1,
-      radius > 0 && !lowSpecMode ? 2 : 1,
-    )
+    const safeSize = size.map(value => Math.max(0.008, value)) as [number, number, number]
+    const safeRadius = Math.min(radius, Math.min(...safeSize) * 0.22)
+    const geometry = safeRadius > 0 && !lowSpecMode
+      ? new RoundedBoxGeometry(safeSize[0], safeSize[1], safeSize[2], 3, safeRadius)
+      : new THREE.BoxGeometry(safeSize[0], safeSize[1], safeSize[2])
     const mesh = new THREE.Mesh(geometry, material)
     mesh.position.set(...position)
     mesh.castShadow = !lowSpecMode

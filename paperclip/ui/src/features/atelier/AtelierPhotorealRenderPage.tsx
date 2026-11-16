@@ -20,6 +20,7 @@ type RenderJob = {
   revision: number;
   status: string;
   camera_id?: string;
+  camera_snapshot?: Record<string, unknown> | null;
   mode?: string;
   resolution?: [number, number];
   render_url?: string;
@@ -48,9 +49,9 @@ async function renderWebglPreview(sourceUrl: string, width: number, height: numb
   canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Trình duyệt không hỗ trợ xuất ảnh Canvas");
-  context.fillStyle = "#111418";
-  context.fillRect(0, 0, width, height);
-  const scale = Math.min(width / source.naturalWidth, height / source.naturalHeight);
+  // Cover the output instead of letterboxing it. The previous contain strategy
+  // introduced dark bands that users reasonably interpreted as broken walls.
+  const scale = Math.max(width / source.naturalWidth, height / source.naturalHeight);
   const drawWidth = source.naturalWidth * scale;
   const drawHeight = source.naturalHeight * scale;
   context.imageSmoothingEnabled = true;
@@ -67,7 +68,7 @@ export function AtelierPhotorealRenderPage() {
   const [capabilities, setCapabilities] = useState<any>(null);
   const [capabilityError, setCapabilityError] = useState("");
   const [job, setJob] = useState<RenderJob | null>(null);
-  const [camera, setCamera] = useState("current_view");
+  const [camera, setCamera] = useState("wide");
   const [resolution, setResolution] = useState<RenderResolutionId>("full-hd");
   const [quality, setQuality] = useState<RenderQualityId>("high");
   const [controlsOpen, setControlsOpen] = useState(true);
@@ -104,6 +105,10 @@ export function AtelierPhotorealRenderPage() {
   }, []);
 
   useEffect(() => {
+    if (capabilities && !capabilities.available) setCamera("current_view");
+  }, [capabilities]);
+
+  useEffect(() => {
     if (!project?.project_id) return;
     let cancelled = false;
     const loadLatest = async () => {
@@ -111,7 +116,10 @@ export function AtelierPhotorealRenderPage() {
         const response = await fetch(`${API_BASE}/projects/${project.project_id}/render-gallery`);
         const body = await response.json();
         const latest = body?.gallery?.[0];
-        if (!cancelled && response.ok && latest) setJob(latest);
+        if (!cancelled && response.ok && latest) {
+          setJob(latest);
+          setCamera(latest.camera_snapshot ? "current_view" : (latest.camera_id || "wide"));
+        }
       } catch {
         // Gallery is optional; capability and render errors are shown separately.
       }
@@ -142,6 +150,9 @@ export function AtelierPhotorealRenderPage() {
     try {
       if (!blenderAvailable) {
         if (!cameraPreview) throw new Error("Hãy quay lại thiết kế 3D, chọn góc nhìn rồi mở Render chân thực lại.");
+        if (camera !== "current_view") {
+          throw new Error("WebGL fallback chỉ xuất được góc đã xem trước. Hãy chọn “Góc nhìn đang chọn”, hoặc bật Blender Cycles để dựng camera nội thất tầm mắt.");
+        }
         setFallbackRendering(true);
         const selectedResolution = RENDER_RESOLUTIONS.find((item) => item.id === resolution) ?? RENDER_RESOLUTIONS[1];
         setFallbackResult(await renderWebglPreview(cameraPreview, selectedResolution.width, selectedResolution.height));
@@ -235,7 +246,7 @@ export function AtelierPhotorealRenderPage() {
               className="photoreal-result-image"
             />
           </div>
-        ) : cameraPreview ? (
+        ) : camera === "current_view" && cameraPreview ? (
           <div className="photoreal-image-scroll photoreal-preview-wrap">
             <img src={cameraPreview} alt="Xem trước góc camera từ thiết kế 3D" className="photoreal-result-image photoreal-preview-image" />
             <span className="photoreal-preview-badge">Xem trước WebGL · ảnh cuối dùng Blender Cycles</span>
@@ -275,11 +286,23 @@ export function AtelierPhotorealRenderPage() {
             <div className="photoreal-controls-body">
               <label>
                 <span>Góc camera</span>
-                <select value={camera} onChange={(event) => setCamera(event.target.value)} disabled={active || !blenderAvailable}>
+                <select
+                  value={camera}
+                  onChange={(event) => {
+                    setCamera(event.target.value);
+                    // A completed image belongs to one immutable camera job.
+                    // Never display it under another camera selection.
+                    setJob(null);
+                    setFallbackResult("");
+                    setError("");
+                    setZoom(1);
+                  }}
+                  disabled={active || !blenderAvailable}
+                >
+                  <option value="wide">Góc rộng toàn phòng (khuyến nghị)</option>
+                  <option value="eye_level">Tầm mắt tập trung nội thất</option>
                   <option value="current_view">Góc nhìn đang chọn</option>
-                  <option value="eye_level">Tầm mắt</option>
                   <option value="corner">Góc phòng</option>
-                  <option value="wide">Góc rộng</option>
                   <option value="top">Nhìn từ trên</option>
                 </select>
               </label>
@@ -300,6 +323,13 @@ export function AtelierPhotorealRenderPage() {
                 <div>
                   <strong>{blenderAvailable ? "Blender Cycles sẵn sàng" : fallbackAvailable ? "WebGL HDRI fallback sẵn sàng" : capabilities ? "Chưa kết nối bộ máy render" : "Đang kiểm tra bộ máy render"}</strong>
                   <span>{blenderAvailable ? "Snapshot khóa đúng revision trước khi gửi" : fallbackAvailable ? "Xuất đúng khung camera hiện tại; Blender đang bị Windows Application Control chặn" : engineReason || "Vui lòng chờ kiểm tra cấu hình máy chủ"}</span>
+                  {blenderAvailable ? (
+                    <span>
+                      AI enhancement: {capabilities?.ai_enhancement?.available
+                        ? "ComfyUI + workflow đã kết nối"
+                        : `chưa kết nối (${capabilities?.ai_enhancement?.message || "thiếu cấu hình"})`}
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <button

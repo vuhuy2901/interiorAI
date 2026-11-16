@@ -16,6 +16,7 @@ import {
   Sliders,
   X,
   RefreshCw,
+  PackageOpen,
 } from 'lucide-react'
 
 interface ObjectInspectorProps {
@@ -33,6 +34,12 @@ interface ObjectInspectorProps {
   onCreatePlacementProposal?: (objectId: string, option: any) => Promise<any>
   onClose?: () => void
   savingScene?: boolean
+  externalSceneObjects?: Array<{
+    id: string
+    name: string
+    parentName: string
+    dimensionsMm: [number, number, number]
+  }>
 }
 
 const formatVnd = (v?: number) => `${Math.round(v || 0).toLocaleString('vi-VN')} ₫`
@@ -53,6 +60,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
   onCreatePlacementProposal,
   onClose,
   savingScene = false,
+  externalSceneObjects = [],
 }) => {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     selected: true,
@@ -72,6 +80,8 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
 
   const furniture = project?.furniture_instances || []
   const walls = project?.walls || []
+  const externalScene = project?.external_scene || null
+  const constructionObjects = externalScene ? externalSceneObjects : furniture
 
   const selectedFurn = furniture.find((f: any) => f.id === selectedEntityId)
   const selectedWall = walls.find((w: any) => w.id === selectedEntityId)
@@ -186,7 +196,16 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
 
           {openSections.selected && (
             <div className="inspector-section-body">
-              {selectedFurn ? (
+              {externalScene ? (
+                <div className="surface-subtle" data-testid="external-scene-summary" style={{ fontSize: 12, lineHeight: 1.55 }}>
+                  <div style={{ fontWeight: 650, marginBottom: 4 }}>{externalScene.name}</div>
+                  <div className="mono">{externalScene.mesh_count} mesh · {externalScene.material_count} vật liệu · {externalScene.texture_count} texture</div>
+                  <div className="mono">{externalScene.bounds_size_m.map((value: number) => value.toFixed(2)).join(' × ')} m</div>
+                  <div style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
+                    Cảnh GLB nguồn đang thay thế toàn bộ phòng cũ. Nhấp một mesh trong viewport để làm nổi bật đối tượng.
+                  </div>
+                </div>
+              ) : selectedFurn ? (
                 <>
                   <div className="surface-subtle">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
@@ -415,7 +434,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
           )}
         </div>
 
-        <div className="inspector-section" data-testid="ai-material-guidance">
+        {!externalScene && <div className="inspector-section" data-testid="ai-material-guidance">
           <div className="inspector-section-body" style={{ gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
               <Palette size={13} style={{ color: 'var(--accent)' }} />
@@ -428,7 +447,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
               Mở AI Copilot
             </button>
           </div>
-        </div>
+        </div>}
 
         {selectedFurn && (
           <div className="inspector-section" data-testid="smart-fit-editor">
@@ -491,24 +510,27 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
         )}
 
         {/* 2. FURNITURE LIST IN SCENE (Section 11) */}
-        <div className="inspector-section">
+        <div className="inspector-section" data-testid="construction-furniture-list">
           <button className="inspector-section-header" onClick={() => toggleSection('furnitureList')}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Layers size={13} style={{ color: 'var(--accent)' }} />
-              Danh Sách Nội Thất ({furniture.length})
+              Đồ vật trong cảnh ({constructionObjects.length})
             </span>
             {openSections.furnitureList ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
 
           {openSections.furnitureList && (
             <div className="inspector-section-body" style={{ gap: 6 }}>
-              {furniture.map((f: any) => {
+              {constructionObjects.map((f: any) => {
                 const isSel = selectedEntityId === f.id
+                const dimensions = f.dimensionsMm || [f.width_mm, f.depth_mm, f.height_mm]
                 return (
                   <div
                     key={f.id}
                     data-testid={`furniture-item-${f.id}`}
-                    onClick={() => onSelectEntity(f.id)}
+                    onClick={() => {
+                      onSelectEntity(f.id)
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -538,7 +560,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
                         color: '#171717',
                       }}
                     >
-                      {f.category.slice(0, 2).toUpperCase()}
+                      {(f.category || '3D').slice(0, 2).toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
@@ -549,7 +571,7 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                         }}
-                        title={f.name}
+                        title={f.parentName ? `${f.name} · ${f.parentName}` : f.name}
                       >
                         {f.name}
                       </div>
@@ -564,14 +586,18 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
                         }}
                       >
                         <span>
-                          {Math.round(f.width_mm)}×{Math.round(f.depth_mm)}mm
+                          {Math.round(dimensions[0] || 0)}×{Math.round(dimensions[1] || 0)}×{Math.round(dimensions[2] || 0)}mm
                         </span>
-                        <span>{formatFurniturePrice(f.price_vnd)}</span>
+                        <span>{externalScene ? 'GLB' : formatFurniturePrice(f.price_vnd)}</span>
                       </div>
                     </div>
+                    <PackageOpen size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                   </div>
                 )
               })}
+              {constructionObjects.length === 0 && (
+                <div className="text-caption">Đang đọc danh sách mesh trực tiếp từ file GLB...</div>
+              )}
             </div>
           )}
         </div>

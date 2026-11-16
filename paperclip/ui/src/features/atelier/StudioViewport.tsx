@@ -53,6 +53,12 @@ interface StudioViewportProps {
   deliveryReplayTrigger?: number
   cameraCommand?: { id: number; type: 'fit' | 'focus' | 'reset' }
   cutawayEnabled?: boolean
+  onExternalSceneObjects?: (objects: Array<{
+    id: string
+    name: string
+    parentName: string
+    dimensionsMm: [number, number, number]
+  }>) => void
   visibleLayers?: {
     dimensions: boolean
     doorSwings: boolean
@@ -135,6 +141,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     deliveryReplayTrigger = 0,
     cameraCommand,
     cutawayEnabled = false,
+    onExternalSceneObjects,
     visibleLayers = {
       dimensions: true,
       doorSwings: true,
@@ -152,6 +159,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     const [hdriLoaded, setHdriLoaded] = useState<boolean>(false)
     const [splitPercent, setSplitPercent] = useState(50)
     const deliveryPausedRef = useRef(false)
+    const lastHandledDeliveryTriggerRef = useRef(0)
     const [deliveryPaused, setDeliveryPaused] = useState(false)
     const [deliveryStatus, setDeliveryStatus] = useState<{
       active: boolean
@@ -170,6 +178,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     })
 
     const room = project?.rooms?.[0]
+    const externalScene = project?.external_scene || null
+    const hasExternalScene = Boolean(externalScene?.file_url)
     const walls = project?.walls || []
     const doors = project?.openings || []
     const windows = project?.windows || []
@@ -264,6 +274,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     // ==========================================================================
     useEffect(() => {
       if (lowSpecMode || !mountRef.current) return
+      const shouldReplayDelivery = deliveryReplayTrigger > lastHandledDeliveryTriggerRef.current
+      if (shouldReplayDelivery) lastHandledDeliveryTriggerRef.current = deliveryReplayTrigger
       const container = mountRef.current
       const width = container.clientWidth || 720
       const height = container.clientHeight || 520
@@ -347,6 +359,9 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
               ]
             : [Number(cx.toFixed(3)), 0.85, Number(cz.toFixed(3))],
           verticalFovDeg: Number(camera.fov.toFixed(2)),
+          aspectRatio: Number(camera.aspect.toFixed(4)),
+          nearM: Number(camera.near.toFixed(4)),
+          farM: Number(camera.far.toFixed(2)),
           roomExtentM: [roomW / 1000, roomD / 1000, roomHeightMm / 1000],
         }
       }
@@ -426,7 +441,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         })
       }
 
-      if (visibleLayers.grid) {
+      if (visibleLayers.grid && !hasExternalScene) {
         const grid = new THREE.GridHelper(
           16,
           32,
@@ -441,6 +456,10 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       const gltfLoader = new GLTFLoader()
       const objectRoots = new Map<string, THREE.Object3D>()
       const furnitureGroups = new Map<string, THREE.Group>()
+      const canonicalRoot = new THREE.Group()
+      canonicalRoot.name = 'ATELIER_CANONICAL_SCENE'
+      canonicalRoot.visible = !hasExternalScene
+      scene.add(canonicalRoot)
       const materialDefinitions = new Map(pbrMaterials.map((material) => [material.material_id, material]))
       const initialMetrics = ((window as any).__ATELIER_MATERIAL_METRICS__ ||= {})
       initialMetrics.glbLoadCount = Number.isFinite(initialMetrics.glbLoadCount) ? initialMetrics.glbLoadCount : 0
@@ -475,7 +494,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       floorMesh.position.set(cx, -0.04, cz)
       floorMesh.receiveShadow = true
       floorMesh.name = 'FLOOR_SLAB_MAIN'
-      scene.add(floorMesh)
+      canonicalRoot.add(floorMesh)
 
       // 1B. Ceiling Slab with Downlights (G3 Ceiling Visibility Toggle)
       const ceilingGroup = new THREE.Group()
@@ -512,7 +531,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         ceilingGroup.add(downlight)
       })
       ceilingGroup.visible = ceilingVisible
-      scene.add(ceilingGroup)
+      canonicalRoot.add(ceilingGroup)
 
       // 2. Walls (with Face A / Accent Wall color & Cutaway support)
       cutawayWallsRef.current = []
@@ -548,7 +567,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         wallMesh.castShadow = !isFrontCutaway
         wallMesh.receiveShadow = true
         wallMesh.userData = { entityId: w.id }
-        scene.add(wallMesh)
+        canonicalRoot.add(wallMesh)
         cutawayWallsRef.current.push({
           mesh: wallMesh,
           fullHeight: rawH,
@@ -568,7 +587,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           const wtMesh = new THREE.Mesh(wtGeo, wtMat)
           wtMesh.position.set((x0 + x1) / 2, wtH / 2, (z0 + z1) / 2)
           wtMesh.rotation.y = -angle
-          scene.add(wtMesh)
+          canonicalRoot.add(wtMesh)
         }
       })
 
@@ -587,7 +606,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         })
         const winMesh = new THREE.Mesh(winGeo, winMat)
         winMesh.position.set(wx, ((win.sill_height_mm || 900) + (win.height_mm || 1400) / 2) / 1000, wz)
-        scene.add(winMesh)
+        canonicalRoot.add(winMesh)
       })
 
       // 4. Furniture 3D Models + Contact AO Grounding + Selection Outline Box
@@ -701,8 +720,177 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         group.position.set((f.x_mm ?? 2000) / 1000, (f.z_mm ?? 0) / 1000, (f.y_mm ?? 2500) / 1000)
         group.rotation.y = -((f.rotation_deg || 0) * Math.PI) / 180
         furnitureGroups.set(f.id, group)
-        scene.add(group)
+        canonicalRoot.add(group)
       })
+
+      // A whole-scene GLB is authoritative: keep its hierarchy, transforms,
+      // UVs and materials intact and hide all generated room/furniture meshes.
+      // Only the configured root transform is applied, uniformly, for a
+      // reproducible coordinate-system adjustment.
+      if (hasExternalScene) {
+        gltfLoader.load(
+          externalScene.file_url,
+          (gltf) => {
+            if (disposed) return
+            const sourceRoot = gltf.scene
+            sourceRoot.name = externalScene.name || 'EXTERNAL_SOURCE_SCENE'
+            const transform = externalScene.root_transform || {}
+            const translation = transform.translation || [0, 0, 0]
+            const rotation = transform.rotation_euler_deg || [0, 0, 0]
+            const scale = transform.scale || [1, 1, 1]
+            sourceRoot.position.set(translation[0] || 0, translation[1] || 0, translation[2] || 0)
+            sourceRoot.rotation.set(
+              THREE.MathUtils.degToRad(rotation[0] || 0),
+              THREE.MathUtils.degToRad(rotation[1] || 0),
+              THREE.MathUtils.degToRad(rotation[2] || 0),
+            )
+            sourceRoot.scale.set(scale[0] ?? 1, scale[1] ?? 1, scale[2] ?? 1)
+            sourceRoot.updateMatrixWorld(true)
+            let meshIndex = 0
+            const externalObjects: Array<{
+              id: string
+              name: string
+              parentName: string
+              dimensionsMm: [number, number, number]
+            }> = []
+            sourceRoot.traverse((node) => {
+              if (!(node as THREE.Mesh).isMesh) return
+              const mesh = node as THREE.Mesh
+              const stableId = `glb:${meshIndex}:${mesh.name || 'mesh'}`
+              meshIndex += 1
+              mesh.userData = { ...mesh.userData, entityId: stableId, sourceSceneAssetId: externalScene.asset_id }
+              mesh.castShadow = true
+              mesh.receiveShadow = true
+              pickableMeshes.push(mesh)
+              objectRoots.set(stableId, mesh)
+              const meshSize = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3())
+              externalObjects.push({
+                id: stableId,
+                name: mesh.name || `Mesh ${meshIndex}`,
+                parentName: mesh.parent?.name || '',
+                dimensionsMm: [meshSize.x * 1000, meshSize.z * 1000, meshSize.y * 1000],
+              })
+              if (stableId === selectedEntityId) {
+                const highlight = new THREE.BoxHelper(mesh, 0x14b8a6)
+                highlight.name = 'EXTERNAL_SCENE_SELECTION'
+                sourceRoot.add(highlight)
+              }
+            })
+            scene.add(sourceRoot)
+            const sourceBounds = new THREE.Box3().setFromObject(sourceRoot)
+            const sourceSize = sourceBounds.getSize(new THREE.Vector3())
+            const viewerState = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
+            viewerState.externalScene = {
+              assetId: externalScene.asset_id,
+              meshCount: meshIndex,
+              boundsMin: sourceBounds.min.toArray(),
+              boundsMax: sourceBounds.max.toArray(),
+              boundsSize: sourceSize.toArray(),
+              rootTransform: transform,
+            }
+            camera.near = Math.max(0.01, sourceSize.length() / 5000)
+            camera.far = Math.max(100, sourceSize.length() * 20)
+            camera.updateProjectionMatrix()
+            cameraControllerRef.current?.fit(sourceBounds)
+            onExternalSceneObjects?.(externalObjects)
+
+            const selectedExternalId = selectedEntityId?.startsWith('glb:') ? selectedEntityId : null
+            const selectedExternalMesh = selectedExternalId
+              ? objectRoots.get(selectedExternalId) as THREE.Mesh | undefined
+              : undefined
+            if (shouldReplayDelivery && selectedExternalMesh) {
+              const selectedBounds = new THREE.Box3().setFromObject(selectedExternalMesh)
+              const selectedSize = selectedBounds.getSize(new THREE.Vector3())
+              const selectedCenter = selectedBounds.getCenter(new THREE.Vector3())
+              const groundY = selectedBounds.min.y
+              const target = new THREE.Vector3(selectedCenter.x, groundY, selectedCenter.z)
+              const candidates = [
+                new THREE.Vector3(sourceBounds.min.x + 0.6, groundY, target.z),
+                new THREE.Vector3(sourceBounds.max.x - 0.6, groundY, target.z),
+                new THREE.Vector3(target.x, groundY, sourceBounds.min.z + 0.6),
+                new THREE.Vector3(target.x, groundY, sourceBounds.max.z - 0.6),
+              ]
+              const entry = candidates.sort((a, b) => a.distanceToSquared(target) - b.distanceToSquared(target))[0]
+              const deliveryObject = {
+                id: selectedExternalId!,
+                name: selectedExternalMesh.name || 'Đồ vật GLB',
+                width_mm: selectedSize.x * 1000,
+                depth_mm: selectedSize.z * 1000,
+                height_mm: selectedSize.y * 1000,
+              }
+              const worker = createDeliveryWorker(deliveryObject)
+              worker.root.position.copy(entry)
+              scene.add(worker.root)
+              selectedExternalMesh.visible = false
+              const selectionHighlight = sourceRoot.getObjectByName('EXTERNAL_SCENE_SELECTION')
+              if (selectionHighlight) selectionHighlight.visible = false
+              const marker = new THREE.Mesh(
+                new THREE.RingGeometry(0.28, 0.38, 32),
+                new THREE.MeshBasicMaterial({ color: 0x14b8a6, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
+              )
+              marker.rotation.x = -Math.PI / 2
+              marker.position.copy(target).setY(groundY + 0.018)
+              scene.add(marker)
+
+              // Construction playback keeps the whole imported scene visible.
+              cameraController.fit(sourceBounds)
+              deliveryPausedRef.current = false
+              setDeliveryPaused(false)
+              setDeliveryStatus({ active: true, phase: 'moving', progress: 0, itemName: deliveryObject.name })
+              let startedAt = performance.now()
+              const duration = Math.max(6500, entry.distanceTo(target) * 850)
+              const animateExternalDelivery = (now: number) => {
+                if (disposed) return
+                if (deliveryPausedRef.current) {
+                  startedAt += 16
+                  deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
+                  return
+                }
+                const progress = Math.min(1, (now - startedAt) / duration)
+                let phase: 'moving' | 'placing' | 'returning' | 'complete' = 'moving'
+                let moving = true
+                if (progress < 0.58) {
+                  const t = THREE.MathUtils.smoothstep(progress / 0.58, 0, 1)
+                  worker.root.position.lerpVectors(entry, target, t)
+                  worker.root.lookAt(target.x, groundY, target.z)
+                } else if (progress < 0.72) {
+                  phase = 'placing'
+                  moving = false
+                  worker.root.position.copy(target)
+                  if (progress > 0.66) {
+                    worker.cargo.visible = false
+                    selectedExternalMesh.visible = true
+                  }
+                } else if (progress < 1) {
+                  phase = 'returning'
+                  const t = THREE.MathUtils.smoothstep((progress - 0.72) / 0.28, 0, 1)
+                  worker.root.position.lerpVectors(target, entry, t)
+                  worker.root.lookAt(entry.x, groundY, entry.z)
+                  ;(marker.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 * (1 - t))
+                } else {
+                  phase = 'complete'
+                  moving = false
+                  selectedExternalMesh.visible = true
+                  scene.remove(worker.root, marker)
+                }
+                applyWalkCycle(worker, (now - startedAt) / 1000, moving)
+                const uiProgress = Math.round(progress * 100)
+                setDeliveryStatus({ active: phase !== 'complete', phase, progress: uiProgress, itemName: deliveryObject.name })
+                renderScene()
+                if (phase !== 'complete') deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
+              }
+              deliveryAnimationFrame = requestAnimationFrame(animateExternalDelivery)
+            }
+            renderScene()
+          },
+          undefined,
+          (error) => {
+            console.error(`Không thể tải whole-scene GLB ${externalScene.asset_id}`, error)
+            const viewerState = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
+            viewerState.externalSceneError = String(error)
+          },
+        )
+      }
 
       const onMaterialPreview = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -770,7 +958,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       const replayItem = selectedEntityId
         ? furniture.find((item: any) => item.id === selectedEntityId)
         : furniture[furniture.length - 1]
-      const deliveryItem = deliveryReplayTrigger > 0 ? replayItem : previousSnapshot.length ? changedFurniture.at(-1) : null
+      const deliveryItem = shouldReplayDelivery ? replayItem : previousSnapshot.length ? changedFurniture.at(-1) : null
 
       if (deliveryItem && viewMode !== '2d') {
         const targetGroup = furnitureGroups.get(deliveryItem.id)
@@ -798,6 +986,11 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           marker.rotation.x = -Math.PI / 2
           marker.position.copy(target).setY(0.018)
           scene.add(marker)
+
+          // A full imported GLB can be much larger than the active room. Focus the
+          // camera on the delivery route so the worker is visible during playback.
+          // Keep the complete room in frame while the worker moves and installs.
+          cameraController.fit(sceneBounds)
 
           deliveryPausedRef.current = false
           setDeliveryPaused(false)
@@ -911,6 +1104,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       ceilingVisible,
       ssaoEnabled,
       deliveryReplayTrigger,
+      selectedEntityId,
     ])
 
     useEffect(() => {
@@ -1002,7 +1196,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: viewMode === 'split' && !lowSpecMode ? `${splitPercent}% ${100 - splitPercent}%` : '1fr',
+          gridTemplateColumns: viewMode === 'split' && !lowSpecMode && !hasExternalScene ? `${splitPercent}% ${100 - splitPercent}%` : '1fr',
           width: '100%',
           height: '100%',
           overflow: 'hidden',
@@ -1010,7 +1204,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         }}
       >
         {/* 2D CAD Architectural Plan Canvas */}
-        {(viewMode === '2d' || viewMode === 'split' || lowSpecMode) && (
+        {!hasExternalScene && (viewMode === '2d' || viewMode === 'split' || lowSpecMode) && (
           <div
             style={{
               position: 'relative',
@@ -1250,7 +1444,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           </div>
         )}
 
-        {viewMode === 'split' && !lowSpecMode && (
+        {viewMode === 'split' && !lowSpecMode && !hasExternalScene && (
           <button
             type="button"
             className="viewport-split-handle"
@@ -1269,7 +1463,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
         {/* 3D WebGL Pascal Viewer */}
         {!lowSpecMode && (
-          <div style={{ position: 'relative', width: '100%', height: '100%', display: viewMode === '2d' ? 'none' : 'flex', flexDirection: 'column' }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', display: viewMode === '2d' && !hasExternalScene ? 'none' : 'flex', flexDirection: 'column' }}>
             <div
               ref={mountRef}
               data-testid="viewport-3d-canvas"

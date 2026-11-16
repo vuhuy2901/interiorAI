@@ -57,6 +57,7 @@ export function AtelierDesignStudioPage() {
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
   const [deliveryReplayTrigger, setDeliveryReplayTrigger] = useState(0);
+  const [externalSceneObjects, setExternalSceneObjects] = useState<Array<{ id: string; name: string; parentName: string; dimensionsMm: [number, number, number] }>>([]);
   const [cameraCommand, setCameraCommand] = useState<{ id: number; type: "fit" | "focus" | "reset" }>({ id: 0, type: "fit" });
   const [cutawayEnabled, setCutawayEnabled] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -99,6 +100,9 @@ export function AtelierDesignStudioPage() {
     project?.furniture_instances?.find((item: any) => item.id === selectedEntityId) ||
     project?.walls?.find((item: any) => item.id === selectedEntityId) || null;
   const linkedIssueIdentifier = new URLSearchParams(location.search).get("issueIdentifier");
+  const selectedConstructionObject = project?.external_scene
+    ? externalSceneObjects.find((item) => item.id === selectedEntityId)
+    : project?.furniture_instances?.find((item: any) => item.id === selectedEntityId);
 
   return (
     <div className="atelier-surface-root flex h-full w-full flex-col overflow-hidden" data-theme={theme}>
@@ -148,8 +152,9 @@ export function AtelierDesignStudioPage() {
           type="button"
           className="btn btn-sm btn-soft"
           data-testid="replay-delivery"
-          disabled={!project?.furniture_instances?.length}
+          disabled={!selectedConstructionObject}
           onClick={() => {
+            if (!selectedConstructionObject) return;
             if (viewMode === "2d") setViewMode("3d");
             setDeliveryReplayTrigger((value) => value + 1);
           }}
@@ -163,13 +168,22 @@ export function AtelierDesignStudioPage() {
           data-testid="open-photoreal-render"
           disabled={!project || viewMode === "2d"}
           onClick={() => {
-            try {
-              const canvas = document.querySelector('[data-testid="viewport-3d-canvas"] canvas') as HTMLCanvasElement | null;
-              if (canvas) window.sessionStorage.setItem("atelier.render.preview", canvas.toDataURL("image/jpeg", 0.86));
-            } catch {
-              // Preview capture is optional; the immutable scene/camera snapshot remains authoritative.
+            const captureAndOpen = () => {
+              try {
+                const canvas = document.querySelector('[data-testid="viewport-3d-canvas"] canvas') as HTMLCanvasElement | null;
+                if (canvas) window.sessionStorage.setItem("atelier.render.preview", canvas.toDataURL("image/jpeg", 0.92));
+              } catch {
+                // Preview capture is optional; the immutable scene/camera snapshot remains authoritative.
+              }
+              navigate("../render-compare");
+            };
+            if (cameraPreset === "top") {
+              setCameraPreset("orbit");
+              setCameraCommand((current) => ({ id: current.id + 1, type: "reset" }));
+              window.setTimeout(captureAndOpen, 350);
+            } else {
+              captureAndOpen();
             }
-            navigate("../render-compare");
           }}
           title="Kết xuất ảnh chân thực từ đúng Scene và góc camera hiện tại"
         >
@@ -186,13 +200,13 @@ export function AtelierDesignStudioPage() {
         {project ? (
           <>
             <Suspense fallback={<div className="atelier-loading-state">Đang tải Pascal 3D BIM...</div>}>
-              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} deliveryReplayTrigger={deliveryReplayTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} theme={theme} />
+              <LazyStudioViewport project={project} materialsDb={materialsCatalog} pbrMaterials={pbrMaterials} viewMode={viewMode} cameraPreset={cameraPreset} lightingPreset={lightingPreset} cameraResetTrigger={cameraResetTrigger} deliveryReplayTrigger={deliveryReplayTrigger} cameraCommand={cameraCommand} cutawayEnabled={cutawayEnabled} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} onExternalSceneObjects={setExternalSceneObjects} theme={theme} />
             </Suspense>
 
             {inspectorOpen ? (
               <div className="dock-column inspector-column">
                 <button className="dock-resize-handle" type="button" onPointerDown={(event) => beginResize("inspector", event)} aria-label="Thay đổi chiều rộng Inspector" />
-                <ObjectInspector project={project} assetLibrary={assetLibrary} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} onUpdateFurnitureField={handleUpdateFurnitureField} onCommitCanvasPosition={() => void handleSaveScene()} onAssignAsset={handleAssignAsset} onImportAsset={handleImportAssetAndAssign} onOpenAICopilot={() => setAssistantOpen(true)} onRequestSmartFit={handleRequestSmartFit} onRequestPlacementOptions={handleRequestPlacementOptions} onCreatePlacementProposal={handleCreatePlacementProposal} onClose={() => setInspectorOpen(false)} savingScene={Boolean(busyMessage?.includes("lưu"))} />
+                <ObjectInspector project={project} assetLibrary={assetLibrary} externalSceneObjects={externalSceneObjects} selectedEntityId={selectedEntityId} onSelectEntity={setSelectedEntityId} onUpdateFurnitureField={handleUpdateFurnitureField} onCommitCanvasPosition={() => void handleSaveScene()} onAssignAsset={handleAssignAsset} onImportAsset={handleImportAssetAndAssign} onOpenAICopilot={() => setAssistantOpen(true)} onRequestSmartFit={handleRequestSmartFit} onRequestPlacementOptions={handleRequestPlacementOptions} onCreatePlacementProposal={handleCreatePlacementProposal} onClose={() => setInspectorOpen(false)} savingScene={Boolean(busyMessage?.includes("lưu"))} />
               </div>
             ) : null}
 
