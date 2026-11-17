@@ -128,11 +128,19 @@ function createProceduralTileTexture(
   return tex
 }
 
+type ExternalCeilingRegion = {
+  y: number
+  minX: number
+  maxX: number
+  minZ: number
+  maxZ: number
+}
+
 function createExternalLightingLayer(
   bounds: THREE.Box3,
   lightingPreset: 'day' | 'sunset' | 'night',
   lowSpecMode: boolean,
-  ceilingLevels?: number[],
+  ceilingRegions?: ExternalCeilingRegion[],
 ) {
   const group = new THREE.Group()
   group.name = 'ATELIER_EXTERNAL_LIGHTING_LAYER'
@@ -142,13 +150,15 @@ function createExternalLightingLayer(
   const warm = lightingPreset === 'day' ? 0xfff4d6 : lightingPreset === 'sunset' ? 0xffc58f : 0xffcf83
   const glow = lightingPreset === 'night' ? 2.4 : lightingPreset === 'sunset' ? 1.15 : 0.7
   const pointIntensity = lightingPreset === 'night' ? 3.5 : lightingPreset === 'sunset' ? 1.2 : 0.45
-  const levels = ceilingLevels?.length
-    ? ceilingLevels
-    : size.y > 5.8
-      ? [min.y + size.y * 0.34, min.y + size.y * 0.72]
-      : [min.y + size.y * 0.82]
-  const xInset = Math.max(0.45, size.x * 0.16)
-  const zInset = Math.max(0.55, size.z * 0.18)
+  const regions = ceilingRegions?.length
+    ? ceilingRegions
+    : [{
+        y: size.y > 5.8 ? min.y + size.y * 0.72 : min.y + size.y * 0.82,
+        minX: min.x,
+        maxX: min.x + size.x,
+        minZ: min.z,
+        maxZ: min.z + size.z,
+      }]
 
   const addRecessed = (x: number, y: number, z: number, index: number) => {
     const housing = new THREE.Mesh(
@@ -170,21 +180,31 @@ function createExternalLightingLayer(
     group.add(light)
   }
 
-  levels.forEach((level, levelIndex) => {
+  regions.forEach((region, levelIndex) => {
+    // Keep the fixture just below the detected ceiling plane so it is recessed
+    // into the room instead of appearing as a floating dot on the roof in Orbit.
+    const ceilingOffset = Math.min(0.12, Math.max(0.04, size.y * 0.012))
+    const level = region.y - ceilingOffset
+    const regionCenterX = (region.minX + region.maxX) / 2
+    const regionCenterZ = (region.minZ + region.maxZ) / 2
+    const regionWidth = Math.max(1, region.maxX - region.minX)
+    const regionDepth = Math.max(1, region.maxZ - region.minZ)
+    const xInset = Math.min(regionWidth * 0.22, Math.max(0.45, regionWidth * 0.16))
+    const zInset = Math.min(regionDepth * 0.22, Math.max(0.55, regionDepth * 0.18))
     ;[
-      [min.x + xInset, min.z + zInset],
-      [center.x, min.z + zInset],
-      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), min.z + zInset],
-      [min.x + xInset, center.z],
-      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), center.z],
-      [min.x + xInset, Math.max(min.z + zInset, min.z + size.z - zInset)],
-      [center.x, Math.max(min.z + zInset, min.z + size.z - zInset)],
-      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), Math.max(min.z + zInset, min.z + size.z - zInset)],
+      [region.minX + xInset, region.minZ + zInset],
+      [regionCenterX, region.minZ + zInset],
+      [region.maxX - xInset, region.minZ + zInset],
+      [region.minX + xInset, regionCenterZ],
+      [region.maxX - xInset, regionCenterZ],
+      [region.minX + xInset, region.maxZ - zInset],
+      [regionCenterX, region.maxZ - zInset],
+      [region.maxX - xInset, region.maxZ - zInset],
     ].forEach(([x, z], index) => addRecessed(x, level, z, levelIndex * 8 + index))
 
     // A decorative patterned pendant in the main visual axis.
-    const pendantX = center.x
-    const pendantZ = center.z
+    const pendantX = regionCenterX
+    const pendantZ = regionCenterZ
     const stem = new THREE.Mesh(
       new THREE.CylinderGeometry(0.018, 0.018, 0.48, 12),
       new THREE.MeshStandardMaterial({ color: 0x3a3027, roughness: 0.42, metalness: 0.45 }),
@@ -216,10 +236,10 @@ function createExternalLightingLayer(
   return group
 }
 
-function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.Box3) {
+function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.Box3): ExternalCeilingRegion[] {
   const sceneSize = bounds.getSize(new THREE.Vector3())
   const footprint = Math.max(1, sceneSize.x * sceneSize.z)
-  const levels: number[] = []
+  const candidates: ExternalCeilingRegion[] = []
   sourceRoot.traverse((node) => {
     const mesh = node as THREE.Mesh
     if (!mesh.isMesh) return
@@ -227,14 +247,27 @@ function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.B
     const size = box.getSize(new THREE.Vector3())
     const horizontalFootprint = size.x * size.z
     if (size.y <= Math.max(0.22, sceneSize.y * 0.035) && horizontalFootprint >= footprint * 0.08 && box.max.y > bounds.min.y + 1.8) {
-      levels.push(box.max.y - Math.min(0.08, size.y * 0.5))
+      candidates.push({
+        y: box.max.y - Math.min(0.08, size.y * 0.5),
+        minX: box.min.x,
+        maxX: box.max.x,
+        minZ: box.min.z,
+        maxZ: box.max.z,
+      })
     }
   })
-  const clustered: number[] = []
-  levels.sort((a, b) => a - b).forEach((level) => {
+  const clustered: ExternalCeilingRegion[] = []
+  candidates.sort((a, b) => a.y - b.y).forEach((candidate) => {
     const last = clustered[clustered.length - 1]
-    if (last === undefined || Math.abs(level - last) > 0.4) clustered.push(level)
-    else clustered[clustered.length - 1] = Math.max(last, level)
+    if (!last || Math.abs(candidate.y - last.y) > 0.4) {
+      clustered.push({ ...candidate })
+      return
+    }
+    last.y = Math.max(last.y, candidate.y)
+    last.minX = Math.min(last.minX, candidate.minX)
+    last.maxX = Math.max(last.maxX, candidate.maxX)
+    last.minZ = Math.min(last.minZ, candidate.minZ)
+    last.maxZ = Math.max(last.maxZ, candidate.maxZ)
   })
   return clustered.slice(-2)
 }

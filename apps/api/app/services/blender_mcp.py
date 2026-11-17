@@ -1789,7 +1789,7 @@ fixture_metal.diffuse_color = (0.16, 0.09, 0.04, 1.0)
 fixture_metal.metallic = 0.45
 fixture_metal.roughness = 0.34
 
-ceiling_candidates = []
+ceiling_regions = []
 scene_footprint = max(1.0, float(size.x * size.y))
 for mesh in meshes:
     mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
@@ -1801,25 +1801,48 @@ for mesh in meshes:
         and float(mesh_size.x * mesh_size.y) >= scene_footprint * 0.08
         and mesh_max.z > mins.z + 1.8
     ):
-        ceiling_candidates.append(mesh_max.z - min(0.08, float(mesh_size.z) * 0.5))
-clustered_levels = []
-for level in sorted(ceiling_candidates):
-    if not clustered_levels or abs(level - clustered_levels[-1]) > 0.4:
-        clustered_levels.append(level)
+        ceiling_regions.append({
+            "z": mesh_max.z - min(0.08, float(mesh_size.z) * 0.5),
+            "min_x": mesh_min.x,
+            "max_x": mesh_max.x,
+            "min_y": mesh_min.y,
+            "max_y": mesh_max.y,
+        })
+clustered_regions = []
+for region in sorted(ceiling_regions, key=lambda item: item["z"]):
+    if not clustered_regions or abs(region["z"] - clustered_regions[-1]["z"]) > 0.4:
+        clustered_regions.append(dict(region))
     else:
-        clustered_levels[-1] = max(clustered_levels[-1], level)
-lighting_levels = [round(level, 3) for level in clustered_levels[-2:]]
-if not lighting_levels:
-    lighting_levels = [mins.z + size.z * 0.34, mins.z + size.z * 0.72] if size.z > 5.8 else [mins.z + size.z * 0.82]
-x_inset = max(0.45, size.x * 0.16)
-y_inset = max(0.55, size.y * 0.18)
+        current = clustered_regions[-1]
+        current["z"] = max(current["z"], region["z"])
+        current["min_x"] = min(current["min_x"], region["min_x"])
+        current["max_x"] = max(current["max_x"], region["max_x"])
+        current["min_y"] = min(current["min_y"], region["min_y"])
+        current["max_y"] = max(current["max_y"], region["max_y"])
+lighting_regions = clustered_regions[-2:]
+if not lighting_regions:
+    lighting_regions = [{
+        "z": mins.z + size.z * (0.34 if size.z > 5.8 else 0.82),
+        "min_x": mins.x,
+        "max_x": maxs.x,
+        "min_y": mins.y,
+        "max_y": maxs.y,
+    }]
 recessed_positions = []
-for level_index, level_z in enumerate(lighting_levels):
-    for row, y_value in enumerate((mins.y + y_inset, center.y, max(mins.y + y_inset, maxs.y - y_inset))):
-        for col, x_value in enumerate((mins.x + x_inset, center.x, max(mins.x + x_inset, maxs.x - x_inset))):
+for level_index, region in enumerate(lighting_regions):
+    region_center_x = (region["min_x"] + region["max_x"]) * 0.5
+    region_center_y = (region["min_y"] + region["max_y"]) * 0.5
+    region_width = max(1.0, region["max_x"] - region["min_x"])
+    region_depth = max(1.0, region["max_y"] - region["min_y"])
+    ceiling_offset = min(0.12, max(0.04, float(size.z) * 0.012))
+    fixture_z = region["z"] - ceiling_offset
+    x_inset = min(region_width * 0.22, max(0.45, region_width * 0.16))
+    y_inset = min(region_depth * 0.22, max(0.55, region_depth * 0.18))
+    for row, y_value in enumerate((region["min_y"] + y_inset, region_center_y, max(region["min_y"] + y_inset, region["max_y"] - y_inset))):
+        for col, x_value in enumerate((region["min_x"] + x_inset, region_center_x, max(region["min_x"] + x_inset, region["max_x"] - x_inset))):
             if row == 1 and col == 1:
                 continue
-            recessed_positions.append((x_value, y_value, level_z, level_index * 8 + row * 3 + col))
+            recessed_positions.append((x_value, y_value, fixture_z, level_index * 8 + row * 3 + col))
 
 for x_value, y_value, z_value, fixture_index in recessed_positions:
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.12, depth=0.035, location=(x_value, y_value, z_value))
@@ -1838,21 +1861,26 @@ for x_value, y_value, z_value, fixture_index in recessed_positions:
     point.location = (x_value, y_value, z_value - 0.08)
     scene.collection.objects.link(point)
 
-for level_index, level_z in enumerate(lighting_levels):
+for level_index, region in enumerate(lighting_regions):
+    region_center_x = (region["min_x"] + region["max_x"]) * 0.5
+    region_center_y = (region["min_y"] + region["max_y"]) * 0.5
+    # Recess fixtures below the ceiling plane; otherwise they are visible on
+    # the roof when the finished scene is viewed from Orbit/top-down angles.
+    level_z = region["z"] - min(0.12, max(0.04, float(size.z) * 0.012))
     pendant_z = level_z - 0.55
-    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.018, depth=0.48, location=(center.x, center.y, level_z - 0.24))
+    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.018, depth=0.48, location=(region_center_x, region_center_y, level_z - 0.24))
     stem = bpy.context.object
     stem.name = f"ATELIER_PENDANT_STEM_{level_index}"
     stem.data.materials.append(fixture_metal)
-    bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=0.34, radius2=0.18, depth=0.16, location=(center.x, center.y, pendant_z))
+    bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=0.34, radius2=0.18, depth=0.16, location=(region_center_x, region_center_y, pendant_z))
     shade = bpy.context.object
     shade.name = f"ATELIER_PENDANT_SHADE_{level_index}"
     shade.data.materials.append(fixture_metal)
-    bpy.ops.mesh.primitive_torus_add(major_radius=0.27, minor_radius=0.018, major_segments=32, location=(center.x, center.y, pendant_z))
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.27, minor_radius=0.018, major_segments=32, location=(region_center_x, region_center_y, pendant_z))
     ring = bpy.context.object
     ring.name = f"ATELIER_PENDANT_PATTERN_RING_{level_index}"
     ring.data.materials.append(fixture_metal)
-    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.19, depth=0.012, location=(center.x, center.y, pendant_z - 0.09))
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.19, depth=0.012, location=(region_center_x, region_center_y, pendant_z - 0.09))
     pendant_emitter = bpy.context.object
     pendant_emitter.name = f"ATELIER_PENDANT_EMITTER_{level_index}"
     pendant_emitter.data.materials.append(fixture_emission)
@@ -1861,7 +1889,7 @@ for level_index, level_z in enumerate(lighting_levels):
     pendant_data.color = (1.0, 0.66, 0.28)
     pendant_data.shadow_soft_size = 0.28
     pendant = bpy.data.objects.new(pendant_data.name, pendant_data)
-    pendant.location = (center.x, center.y, pendant_z - 0.12)
+    pendant.location = (region_center_x, region_center_y, pendant_z - 0.12)
     scene.collection.objects.link(pendant)
 
 for obj in meshes:
