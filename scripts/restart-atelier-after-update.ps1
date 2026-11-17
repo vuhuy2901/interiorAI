@@ -5,11 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $repo '.atelier-logs'
 $python = Join-Path $repo '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python)) {
-    $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($pythonCmd) { $python = $pythonCmd.Source }
-}
-if (-not $python -or -not (Test-Path -LiteralPath $python)) { throw 'Project Python environment is missing.' }
+if (-not (Test-Path -LiteralPath $python)) { throw 'Project Python environment is missing.' }
 
 $server = Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($server) {
