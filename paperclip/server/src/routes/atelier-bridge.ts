@@ -919,6 +919,19 @@ export async function ensureAtelierPaperclipBootstrap(db: Db): Promise<AtelierBo
 
 export function atelierBridgeRoutes(db: Db) {
   const router = Router();
+  const resolveAtelierCompanyId = async (req: Request) => {
+    const explicit = typeof req.query.company_id === "string" && req.query.company_id.trim()
+      ? req.query.company_id.trim()
+      : typeof req.body?.company_id === "string" && req.body.company_id.trim()
+        ? req.body.company_id.trim()
+        : null;
+    if (explicit) return explicit;
+    return await db.select({ id: companies.id })
+      .from(companies)
+      .where(eq(companies.issuePrefix, "ATL"))
+      .limit(1)
+      .then((rows) => rows[0]?.id ?? ATELIER_COMPANY_ID);
+  };
   const access = accessService(db);
   const projectsSvc = projectService(db);
   async function readProjectWorkflowView(companyId: string, projectId: string) {
@@ -1073,15 +1086,19 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.get("/atelier/workflow/definitions", async (req, res) => {
     assertBoardOrAgent(req);
-    const companyId = String(req.query.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
-    const versions = await listAtelierWorkflowVersions(db, companyId);
+    let versions = await listAtelierWorkflowVersions(db, companyId);
+    if (!versions.length) {
+      const fallback = await ensureAtelierCompanyWorkflowDefinition(db, companyId);
+      versions = [fallback];
+    }
     res.json({ ok: true, company_id: companyId, versions: versions.map((row) => ({ ...row, definition: upgradeLegacyAtelierDefinition(row.definition, row.version, row.name) })) });
   });
 
   router.get("/atelier/workflow/definitions/:definitionId", async (req, res) => {
     assertBoardOrAgent(req);
-    const companyId = String(req.query.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const row = (await listAtelierWorkflowVersions(db, companyId)).find((item) => item.id === req.params.definitionId);
     if (!row) { res.status(404).json({ error: "Workflow version not found" }); return; }
@@ -1092,14 +1109,38 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.get("/atelier/agent-capabilities", async (req, res) => {
     assertBoardOrAgent(req);
-    const companyId = String(req.query.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     res.json({ ok: true, company_id: companyId, agents: await listAtelierAgentCapabilities(db, companyId) });
   });
 
+  router.get("/atelier/workflow/executions", async (req, res) => {
+    assertBoardOrAgent(req);
+    const companyId = await resolveAtelierCompanyId(req);
+    assertCompanyAccess(req, companyId);
+    let versions = await listAtelierWorkflowVersions(db, companyId);
+    if (!versions.length) {
+      const fallback = await ensureAtelierCompanyWorkflowDefinition(db, companyId);
+      versions = [fallback];
+    }
+    const latestPublished = versions.find((row) => row.status === "published") ?? versions[0] ?? null;
+    const projectRows = await db.select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(eq(projects.companyId, companyId));
+    res.json({
+      ok: true,
+      company_id: companyId,
+      latest_published: latestPublished
+        ? { id: latestPublished.id, version: latestPublished.version, status: latestPublished.status, name: latestPublished.name }
+        : null,
+      scenes: projectRows.map((project) => ({ project_id: project.id, name: project.name })),
+      executions: [],
+    });
+  });
+
   router.post("/atelier/workflow/definitions/:definitionId/draft", async (req, res) => {
     assertBoard(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const actor = getActorInfo(req);
     const draft = await createAtelierWorkflowDraft(db, companyId, String(req.params.definitionId), actor.actorType === "user" ? actor.actorId : null);
@@ -1108,7 +1149,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.patch("/atelier/workflow/definitions/:definitionId", async (req, res) => {
     assertBoard(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const updated = await updateAtelierWorkflowDraft(db, companyId, String(req.params.definitionId), req.body?.definition, typeof req.body?.expected_updated_at === "string" ? req.body.expected_updated_at : undefined);
     const definition = upgradeLegacyAtelierDefinition(updated.definition, updated.version, updated.name);
@@ -1118,7 +1159,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.post("/atelier/workflow/definitions/:definitionId/validate", async (req, res) => {
     assertBoardOrAgent(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const row = (await listAtelierWorkflowVersions(db, companyId)).find((item) => item.id === req.params.definitionId);
     if (!row) { res.status(404).json({ error: "Workflow version not found" }); return; }
@@ -1128,7 +1169,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.post("/atelier/workflow/definitions/:definitionId/test", async (req, res) => {
     assertBoard(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const row = (await listAtelierWorkflowVersions(db, companyId)).find((item) => item.id === req.params.definitionId);
     if (!row) { res.status(404).json({ error: "Workflow version not found" }); return; }
@@ -1138,7 +1179,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.post("/atelier/workflow/definitions/:definitionId/publish", async (req, res) => {
     assertBoard(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const published = await publishAtelierWorkflowDraft(db, companyId, String(req.params.definitionId));
     res.json({ ok: true, workflow: { ...published, definition: upgradeLegacyAtelierDefinition(published.definition, published.version, published.name) } });
@@ -1146,7 +1187,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.post("/atelier/workflow/definitions/:definitionId/restore", async (req, res) => {
     assertBoard(req);
-    const companyId = String(req.body?.company_id || ATELIER_COMPANY_ID);
+    const companyId = await resolveAtelierCompanyId(req);
     assertCompanyAccess(req, companyId);
     const actor = getActorInfo(req);
     const draft = await createAtelierWorkflowDraft(db, companyId, String(req.params.definitionId), actor.actorType === "user" ? actor.actorId : null);
