@@ -1925,6 +1925,95 @@ for level_index, region in enumerate(lighting_regions):
     pendant.location = (region_center_x, region_center_y, pendant_z - 0.12)
     scene.collection.objects.link(pendant)
 
+# The source GLB contains an upper slab and upper-level furniture but no stair.
+# Add one architectural stair in the clear right-hand bay so both levels are
+# physically connected in the viewport and in the finished render.
+stair_slab_names = {"Cube_Material002_0", "Cube010_Material004_0"}
+stair_slab_bounds = []
+for mesh in meshes:
+    if mesh.name not in stair_slab_names:
+        continue
+    mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
+    stair_slab_bounds.append((
+        Vector([min(point[i] for point in mesh_bounds) for i in range(3)]),
+        Vector([max(point[i] for point in mesh_bounds) for i in range(3)]),
+    ))
+if stair_slab_bounds:
+    floor_bounds = []
+    for mesh in meshes:
+        if mesh.name != "Plane_Material001_0":
+            continue
+        mesh_points = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
+        floor_bounds.append(Vector([max(point[i] for point in mesh_points) for i in range(3)]))
+    ground_z = max((point.z for point in floor_bounds), default=float(mins.z))
+    upper_floor_z = max(bounds.max.z for _, bounds in stair_slab_bounds)
+    stair_height = upper_floor_z - ground_z
+    if stair_height >= 1.8:
+        stair_wood = bpy.data.materials.new("ATELIER_STAIR_WOOD")
+        stair_wood.diffuse_color = (0.38, 0.19, 0.08, 1.0)
+        stair_wood.roughness = 0.5
+        stair_riser = bpy.data.materials.new("ATELIER_STAIR_RISER")
+        stair_riser.diffuse_color = (0.22, 0.11, 0.05, 1.0)
+        stair_riser.roughness = 0.58
+        stair_rail = bpy.data.materials.new("ATELIER_STAIR_RAIL")
+        stair_rail.diffuse_color = (0.05, 0.055, 0.06, 1.0)
+        stair_rail.metallic = 0.68
+        stair_rail.roughness = 0.32
+
+        slab_min_x = min(bounds.min.x for _, bounds in stair_slab_bounds)
+        slab_max_x = max(bounds.max.x for _, bounds in stair_slab_bounds)
+        slab_max_y = max(bounds.max.y for _, bounds in stair_slab_bounds)
+        stair_width = 1.15
+        stair_count = max(11, min(15, round(stair_height / 0.2)))
+        stair_tread = 0.25
+        top_y = slab_max_y - 0.22
+        bottom_y = top_y + stair_count * stair_tread
+        stair_x = min(slab_max_x - stair_width * 0.5 - 0.35, float(maxs.x) - stair_width * 0.5 - 0.45)
+
+        def add_stair_box(name, dimensions, location, material):
+            bpy.ops.mesh.primitive_cube_add(size=1, location=location)
+            obj = bpy.context.object
+            obj.name = name
+            obj.dimensions = dimensions
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            obj.data.materials.append(material)
+
+        def add_stair_cylinder(name, start, end, radius):
+            start_vec = Vector(start)
+            end_vec = Vector(end)
+            direction = end_vec - start_vec
+            bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=radius, depth=direction.length, location=(start_vec + end_vec) * 0.5)
+            obj = bpy.context.object
+            obj.name = name
+            obj.rotation_euler = direction.to_track_quat("Z", "Y").to_euler()
+            obj.data.materials.append(stair_rail)
+
+        for index in range(stair_count):
+            height = stair_height * (index + 1) / stair_count
+            add_stair_box(
+                f"ATELIER_STAIR_STEP_{index + 1}",
+                (stair_width, stair_tread, height),
+                (stair_x, bottom_y - index * stair_tread - stair_tread * 0.5, ground_z + height * 0.5),
+                stair_wood if index % 2 == 0 else stair_riser,
+            )
+        add_stair_box("ATELIER_STAIR_TOP_LANDING", (stair_width, 0.72, 0.08), (stair_x, top_y - 0.35, upper_floor_z - 0.04), stair_wood)
+
+        for side in (-1, 1):
+            rail_x = stair_x + side * (stair_width * 0.5 - 0.08)
+            bottom_rail = (rail_x, bottom_y - stair_tread * 0.5, ground_z + stair_height / stair_count + 0.92)
+            top_rail = (rail_x, top_y + stair_tread * 0.5, upper_floor_z + 0.92)
+            add_stair_cylinder(f"ATELIER_STAIR_HANDRAIL_{'L' if side < 0 else 'R'}", bottom_rail, top_rail, 0.035)
+            for ratio in (0.0, 0.5, 1.0):
+                step_index = round((stair_count - 1) * ratio)
+                step_top = ground_z + stair_height * (step_index + 1) / stair_count
+                step_y = bottom_y - step_index * stair_tread - stair_tread * 0.5
+                add_stair_cylinder(
+                    f"ATELIER_STAIR_POST_{'L' if side < 0 else 'R'}_{step_index}",
+                    (rail_x, step_y, step_top),
+                    (rail_x, step_y, step_top + 0.92),
+                    0.026,
+                )
+
 for obj in meshes:
     obj.select_set(False)
     for slot in obj.material_slots:

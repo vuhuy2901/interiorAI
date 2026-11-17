@@ -236,6 +236,78 @@ function createExternalLightingLayer(
   return group
 }
 
+function createExternalStaircase(bounds: THREE.Box3, sourceRoot: THREE.Object3D): THREE.Group | null {
+  const slabBounds = new THREE.Box3()
+  for (const name of ['Cube_Material002_0', 'Cube010_Material004_0']) {
+    const node = sourceRoot.getObjectByName(name)
+    if (node) slabBounds.union(new THREE.Box3().setFromObject(node))
+  }
+  const floorNode = sourceRoot.getObjectByName('Plane')
+  const floorBounds = floorNode ? new THREE.Box3().setFromObject(floorNode) : null
+  if (slabBounds.isEmpty()) return null
+
+  const groundY = floorBounds?.max.y ?? bounds.min.y
+  const upperFloorY = slabBounds.max.y
+  const stairHeight = upperFloorY - groundY
+  if (stairHeight < 1.8) return null
+
+  const group = new THREE.Group()
+  group.name = 'ATELIER_EXTERNAL_STAIRCASE'
+  const width = 1.15
+  const stepCount = Math.max(11, Math.min(15, Math.round(stairHeight / 0.2)))
+  const treadDepth = 0.25
+  const topZ = slabBounds.max.z - 0.22
+  const bottomZ = topZ + stepCount * treadDepth
+  const xCenter = Math.min(slabBounds.max.x - width * 0.5 - 0.35, bounds.max.x - width * 0.5 - 0.45)
+  const wood = new THREE.MeshStandardMaterial({ color: 0x9b6a43, roughness: 0.5, metalness: 0.06 })
+  const riser = new THREE.MeshStandardMaterial({ color: 0x6d4830, roughness: 0.58, metalness: 0.04 })
+  const rail = new THREE.MeshStandardMaterial({ color: 0x292b2c, roughness: 0.32, metalness: 0.68 })
+  const addBox = (name: string, size: THREE.Vector3, position: THREE.Vector3, material: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material)
+    mesh.name = name
+    mesh.position.copy(position)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    group.add(mesh)
+  }
+  const addRailCylinder = (name: string, start: THREE.Vector3, end: THREE.Vector3, radius: number) => {
+    const direction = end.clone().sub(start)
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, direction.length(), 12), rail)
+    mesh.name = name
+    mesh.position.copy(start).add(end).multiplyScalar(0.5)
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize())
+    mesh.castShadow = true
+    group.add(mesh)
+  }
+
+  for (let index = 0; index < stepCount; index += 1) {
+    const height = stairHeight * (index + 1) / stepCount
+    addBox(
+      `STAIR_STEP_${index + 1}`,
+      new THREE.Vector3(width, height, treadDepth),
+      new THREE.Vector3(xCenter, groundY + height * 0.5, bottomZ - index * treadDepth - treadDepth * 0.5),
+      index % 2 === 0 ? wood : riser,
+    )
+  }
+  addBox('STAIR_TOP_LANDING', new THREE.Vector3(width, 0.08, 0.72), new THREE.Vector3(xCenter, upperFloorY - 0.04, topZ - 0.35), wood)
+
+  for (const side of [-1, 1]) {
+    const x = xCenter + side * (width * 0.5 - 0.08)
+    const bottomStepTop = groundY + stairHeight / stepCount
+    const topStepTop = upperFloorY
+    const bottomRail = new THREE.Vector3(x, bottomStepTop + 0.92, bottomZ - treadDepth * 0.5)
+    const topRail = new THREE.Vector3(x, topStepTop + 0.92, topZ - stepCount * treadDepth + treadDepth * 0.5)
+    addRailCylinder(`STAIR_HANDRAIL_${side < 0 ? 'L' : 'R'}`, bottomRail, topRail, 0.035)
+    for (const ratio of [0, 0.5, 1]) {
+      const stepIndex = Math.round((stepCount - 1) * ratio)
+      const stepTop = groundY + stairHeight * (stepIndex + 1) / stepCount
+      const z = bottomZ - stepIndex * treadDepth - treadDepth * 0.5
+      addRailCylinder(`STAIR_POST_${side < 0 ? 'L' : 'R'}_${stepIndex}`, new THREE.Vector3(x, stepTop, z), new THREE.Vector3(x, stepTop + 0.92, z), 0.026)
+    }
+  }
+  return group
+}
+
 function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.Box3): ExternalCeilingRegion[] {
   const sceneSize = bounds.getSize(new THREE.Vector3())
   const footprint = Math.max(1, sceneSize.x * sceneSize.z)
@@ -634,6 +706,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       const gltfLoader = new GLTFLoader()
       const objectRoots = new Map<string, THREE.Object3D>()
       let externalLightingLayer: THREE.Group | null = null
+      let externalArchitectureLayer: THREE.Group | null = null
       const furnitureGroups = new Map<string, THREE.Group>()
       const canonicalRoot = new THREE.Group()
       canonicalRoot.name = 'ATELIER_CANONICAL_SCENE'
@@ -994,6 +1067,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             const detectedCeilingLevels = detectExternalCeilingLevels(sourceRoot, sourceBounds)
             externalLightingLayer = createExternalLightingLayer(sourceBounds, lightingPreset, lowSpecMode, detectedCeilingLevels)
             scene.add(externalLightingLayer)
+            externalArchitectureLayer = createExternalStaircase(sourceBounds, sourceRoot)
+            if (externalArchitectureLayer) scene.add(externalArchitectureLayer)
             const viewerStateWithLighting = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
             viewerStateWithLighting.externalLighting = {
               enabled: true,
@@ -1237,15 +1312,17 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         environmentTarget.dispose()
         pmremGenerator.dispose()
         if (composer) composer.dispose()
-        externalLightingLayer?.traverse((node) => {
-          const object = node as THREE.Mesh | THREE.Light
-          if ((object as THREE.Mesh).isMesh) {
-            ;(object as THREE.Mesh).geometry.dispose()
-            const material = (object as THREE.Mesh).material
-            if (Array.isArray(material)) material.forEach((item) => item.dispose())
-            else material?.dispose()
-          }
-        })
+        for (const ownedGroup of [externalLightingLayer, externalArchitectureLayer]) {
+          ownedGroup?.traverse((node) => {
+            const object = node as THREE.Mesh | THREE.Light
+            if ((object as THREE.Mesh).isMesh) {
+              ;(object as THREE.Mesh).geometry.dispose()
+              const material = (object as THREE.Mesh).material
+              if (Array.isArray(material)) material.forEach((item) => item.dispose())
+              else material?.dispose()
+            }
+          })
+        }
         renderer.dispose()
         renderer.domElement.remove()
       }
