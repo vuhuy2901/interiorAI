@@ -24,6 +24,7 @@ export function AgentPanel({ selectedAgent, onClose }: AgentPanelProps) {
         <div>
           <h2>{agent.name}</h2>
           <p>{agent.roleLabel}</p>
+          <code className="agent-model-key">{agent.modelKey}</code>
         </div>
         <span className={`status-badge status-${state.status}`}>{statusLabels[state.status]}</span>
       </div>
