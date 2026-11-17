@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | IMPLEMENTING |
+| Trạng thái | CLOSED |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Codex |
 | Người chấp thuận | Người dùng yêu cầu bản đúng tại cổng 8123 |
 | Ngày tạo | 2026-11-17 |
 | Frozen at | 2026-11-17 (Asia/Bangkok) |
 | Revision bắt đầu | e422e4cc |
-| Revision cuối | Chưa có |
+| Revision cuối | f5ec40ba60053519d5f8ff50e3b59737246b4ce4 |
 
 ## 1. Bối cảnh
 
@@ -99,6 +99,7 @@ Rollback point và cách rollback: commit ngay trước cleanup `e422e4cc`; dùn
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
 | 2026-11-17 | e422e4cc | Tạo hợp đồng FROZEN và loại bỏ tracked app `ai-office/` khỏi nhánh `feat/homeco-8123` | Giữ nguyên HOME&CO 8123 |
+| 2026-11-17 | f5ec40ba | Commit và push cleanup lên `origin/feat/homeco-8123` | Fast-forward thành công |
 
 ## 13. Verification evidence
 
@@ -106,12 +107,15 @@ Rollback point và cách rollback: commit ngay trước cleanup `e422e4cc`; dùn
 |---|---|---|---|---|
 | 2026-11-17 | working tree | Kiểm tra live `http://localhost:8123/` | PASS: HTTP 200, title HOME&CO | `Invoke-WebRequest` |
 | 2026-11-17 | working tree | Kiểm tra canonical source | PASS: `ai-office-standalone/index.html` tồn tại | `Test-Path` |
+| 2026-11-17 | f5ec40ba | Kiểm tra tracked source cũ | PASS: 0 tracked file dưới `ai-office/` | `git ls-files ai-office` |
+| 2026-11-17 | f5ec40ba | Kiểm tra cổng nhầm | PASS: 0 listener trên 5173 | `Get-NetTCPConnection` |
+| 2026-11-17 | f5ec40ba | Kiểm tra remote branch | PASS: remote trỏ `f5ec40ba60053519d5f8ff50e3b59737246b4ce4` | `git ls-remote` |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả: Đang triển khai cleanup trên nhánh `feat/homeco-8123`.
+- Kết quả: Nhánh `feat/homeco-8123` có revision mới và chỉ giữ bản HOME&CO 8123 làm app canonical.
 - Hạn chế còn lại: Chưa có.
-- Việc chưa hoàn tất: Commit, push và verification cuối.
+- Việc chưa hoàn tất: Không có.
 - Rollback point: `e422e4cc`.
-- Trạng thái `CLOSED` bởi: Chưa đóng.
-- Thời điểm: Chưa có.
+- Trạng thái `CLOSED` bởi: Codex sau khi verification PASS.
+- Thời điểm: 2026-11-17 (Asia/Bangkok)
