@@ -753,8 +753,23 @@ async def execute_real_workflow_run(
                     "tax_vnd": est.tax_vnd,
                     "total_vnd": est.total_vnd,
                     "within_budget": est.within_budget,
+                    "source_kind": est.source_kind,
+                    "scene_asset_hash": est.scene_asset_hash,
+                    "revision": est.revision,
+                    "total_is_complete": est.total_is_complete,
+                    "priced_line_count": est.priced_line_count,
+                    "unpriced_line_count": est.unpriced_line_count,
+                    "price_coverage_percent": est.price_coverage_percent,
+                    "missing_item_ids": est.unpriced_item_ids,
+                    "reference_subtotal_vnd": est.reference_subtotal_vnd,
+                    "lines": [line.model_dump() for line in est.lines],
+                    "estimate_url": f"/api/v1/estimates/{project_id}",
+                    "approval_required": True,
                 }
                 output_summary = f"Tổng dự toán BOQ: {est.total_vnd:,.0f} VNĐ (Vật liệu: {est.materials_subtotal_vnd:,.0f} đ, Nội thất: {est.furniture_subtotal_vnd:,.0f} đ, Vận chuyển: {est.shipping_fee_vnd:,.0f} đ, VAT: {est.tax_vnd:,.0f} đ)"
+                if not est.total_is_complete:
+                    step_status = run_status = "WAITING_FOR_INPUT"
+                    output_summary = f"Dự toán phần có giá: {est.total_vnd:,.0f} VNĐ; còn {est.unpriced_line_count} hạng mục cần giá/khối lượng. Chưa đủ BOQ để nghiệm thu."
 
             # -------------------------------------------------------------
             # NODE 11: PROPOSAL APPROVAL GATE

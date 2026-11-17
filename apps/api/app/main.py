@@ -212,6 +212,8 @@ app = FastAPI(
 app.include_router(scene_furniture_router)
 from app.construction_history import router as construction_history_router
 app.include_router(construction_history_router)
+from app.services.scene_cost import router as scene_cost_router
+app.include_router(scene_cost_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -369,6 +371,8 @@ def api_get_project(project_id: str):
     if not proj:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     qa = analyze_scene_spatial_quality(proj)
+    if proj.external_scene:
+        proj.estimate_snapshot = calculate_project_estimate(proj)
     return {
         **proj.model_dump(),
         "spatial_qa": qa,
@@ -994,7 +998,8 @@ def api_get_estimate(project_id: str):
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     est = calculate_project_estimate(proj)
     proj.estimate_snapshot = est
-    save_project(proj, author="Cost Engine", reason="Tính toán lại dự toán", bump_revision=False)
+    if not proj.external_scene:
+        save_project(proj, author="Cost Engine", reason="Tính toán lại dự toán", bump_revision=False)
     return est.model_dump()
 
 

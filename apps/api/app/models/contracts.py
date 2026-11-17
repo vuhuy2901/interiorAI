@@ -246,6 +246,7 @@ class ExternalSceneAsset(BaseModel):
 
 
 class DesignBrief(BaseModel):
+    budget_mode: Literal['fixed', 'estimate_first'] = 'fixed'
     style: str = "Japandi"
     room_function: str = "Phòng khách sinh hoạt chung & tiếp khách"
     color_palette: List[str] = Field(default_factory=lambda: ["#F5F2EB", "#C8A986", "#B8C2B4", "#276E70"])
@@ -273,12 +274,19 @@ class EstimateLineItem(BaseModel):
     price_status: Literal["verified", "illustrative", "provided_unverified", "unknown"] = "illustrative"
     formula_explanation: str
     source_label: str = "GIÁ MINH HỌA"
+    source_note: str = ""
     source_url: Optional[str] = None
     checked_at: str = "2026-11-01"
 
 
 class CostEstimateSnapshot(BaseModel):
+    budget_mode: Literal['fixed', 'estimate_first'] = 'fixed'
     snapshot_id: str
+    scene_asset_hash: Optional[str] = None
+    source_kind: str = "canonical"
+    reference_line_count: int = 0
+    reference_subtotal_vnd: float = 0.0
+    known_subtotal_vnd: float = 0.0
     project_id: str
     revision: int
     created_at: str
@@ -297,7 +305,7 @@ class CostEstimateSnapshot(BaseModel):
     unpriced_item_ids: List[str] = Field(default_factory=list)
     price_coverage_percent: float = 100.0
     total_is_complete: bool = True
-    budget_status: Literal["within_budget", "over_budget", "incomplete"] = "within_budget"
+    budget_status: Literal["within_budget", "over_budget", "incomplete", "not_set"] = "within_budget"
     budget_limit_vnd: float = 120000000.0
     within_budget: bool = True
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."

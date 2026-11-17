@@ -125,7 +125,7 @@ export function AtelierDesignStudioPage() {
           </span>
         </div>
         <div className="atelier-header-actions">
-          <span className="atelier-estimate" title="Dự toán hiện tại">{formatVND(estimate?.grand_total_vnd)}</span>
+          <span className="atelier-estimate" title="Dự toán phần có giá, gồm giá tham khảo">{estimate?.total_is_complete === false ? 'Tạm tính: ' : ''}{estimate?.priced_line_count === 0 ? 'Chưa có giá' : formatVND(estimate?.total_vnd)}</span>
           <button type="button" className="btn btn-sm" data-testid="save-scene" onClick={() => void handleSaveScene()} disabled={Boolean(busyMessage)}><Save size={13} /> {busyMessage?.includes("lưu Scene") ? "Đang lưu" : "Lưu Scene"}</button>
           <button type="button" className="btn btn-sm" onClick={() => setRevisionDrawerOpen(true)}><History size={13} /> Rev #{project?.revision || 0}</button>
           <button type="button" className="btn btn-sm" data-testid="export-dxf" onClick={() => void handleExport("dxf")}><Download size={13} /> DXF</button>

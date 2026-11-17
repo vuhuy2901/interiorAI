@@ -37,6 +37,8 @@ import {
   assertAtelierHandoffAllowed,
   atelierHandoffTargets,
   reconcileAtelierAgentWorkflow,
+  listAtelierIssueWorkflowRoots,
+  getAtelierIssueWorkflowView,
   type AtelierAgentKey,
   type AtelierWorkflowSummary,
 } from "../services/atelier-agent-workflow.js";
@@ -900,7 +902,7 @@ export async function ensureAtelierPaperclipBootstrap(db: Db): Promise<AtelierBo
       return {
         companyId,
         companyPrefix: company.issuePrefix,
-        projectId: project.id,
+        projectId: workflow.projectId,
         chiefArchitectAgentId: chiefArchitectId ?? "",
         agentIdsByKey,
         installedSkillCount,
@@ -919,6 +921,14 @@ export function atelierBridgeRoutes(db: Db) {
   const router = Router();
   const access = accessService(db);
   const projectsSvc = projectService(db);
+  async function readProjectWorkflowView(companyId: string, projectId: string) {
+    const persisted = await db.select({id:atelierWorkflowRuns.id}).from(atelierWorkflowRuns)
+      .where(and(eq(atelierWorkflowRuns.companyId,companyId),eq(atelierWorkflowRuns.projectId,projectId))).limit(1);
+    if (persisted.length) return getAtelierProjectWorkflowView(db,companyId,projectId);
+    const issueView = await getAtelierIssueWorkflowView(db,companyId,projectId);
+    if (!issueView) throw unprocessable('Atelier workflow not found for this project');
+    return issueView;
+  }
 
   async function accessibleAtelierProject(req: Request, res: Response, projectId: string) {
     const project = await getAccessibleResource(req, res, projectsSvc.getById(projectId), "Project not found");
@@ -981,7 +991,7 @@ export function atelierBridgeRoutes(db: Db) {
       const project = await db.select({ id: projects.id, companyId: projects.companyId }).from(projects).where(eq(projects.id, requestedProjectId)).then((rows) => rows[0] ?? null);
       if (!project) { res.status(404).json({ error: "Project not found" }); return; }
       assertCompanyAccess(req, project.companyId);
-      const view = await getAtelierProjectWorkflowView(db, project.companyId, project.id);
+      const view = await readProjectWorkflowView(project.companyId, project.id);
       res.json({ ok: true, company_id: project.companyId, project_id: project.id, run: view.run, root_issue: view.rootIssue, stages: view.stages });
       return;
     }
@@ -1027,8 +1037,13 @@ export function atelierBridgeRoutes(db: Db) {
 
   router.get("/atelier/company-workflow", async (req, res) => {
     assertBoardOrAgent(req);
-    const companyId = String(req.query.company_id || ATELIER_COMPANY_ID);
+    const companyId = typeof req.query.company_id === 'string' && req.query.company_id.trim()
+      ? req.query.company_id.trim()
+      : await db.select({id:companies.id}).from(companies).where(eq(companies.issuePrefix,'ATL')).limit(1).then(rows=>rows[0]?.id);
+    if (!companyId) throw unprocessable('Atelier company not found; select an existing company');
     assertCompanyAccess(req, companyId);
+    const companyExists = await db.select({id:companies.id}).from(companies).where(eq(companies.id,companyId)).limit(1);
+    if (!companyExists.length) throw unprocessable('Company not found');
     const definition = await ensureAtelierCompanyWorkflowDefinition(db, companyId);
     const agentRows = await db.select({ id: agents.id, name: agents.name, metadata: agents.metadata }).from(agents).where(eq(agents.companyId, companyId));
     const agentBindings = agentRows.flatMap((agent) => {
@@ -1042,6 +1057,8 @@ export function atelierBridgeRoutes(db: Db) {
       ? await db.select().from(atelierWorkflowRuns).where(and(eq(atelierWorkflowRuns.companyId, companyId), inArray(atelierWorkflowRuns.projectId, projectRows.map((project) => project.id))))
       : [];
     const runsByProject = new Map(runs.map((run) => [run.projectId, run]));
+    const issueRoots = await listAtelierIssueWorkflowRoots(db,companyId);
+    const rootsByProject = new Map(issueRoots.filter(root => root.projectId).map(root => [root.projectId,root]));
     res.json({
       ok: true,
       company_id: companyId,
@@ -1050,7 +1067,7 @@ export function atelierBridgeRoutes(db: Db) {
       status: definition.status,
       definition: upgradeLegacyAtelierDefinition(definition.definition, definition.version, definition.name),
       agent_bindings: agentBindings,
-      projects: projectRows.map((project) => ({ ...project, workflow_run_id: runsByProject.get(project.id)?.id ?? null, workflow_status: runsByProject.get(project.id)?.status ?? "not_provisioned" })),
+      projects: projectRows.map((project) => ({ ...project, workflow_run_id: runsByProject.get(project.id)?.id ?? rootsByProject.get(project.id)?.id ?? null, workflow_status: runsByProject.get(project.id)?.status ?? (rootsByProject.get(project.id)?.status === 'done' ? 'done' : rootsByProject.has(project.id) ? 'running' : 'not_provisioned') })),
     });
   });
 
@@ -1142,7 +1159,7 @@ export function atelierBridgeRoutes(db: Db) {
     const project = await db.select({ id: projects.id, companyId: projects.companyId }).from(projects).where(eq(projects.id, projectId)).then((rows) => rows[0] ?? null);
     if (!project) { res.status(404).json({ error: "Project not found" }); return; }
     assertCompanyAccess(req, project.companyId);
-    const view = await getAtelierProjectWorkflowView(db, project.companyId, project.id);
+    const view = await readProjectWorkflowView(project.companyId, project.id);
     res.json({ ok: true, company_id: project.companyId, project_id: project.id, run: view.run, root_issue: view.rootIssue, stages: view.stages });
   });
 
@@ -1584,7 +1601,7 @@ export function atelierBridgeRoutes(db: Db) {
 
   // ============================================================================
   // 3. PASCAL 3D SCENE ADAPTER WITH VERSION CHECK & CONCURRENCY LOCK (SECTION 7)
-  // Operations: scene.read, scene.propose, scene.validate, scene.preview, scene.apply, scene.restore
+  // Operations: scene.read, scene.cost, scene.propose, scene.validate, scene.preview, scene.apply, scene.restore
   // ============================================================================
   const sceneHandler = createAtelierSceneHandler(PYTHON_API_URL, activeSceneWriteLocks, ensurePythonCadSidecarOnDemand);
   router.post("/atelier/scene", async (req, res) => {

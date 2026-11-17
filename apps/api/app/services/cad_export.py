@@ -578,7 +578,11 @@ def export_boq_csv(project: CanonicalProject, out_path: Path | None = None) -> P
     if out_path is None:
         out_path = EXPORTS_DIR / f"{project.project_id}_boq_rev{project.revision}.csv"
 
-    est = project.estimate_snapshot
+    if project.external_scene:
+        from app.services.cost_engine import calculate_project_estimate
+        est = calculate_project_estimate(project)
+    else:
+        est = project.estimate_snapshot
     with out_path.open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -597,16 +601,16 @@ def export_boq_csv(project: CanonicalProject, out_path: Path | None = None) -> P
                     item.gross_quantity,
                     item.unit,
                     f"{item.package_count or ''} {item.package_unit or ''}".strip(),
-                    int(item.unit_price_vnd),
-                    int(item.subtotal_vnd),
+                    "Chưa có giá" if item.price_status == 'unknown' else int(item.unit_price_vnd),
+                    "Chưa tính" if item.price_status == 'unknown' else int(item.subtotal_vnd),
                     item.formula_explanation,
-                    f"{item.source_label} ({item.checked_at})",
+                    f"{item.source_label} ({item.checked_at}) {item.source_url or ''}",
                 ])
             writer.writerow([])
             writer.writerow(["TONG_VAT_TU", "", "", "", "", "", "", "", "", int(est.materials_subtotal_vnd), "", ""])
             writer.writerow(["TONG_NOI_THAT", "", "", "", "", "", "", "", "", int(est.furniture_subtotal_vnd), "", ""])
             writer.writerow(["TONG_NHAN_CONG", "", "", "", "", "", "", "", "", int(est.labor_subtotal_vnd), "", ""])
-            writer.writerow(["VAN_CHUYEN", "", "", "", "", "", "", "", "", int(est.shipping_fee_vnd), "", ""])
+            writer.writerow(["VAN_CHUYEN", "", "", "", "", "", "", "", "", "Chưa tính" if project.external_scene else int(est.shipping_fee_vnd), "", ""])
             writer.writerow(["THUE_VAT_8%", "", "", "", "", "", "", "", "", int(est.tax_vnd), "", ""])
             writer.writerow(["TONG_CONG_VND", "", "", "", "", "", "", "", "", int(est.total_vnd), est.disclaimer, ""])
     return out_path
@@ -640,7 +644,11 @@ def export_boq_xlsx(project: CanonicalProject, out_path: Path | None = None) -> 
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    est = project.estimate_snapshot
+    if project.external_scene:
+        from app.services.cost_engine import calculate_project_estimate
+        est = calculate_project_estimate(project)
+    else:
+        est = project.estimate_snapshot
     if est:
         for item in est.lines:
             ws.append([
@@ -652,15 +660,15 @@ def export_boq_xlsx(project: CanonicalProject, out_path: Path | None = None) -> 
                 item.gross_quantity,
                 item.unit,
                 f"{item.package_count or '-'} {item.package_unit or ''}".strip(),
-                item.unit_price_vnd,
-                item.subtotal_vnd,
-                item.formula_explanation,
+                "Chưa có giá" if item.price_status == 'unknown' else item.unit_price_vnd,
+                "Chưa tính" if item.price_status == 'unknown' else item.subtotal_vnd,
+                f"{item.formula_explanation} | {item.source_label} | {item.source_url or ''} | {item.checked_at}",
             ])
         ws.append([])
         ws.append(["", "Tổng vật tư hoàn thiện (Sơn, Gạch/Gỗ sàn, Phào, Keo)", "", "", "", "", "", "", "", est.materials_subtotal_vnd, ""])
         ws.append(["", "Tổng đồ nội thất rời (Catalog)", "", "", "", "", "", "", "", est.furniture_subtotal_vnd, ""])
         ws.append(["", "Tổng nhân công thi công hoàn thiện", "", "", "", "", "", "", "", est.labor_subtotal_vnd, ""])
-        ws.append(["", "Chi phí vận chuyển tiêu chuẩn", "", "", "", "", "", "", "", est.shipping_fee_vnd, ""])
+        ws.append(["", "Chi phí vận chuyển tiêu chuẩn", "", "", "", "", "", "", "", "Chưa tính" if project.external_scene else est.shipping_fee_vnd, ""])
         ws.append(["", "Thuế GTGT (VAT 8%)", "", "", "", "", "", "", "", est.tax_vnd, ""])
         ws.append(["", "TỔNG CỘNG DỰ TOÁN (VNĐ)", "", "", "", "", "", "", "", est.total_vnd, est.disclaimer])
 

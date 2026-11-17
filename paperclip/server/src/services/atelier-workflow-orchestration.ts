@@ -83,7 +83,7 @@ export const ATELIER_CANONICAL_STAGES: readonly AtelierCanonicalStage[] = [
     label: "Cost / BOM",
     agentKey: "agent_cost",
     dependsOn: ["lighting"],
-    description: "Bóc tách BOM và dự toán; ngân sách thiếu phải needs_input, không tự chốt.",
+    description: "Bóc tách BOM từ GET /api/v1/projects/{canonical_scene_id}/cost-workflow trên canonical sidecar. Đọc estimates cùng scene_id; với external_scene chỉ tính nhóm GLB đúng asset hash, không dùng đồ phòng cũ. Handoff snapshot_id, revision, scene_asset_hash, lines, độ phủ, giá tham khảo riêng và mục thiếu. Ngân sách/giá/khối lượng thiếu phải needs_input; không tự chốt hoặc bỏ qua phê duyệt.",
     requiredInputs: ["design_handoff", "budget_range", "price_sources"],
     gate: { decisionLedger: true, outputReferences: true, approval: true },
   },

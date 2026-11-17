@@ -211,7 +211,7 @@ export function Project3DStudioTab({
 
         <div className="atelier-header-actions flex items-center gap-2">
           <span className="atelier-estimate text-xs font-mono font-medium px-2.5 py-1 rounded bg-muted/60" title="Tổng dự toán BOQ">
-            {formatVND(estimate?.grand_total_vnd)}
+            {estimate?.total_is_complete === false ? 'Tạm tính: ' : ''}{estimate?.priced_line_count === 0 ? 'Chưa có giá' : formatVND(estimate?.total_vnd)}
           </span>
           <button
             type="button"

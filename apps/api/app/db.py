@@ -1581,7 +1581,12 @@ def get_project(project_id: str) -> Optional[CanonicalProject]:
     conn.close()
     if not row:
         return None
-    return CanonicalProject.model_validate_json(row["payload_json"])
+    project = CanonicalProject.model_validate_json(row["payload_json"])
+    if project.external_scene:
+        # Legacy snapshots can remain in saved projects after an imported-scene
+        # migration. All readers must see the active asset's current BOQ.
+        project.estimate_snapshot = calculate_project_estimate(project)
+    return project
 
 
 def save_project(project: CanonicalProject, author: str = "User", reason: str = "Cập nhật mô hình", bump_revision: bool = True) -> CanonicalProject:

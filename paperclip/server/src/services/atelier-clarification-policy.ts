@@ -1,4 +1,4 @@
-export const ATELIER_CLARIFICATION_POLICY_VERSION = 6;
+export const ATELIER_CLARIFICATION_POLICY_VERSION = 7;
 
 export type AtelierDecisionState = "confirmed" | "proposal_requested" | "unknown";
 
@@ -174,6 +174,8 @@ ${roleRule}
 - MCP chỉ thực thi/xác minh trên snapshot đã bind. Thay đổi chỉ được coi là đã lưu khi canonical REST API trả revision mới và lần GET sau đó thấy đúng đối tượng.
 - Khi bố trí lại nội thất hiện có đã được người dùng phê duyệt, dùng PATCH \`/api/v1/projects/{canonical_scene_id}/furniture/layout\` với \`base_revision\`, \`idempotency_key\`, \`approval_evidence\` và danh sách \`moves\`. Không dùng kết quả \`move_node\` tạm thời như bằng chứng đã lưu.
 - Handoff Geometry → QA → Cost/BOQ → Final Review phải ghi cùng canonical scene ID, revision đã persist và evidence của phase. Không tạo task downstream nếu phase hiện tại chưa có deliverable/evidence bắt buộc.
+- Cost/BOM: đọc GET /api/v1/projects/{canonical_scene_id}/cost-workflow trên canonical sidecar; đây là dữ liệu cost tính xác định cùng scene_id, revision, asset hash và lines. Với external_scene, không dùng furniture/rooms cũ. Giá illustrative chỉ là giá sản phẩm đối chiếu, báo riêng reference_subtotal_vnd và missing_item_ids; thiếu giá/khối lượng trả needs_input, đủ giá vẫn cần phê duyệt. Người dùng chỉnh đơn giá trên trang Dự toán, không tự tạo SKU/giá thật cho mesh.
+- Native Cost adapter: POST /api/atelier/scene với operation "scene.cost", native_project_id và project_id là canonical_scene_id. Đây là thao tác đọc/tính dự toán, không sửa Scene hoặc tự hoàn tất task. Lưu snapshot_id và estimate trong output handoff.
 
 \`decision_ledger\`, \`status: done | needs_input | blocked | needs_review\`, \`questions\`, \`assumptions\`, \`handoff\`.
 

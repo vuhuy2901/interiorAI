@@ -17,7 +17,7 @@ from app.models.contracts import CanonicalProject, FurnitureInstance
 class InventoryBOMItem(BaseModel):
     id: str
     room_name: str
-    category: Literal["furniture", "flooring", "wall_finish", "ceiling", "lighting", "curtain_rug", "plant_decor"]
+    category: Literal["furniture", "flooring", "wall_finish", "ceiling", "lighting", "curtain_rug", "plant_decor", "labor"]
     item_name: str
     sku: str
     dimensions_desc: str
@@ -27,7 +27,7 @@ class InventoryBOMItem(BaseModel):
     unit: str
     unit_price_vnd: Optional[float] = None
     subtotal_vnd: Optional[float] = None
-    price_status: Literal["Đã xác minh", "Chưa có giá"] = "Đã xác minh"
+    price_status: Literal["Đã xác minh", "Chưa có giá", "Tham khảo", "Người dùng cung cấp"] = "Đã xác minh"
     approval_status: Literal["approved", "pending", "proposed"] = "approved"
     vendor_vn: str = "Thị trường Việt Nam"
     source_url: Optional[str] = None
@@ -62,6 +62,27 @@ def generate_project_inventory_bom(project: CanonicalProject) -> DesignInventory
     Extracts complete inventory from CanonicalProject and Pascal SceneGraph nodes.
     Guarantees: Every physical element in the 3D space is accounted for.
     """
+    if project.external_scene:
+        from app.services.scene_cost import calculate_external_estimate
+        estimate = calculate_external_estimate(project)
+        items = [InventoryBOMItem(
+            id=line.id, room_name=line.specification.split(' | ')[0],
+            category='ceiling' if line.id == 'construction:ceiling' else {'paint': 'wall_finish', 'floor_tile_wood': 'flooring', 'labor': 'labor'}.get(line.category, 'furniture'),
+            item_name=line.title, sku='', dimensions_desc=line.specification,
+            material='Theo GLB nguồn', color_or_finish='Theo GLB nguồn',
+            quantity=line.gross_quantity, unit=line.unit,
+            unit_price_vnd=None if line.price_status == 'unknown' else line.unit_price_vnd,
+            subtotal_vnd=None if line.price_status == 'unknown' else line.subtotal_vnd,
+            price_status={'unknown': 'Chưa có giá', 'illustrative': 'Tham khảo', 'provided_unverified': 'Người dùng cung cấp'}[line.price_status],
+            approval_status='proposed', vendor_vn=line.formula_explanation, source_url=line.source_url,
+        ) for line in estimate.lines]
+        groups = {}
+        for item in items:
+            groups.setdefault(item.room_name, []).append(item)
+        return DesignInventoryBOM(project_id=project.project_id, revision=project.revision,
+            generated_at=estimate.created_at, total_items_count=len(items),
+            priced_items_subtotal_vnd=sum(i.subtotal_vnd or 0 for i in items),
+            unpriced_items_count=estimate.unpriced_line_count, items_by_room=groups, all_items=items)
     items: List[InventoryBOMItem] = []
     item_idx = 1
 

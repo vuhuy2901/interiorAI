@@ -13,7 +13,7 @@ export function createAtelierSceneHandler(apiUrl: string, locks: SceneLocks, ens
     if (typeof projectId !== "string" || !projectId.trim()) {
       res.status(422).json({ ok: false, error: "project_id is required" }); return;
     }
-    if (!["read", "validate", "apply", "restore", "propose", "preview"].includes(operation)) {
+    if (!["read", "cost", "validate", "apply", "restore", "propose", "preview"].includes(operation)) {
       res.status(400).json({ ok: false, error: "Unsupported scene operation" }); return;
     }
     if (mutating && (!Number.isInteger(expectedRevision) || expectedRevision < 1)) {
@@ -51,6 +51,19 @@ export function createAtelierSceneHandler(apiUrl: string, locks: SceneLocks, ens
       const identity = { operation: `scene.${operation}`, scene_id: project.project_id, revision: project.revision, unit: "mm" };
       if (operation === "read") {
         res.json({ ok: true, ...identity, scale_calibrated: project.scale_calibrated, project, scene: project }); return;
+      }
+      if (operation === "cost") {
+        const result = await request(`${projectPath}/cost-workflow`);
+        if (!result.response.ok) { forward(result); return; }
+        const estimate = result.data.estimate;
+        if (result.data.project_id !== projectId || result.data.revision !== project.revision
+          || (result.data.asset_hash ?? null) !== (project.external_scene?.sha256 ?? null)
+          || estimate?.project_id !== projectId || estimate?.revision !== project.revision
+          || (estimate?.scene_asset_hash ?? null) !== (project.external_scene?.sha256 ?? null)
+          || !Array.isArray(estimate?.lines) || typeof estimate?.total_vnd !== 'number') {
+          res.status(409).json({ ok: false, ...identity, error: 'Cost snapshot identity changed; reread the canonical scene' }); return;
+        }
+        forward(result, identity); return;
       }
       if (operation === "validate") {
         const qa = project.spatial_qa;

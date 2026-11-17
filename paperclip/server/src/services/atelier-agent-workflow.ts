@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 import { agents, issues, type Db } from "@paperclipai/db";
 import { unprocessable } from "../errors.js";
 import { issueService } from "./issues.js";
@@ -102,7 +102,7 @@ export const ATELIER_WORKFLOW_STAGES: readonly AtelierWorkflowStage[] = [
     dependsOn: ["qa", "research"],
     priority: "high",
     legacyIssueNumber: 5,
-    description: "Tổng hợp BOM, bóc tách khối lượng và tính dự toán xác định từ thiết kế đã QA cùng giá đã xác minh.",
+    description: "Tính BOQ từ cảnh canonical hiện tại bằng GET /api/v1/projects/{canonical_scene_id}/cost-workflow và GET /api/v1/estimates/{canonical_scene_id} trên canonical sidecar. Khi có external_scene, chỉ dùng danh mục GLB đúng hash; không dùng furniture/rooms phòng cũ. Giá tham khảo (illustrative) có nguồn phải tách riêng, không coi là SKU thật. Handoff snapshot_id, revision, scene_asset_hash, lines, độ phủ và missing_item_ids. Thiếu giá/khối lượng trả needs_input; trình duyệt dự toán trước nghiệm thu.",
   },
   {
     key: "final_review",
@@ -180,9 +180,48 @@ export type AtelierWorkflowTaskSummary = {
 
 export type AtelierWorkflowSummary = {
   version: number;
+  projectId: string;
   rootIssueId: string;
   stages: AtelierWorkflowTaskSummary[];
 };
+
+export function atelierWorkflowCompletion(tasks: readonly { id: string; status: string }[]) {
+  const pending = tasks.filter(task => task.status !== 'done');
+  return { status: tasks.length === ATELIER_WORKFLOW_STAGES.length && pending.length === 0 ? 'done' as const : 'todo' as const,
+    blockedByIssueIds: pending.map(task => task.id) };
+}
+
+export async function listAtelierIssueWorkflowRoots(db: Db, companyId: string) {
+  return db.select().from(issues).where(and(eq(issues.companyId, companyId), like(issues.originId, `${ATELIER_WORKFLOW_ORIGIN}:%:root`)));
+}
+
+export async function getAtelierIssueWorkflowView(db: Db, companyId: string, projectId: string) {
+  const roots = await listAtelierIssueWorkflowRoots(db, companyId);
+  const root = roots.find(row => row.projectId === projectId);
+  if (!root) return null;
+  const children = await db.select().from(issues).where(and(eq(issues.companyId, companyId), eq(issues.projectId, projectId), eq(issues.parentId, root.id)));
+  const assignedIds = [...new Set(children.map(row => row.assigneeAgentId).filter((id): id is string => Boolean(id)))];
+  const owners = assignedIds.length ? await db.select({ id: agents.id, name: agents.name }).from(agents).where(and(eq(agents.companyId, companyId), inArray(agents.id, assignedIds))) : [];
+  return atelierIssueWorkflowView(root, children, owners);
+}
+
+export function atelierIssueWorkflowView(
+  root: { id: string; identifier: string | null; title: string; status: string },
+  children: Array<{ id: string; originId: string | null; identifier: string | null; status: string; assigneeAgentId: string | null }>,
+  owners: Array<{ id: string; name: string }>,
+) {
+  const stageIssues = ATELIER_WORKFLOW_STAGES.map(stage => ({stage, issue: children.find(row => row.originId?.endsWith(`:stage:${stage.key}`))}));
+  const missing = stageIssues.some(row => !row.issue);
+  const complete = !missing && stageIssues.every(row => row.issue?.status === 'done') && root.status === 'done';
+  const statusMap: Record<string,string> = {done:'done',in_review:'needs_review',in_progress:'running',blocked:'blocked',backlog:'pending',todo:'ready',cancelled:'blocked'};
+  return {
+    run: { id: root.id, status: complete ? 'done' : missing || children.some(row => row.status === 'blocked' || row.status === 'cancelled') ? 'blocked' : children.some(row => row.status === 'in_review') ? 'needs_review' : children.some(row => row.status === 'in_progress') ? 'running' : 'pending', workflowVersion: ATELIER_WORKFLOW_VERSION, source: 'issue_workflow' },
+    rootIssue: root,
+    stages: stageIssues.map(({stage,issue}) => ({stageKey:stage.key,status:issue ? statusMap[issue.status] ?? 'pending' : 'pending',
+      blockerReason: !issue ? 'Chưa có task cho bước này' : issue.status === 'blocked' ? 'Task đang bị chặn; xem chi tiết công việc' : null,
+      issue:issue ?? null,agent:owners.find(owner => owner.id === issue?.assigneeAgentId) ?? null,dependencies:[...stage.dependsOn]})),
+  };
+}
 
 export async function reconcileAtelierAgentWorkflow(
   db: Db,
@@ -211,13 +250,17 @@ export async function reconcileAtelierAgentWorkflow(
     });
   }
 
+  // Origin IDs identify this workflow permanently. The board may explicitly
+  // relocate its root to another project; startup must preserve that binding.
+  const boundProjectId = root.projectId ?? input.projectId;
+
   const tasks = new Map<string, typeof issues.$inferSelect>();
   for (const stage of ATELIER_WORKFLOW_STAGES) {
     const agentId = input.agentIdsByKey[stage.agentKey];
     if (!agentId) throw new Error(`Missing Atelier agent ${stage.agentKey}`);
     const originId = `${ATELIER_WORKFLOW_ORIGIN}:${input.projectId}:stage:${stage.key}`;
     const taskTitle = `[ATELIER • ${stage.key}] ${stage.label}`;
-    const taskDescription = `${stage.description}\n\nDecision gate: dữ liệu về ngân sách, công năng, phong cách, màu sơn/bảng màu, vật liệu hoặc nội thất chưa được người dùng xác nhận phải trả needs_input. Chỉ trình A/B/C và chờ người dùng chọn; không tự chốt, không dùng dữ liệu demo làm fact.\n\nKhi hoàn tất, chỉ handoff theo các target được công bố trong Atelier workflow.`;
+    const taskDescription = `${stage.description}\n\nCurrent project binding: ${boundProjectId}. Read GET /api/v1/native-projects/${boundProjectId}/workspace on the canonical sidecar to resolve the linked scene before work. The active imported GLB, if present, is authoritative; do not reuse old bedroom/demo furniture or treat historical missing-input comments as current facts. Read current scene/revision and prior user decisions first.\n\nDecision gate: dữ liệu về ngân sách, công năng, phong cách, màu sơn/bảng màu, vật liệu hoặc nội thất chưa được người dùng xác nhận phải trả needs_input. Chỉ trình A/B/C và chờ người dùng chọn; không tự chốt, không dùng dữ liệu demo làm fact.\n\nKhi hoàn tất, chỉ handoff theo các target được công bố trong Atelier workflow.`;
     const blockerIds = stage.dependsOn.map((dependency) => {
       const task = tasks.get(dependency);
       if (!task) throw new Error(`Workflow dependency ${dependency} was not reconciled before ${stage.key}`);
@@ -226,11 +269,11 @@ export async function reconcileAtelierAgentWorkflow(
     let task = existing.find((issue) => issue.originId === originId) ?? null;
     if (!task && stage.legacyIssueNumber !== undefined) {
       task = existing.find((issue) =>
-        issue.projectId === input.projectId && issue.issueNumber === stage.legacyIssueNumber) ?? null;
+        issue.projectId === boundProjectId && issue.issueNumber === stage.legacyIssueNumber) ?? null;
     }
     if (!task) {
       task = await svc.create(input.companyId, {
-        projectId: input.projectId,
+        projectId: boundProjectId,
         goalId: input.goalId,
         parentId: root.id,
         parentDepthPolicy: "allow_nested",
@@ -252,7 +295,7 @@ export async function reconcileAtelierAgentWorkflow(
       const normalizeIdleInProgress = task.status === "in_progress" && !task.executionRunId && !task.checkoutRunId;
       const updated = await svc.update(task.id, {
         companyGuard: input.companyId,
-        projectId: input.projectId,
+        projectId: boundProjectId,
         goalId: input.goalId,
         parentId: root.id,
         parentDepthPolicy: "allow_nested",
@@ -273,13 +316,14 @@ export async function reconcileAtelierAgentWorkflow(
 
   const finalTask = tasks.get("final_review");
   if (!finalTask) throw new Error("Atelier workflow final_review stage is missing");
+  const completion = atelierWorkflowCompletion([...tasks.values()]);
   const updatedRoot = await svc.update(root.id, {
     companyGuard: input.companyId,
-    projectId: input.projectId,
+    projectId: boundProjectId,
     goalId: input.goalId,
     assigneeAgentId: input.chiefAgentId,
-    status: root.status === "done" ? "done" : "todo",
-    blockedByIssueIds: root.status === "done" ? [] : [finalTask.id],
+    status: completion.status,
+    blockedByIssueIds: completion.blockedByIssueIds,
     actorAgentId: input.chiefAgentId,
   });
   if (updatedRoot) root = updatedRoot;
@@ -318,6 +362,7 @@ export async function reconcileAtelierAgentWorkflow(
   const stageRows = [...tasks.entries()].map(([stageKey, issue]) => ({ stageKey, issue }));
   return {
     version: ATELIER_WORKFLOW_VERSION,
+    projectId: boundProjectId,
     rootIssueId: root.id,
     stages: stageRows.map(({ stageKey, issue }) => ({
       stageKey,

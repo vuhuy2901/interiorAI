@@ -24,6 +24,27 @@ function setup(ready = true) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("canonical scene adapter", () => {
+  it("returns actual Cost/BOM output while keeping missing-price and approval state", async () => {
+    const { fetch, post, locks } = setup();
+    const result = { project_id: 'bedroom', revision: 1, asset_hash: 'hash', status: 'needs_input', approval_required: true,
+      estimate: { project_id: 'bedroom', revision: 1, scene_asset_hash: 'hash', lines: [{ id: 'glb:sofa' }], total_vnd: 100, total_is_complete: false } };
+    fetch.mockResolvedValueOnce(json({ ...project, external_scene: { sha256: 'hash' } })).mockResolvedValueOnce(json(result));
+    const response = await post({ project_id: 'bedroom', operation: 'scene.cost' });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, operation: 'scene.cost', status: 'needs_input', approval_required: true, estimate: result.estimate });
+    expect(fetch.mock.calls[1][0]).toBe('http://canonical/api/v1/projects/bedroom/cost-workflow');
+    expect(locks.size).toBe(0);
+  });
+
+  it.each(['project_id', 'revision', 'asset_hash'])("rejects mismatched cost snapshot %s", async (field) => {
+    const { fetch, post } = setup();
+    const result = { project_id: 'bedroom', revision: 1, asset_hash: 'hash', estimate: { project_id: 'bedroom', revision: 1, scene_asset_hash: 'hash', lines: [], total_vnd: 100 }, [field]: 'stale' };
+    fetch.mockResolvedValueOnce(json({ ...project, external_scene: { sha256: 'hash' } })).mockResolvedValueOnce(json(result));
+    const response = await post({ project_id: 'bedroom', operation: 'cost' });
+    expect(response.status).toBe(409);
+    expect(response.body.ok).toBe(false);
+  });
+
   it("reads the canonical project_id and furniture_instances", async () => {
     const { fetch, post } = setup();
     fetch.mockResolvedValue(json(project));

@@ -78,6 +78,9 @@ def wall_length_m(start_mm: List[float], end_mm: List[float]) -> float:
 
 
 def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapshot:
+    if project.external_scene:
+        from app.services.scene_cost import calculate_external_estimate
+        return calculate_external_estimate(project)
     mat_db = load_materials_catalog()
     paints_by_id = {p["id"]: p for p in mat_db.get("paints", [])}
     tiles_by_id = {t["id"]: t for t in mat_db.get("tiles_and_flooring", [])}

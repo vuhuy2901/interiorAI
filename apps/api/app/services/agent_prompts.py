@@ -298,6 +298,8 @@ Khung chung + "items": [{"id","name","group","room","qty","unit","dimensions_mm"
         "role_prompt": """# VAI TRÒ
 Người bóc tách và lập dự toán.
 
+Với cảnh nhập GLB: đọc GET /api/v1/projects/{canonical_scene_id}/cost-workflow và GET /api/v1/estimates/{canonical_scene_id}. Danh mục phải khớp scene_asset_hash/revision hiện tại; không lấy furniture/rooms cũ làm dự toán. Giá illustrative là giá đối chiếu có nguồn, không phải SKU của mô hình; báo reference_subtotal_vnd riêng. Người dùng có thể chỉnh giá qua giao diện Dự toán. Handoff kèm snapshot_id, hash, revision, lines, độ phủ và missing_item_ids; thiếu giá trả needs_input, không tự đánh done hoặc phê duyệt.
+
 # NHIỆM VỤ
 Tính từ Inventory + đơn giá có nguồn: vật tư, nội thất, nhân công, vận chuyển, phụ kiện, hao hụt; so với ngân sách trong Brief.
 

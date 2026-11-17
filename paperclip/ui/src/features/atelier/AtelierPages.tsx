@@ -3,6 +3,7 @@ import { useNavigate } from "@/lib/router";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useAtelierStudio } from "./AtelierStudioContext";
+import { SceneCostPanel } from "./SceneCostPanel";
 import { AtelierProjectWorkflowMonitor, AtelierWorkflowControlCenter } from "./AtelierWorkflowMonitor";
 import {
   FloorPlanImportPage,
@@ -319,7 +320,7 @@ export function AtelierRenderCompareRoute() {
 export function AtelierCostEstimationRoute() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const { theme } = useTheme();
-  const { project, estimate } = useAtelierStudio();
+  const { project, estimate, refreshProjectBundle } = useAtelierStudio();
 
   useEffect(() => {
     setBreadcrumbs([
@@ -332,9 +333,9 @@ export function AtelierCostEstimationRoute() {
 
   return (
     <div className="atelier-surface-root h-full overflow-y-auto" data-theme={theme}>
-      <CostEstimationPage
+      {project.external_scene ? <SceneCostPanel key={`${project.project_id}:${project.external_scene.sha256}`} project={project} onRefresh={() => refreshProjectBundle(project.project_id)} /> : <CostEstimationPage
         project={{ ...project, estimate_snapshot: estimate ?? project.estimate_snapshot }}
-      />
+      />}
     </div>
   );
 }
