@@ -26,6 +26,13 @@ export type WorkflowNode = {
   retryPolicy?: { maxAttempts: number; backoffSeconds?: number };
   approval?: { required: boolean; approverRole?: string; approverAgentIds?: string[] };
   conditionOutcomes?: string[];
+  lifecycleStateOnly?: boolean;
+  includesValidator?: boolean;
+  stepNumber?: number;
+  totalSteps?: number;
+  stepLabel?: string;
+  sourceNodes?: string[];
+  stepSettings?: StepSettings;
 };
 
 export type WorkflowEdge = { id: string; source: string; target: string; outcome?: string };
@@ -34,12 +41,36 @@ export type WorkflowDefinition = {
   schemaVersion: 2;
   key: string;
   name: string;
+  description?: string;
   version: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   canvas?: Record<string, unknown>;
   gatePolicy?: Record<string, unknown>;
   stateMachine?: string[];
+  optionalSteps?: { costBomAfterApproval?: OptionalCostBomStep };
+};
+
+export type OptionalCostBomStep = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  runsAfterApproval: boolean;
+  requiredRole: string;
+  taskType: string;
+  capability: string;
+  description?: string;
+};
+
+export type StepSettings = {
+  retry?: { maxAttempts: number; backoffSeconds?: number };
+  logging?: { enabled?: boolean; level?: "info" | "debug" | "error" };
+  notifications?: {
+    onStart?: boolean;
+    onComplete?: boolean;
+    onError?: boolean;
+    channel?: string;
+  };
 };
 
 export type RoutedPoint = { x: number; y: number };

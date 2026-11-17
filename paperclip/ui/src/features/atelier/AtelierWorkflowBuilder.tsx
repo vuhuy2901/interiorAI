@@ -7,7 +7,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   AlertTriangle, ArchiveRestore, Bot, Braces, Check, CheckCircle2, ChevronsLeft,
-  ChevronsRight, CirclePlay, Clock3, Download, Eye, GitBranch, LayoutTemplate,
+  ChevronsRight, ChevronRight, CirclePlay, Clock3, Download, Eye, GitBranch, LayoutTemplate,
   PanelLeftClose, PanelRightClose, Play, Redo2, RefreshCw, Save, Search, Send,
   ShieldCheck, Sparkles, Trash2, Undo2, Upload, X, XCircle,
 } from "lucide-react";
@@ -608,7 +608,9 @@ export function AtelierWorkflowBuilder() {
   if (!active) return <div className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">{error || "Đang nạp workflow authority..."}</div>;
 
   if (workspaceMode === "library") {
-    const published = latestPublished ?? versions.find((item) => item.status === "published") ?? null;
+    // The execution summary only contains metadata; use the full version object
+    // here because the library renders the published definition itself.
+    const published = versions.find((item) => item.status === "published") ?? null;
     const draft = draftVersion;
     const stepCount = published?.definition.nodes.filter((node) => !node.lifecycleStateOnly && node.type !== "START" && node.type !== "END").length ?? 0;
     const workflowName = published?.definition.name ?? active.definition.name;

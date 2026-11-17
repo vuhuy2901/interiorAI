@@ -6,6 +6,16 @@ const labels: Record<IssueStatus, string> = {
   blocked: "Blocked", done: "Done", cancelled: "Cancelled",
 };
 
+export const TASK_LIFECYCLE_STATES: Array<{ key: IssueStatus; name: IssueStatus; description: string }> = [
+  { key: "backlog", name: "backlog", description: "Công việc mới được ghi nhận, chưa ưu tiên xử lý." },
+  { key: "todo", name: "todo", description: "Đã sẵn sàng để giao cho agent hoặc bắt đầu thực hiện." },
+  { key: "in_progress", name: "in_progress", description: "Agent đang thực hiện công việc." },
+  { key: "in_review", name: "in_review", description: "Kết quả đã gửi để kiểm tra hoặc chờ người duyệt." },
+  { key: "blocked", name: "blocked", description: "Đang bị chặn bởi dữ liệu, quyền hoặc điều kiện đầu vào." },
+  { key: "done", name: "done", description: "Đã hoàn thành và nghiệm thu." },
+  { key: "cancelled", name: "cancelled", description: "Công việc đã bị hủy." },
+];
+
 // Paperclip validates the target against ISSUE_STATUSES but does not constrain
 // from/to pairs. This is a truthful presentation map of common core movements,
 // not a separate execution state machine.
