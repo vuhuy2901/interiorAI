@@ -98,6 +98,12 @@ export function createStudioCameraController(
     else previousTime = null
   }
   const onKeyDown = (event: KeyboardEvent) => {
+    if (visible && mode !== 'walk' && event.code === 'KeyH') {
+      event.preventDefault()
+      pressedKeys.add(event.code)
+      controls.enabled = false
+      return
+    }
     if (visible && mode === 'walk' && event.code === 'Escape') {
       event.preventDefault(); stopWalk(); navigation?.onEscape(); return
     }
@@ -106,11 +112,18 @@ export function createStudioCameraController(
     pressedKeys.add(event.code)
     if (!animationFrame) animationFrame = requestAnimationFrame(animateWalk)
   }
-  const onKeyUp = (event: KeyboardEvent) => { pressedKeys.delete(event.code) }
+  const onKeyUp = (event: KeyboardEvent) => {
+    pressedKeys.delete(event.code)
+    if (event.code === 'KeyH') controls.enabled = visible && mode !== 'walk'
+  }
   const onPointerDown = (event: PointerEvent) => {
     if (!visible || pointer || event.button > 2) return
     canvas.focus({ preventScroll: true })
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, distance: 0, button: event.button }
+    if (pressedKeys.has('KeyH') && mode !== 'walk') {
+      event.preventDefault()
+      canvas.setPointerCapture(event.pointerId)
+    }
     if (mode === 'walk') canvas.setPointerCapture(event.pointerId)
   }
   const onPointerMove = (event: PointerEvent) => {
@@ -120,6 +133,19 @@ export function createStudioCameraController(
     pointer.x = event.clientX
     pointer.y = event.clientY
     pointer.distance += Math.hypot(dx, dy)
+    if (pressedKeys.has('KeyH') && mode !== 'walk') {
+      const distance = Math.max(0.1, camera.position.distanceTo(controls.target))
+      const height = Math.max(1, canvas.clientHeight)
+      const worldPerPixel = (2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2)) / height
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize()
+      const pan = right.multiplyScalar(-dx * worldPerPixel).add(up.multiplyScalar(dy * worldPerPixel))
+      camera.position.add(pan)
+      controls.target.add(pan)
+      camera.updateMatrixWorld()
+      render()
+      return
+    }
     if (mode !== 'walk' || pointer.button !== 0) return
     walkEuler.setFromQuaternion(camera.quaternion)
     walkEuler.y -= dx * 0.004
@@ -131,14 +157,15 @@ export function createStudioCameraController(
   const onPointerEnd = (event: PointerEvent) => {
     if (pointer?.id !== event.pointerId) return
     const shouldPick = mode !== 'walk' && event.type === 'pointerup' && pointer.button === 0 && pointer.distance < 5
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
     pointer = null
     if (shouldPick) pick(event)
   }
-  const onBlur = () => { stopWalk(); pointer = null }
+  const onBlur = () => { stopWalk(); pointer = null; controls.enabled = visible && mode !== 'walk' }
 
   controls.addEventListener('change', render)
   canvas.tabIndex = 0
-  canvas.setAttribute('aria-label', 'Khung 3D. Trong Walk, kéo để nhìn và dùng WASD để di chuyển')
+  canvas.setAttribute('aria-label', 'Khung 3D. Giữ H và kéo chuột để pan camera. Trong Walk, kéo để nhìn và dùng WASD để di chuyển')
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerEnd)
