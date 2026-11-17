@@ -317,6 +317,206 @@ def build_default_demo_project() -> CanonicalProject:
     return proj
 
 
+def build_kid_bedroom_project() -> CanonicalProject:
+    ts = now_iso()
+    proj = CanonicalProject(
+        project_id="proj_kid_bedroom",
+        name="Phòng Ngủ Trẻ Em — Giường Tầng & Tủ Áo (3.6m × 3.2m)",
+        description="Dự án thiết kế nội thất phòng ngủ trẻ em 3600×3200mm (11.52 m²): hệ giường tầng thông minh tích hợp cầu thang hộp lưu trữ, tủ quần áo 2 cánh kịch trần, bàn học đôi liền giá sách, sàn gỗ công nghiệp chống ẩm và hệ đèn học chống cận.",
+        revision=1,
+        units="mm",
+        display_unit="m",
+        scale_calibrated=True,
+        scale_reference=ScaleCalibration(
+            p1_px=[0.0, 0.0],
+            p2_px=[360.0, 0.0],
+            real_length_mm=3600.0,
+            mm_per_px=10.0,
+            confirmed_by_user=True,
+            confidence=0.99,
+            notes="Đã xác nhận cạnh chuẩn Bắc 3600mm",
+        ),
+        rooms=[
+            RoomZone(
+                id="room_kid_bedroom",
+                name="Phòng Ngủ Trẻ Em",
+                room_type="bedroom",
+                polygon_mm=[[0.0, 0.0], [3600.0, 0.0], [3600.0, 3200.0], [0.0, 3200.0]],
+                ceiling_height_mm=2700.0,
+                floor_material_id="floor_wood_oak_straight",
+                ceiling_material_id="paint_ceiling_gypsum_white",
+                wall_base_material_id="paint_dulux_japandi_ivory",
+                skirting_material_id="skirting_wood_oak_90",
+            )
+        ],
+        walls=[
+            WallSegment(
+                id="wall_north_bunk",
+                start_mm=[0.0, 0.0],
+                end_mm=[3600.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=True,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_east_window",
+                start_mm=[3600.0, 0.0],
+                end_mm=[3600.0, 3200.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_south_door",
+                start_mm=[3600.0, 3200.0],
+                end_mm=[0.0, 3200.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=True,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+            WallSegment(
+                id="wall_west_wardrobe",
+                start_mm=[0.0, 3200.0],
+                end_mm=[0.0, 0.0],
+                thickness_mm=200.0,
+                height_mm=2700.0,
+                is_bearing=False,
+                face_a_material_id="paint_dulux_japandi_ivory",
+                face_b_material_id="paint_dulux_japandi_ivory",
+                is_accent_wall=False,
+            ),
+        ],
+        openings=[
+            DoorOpening(
+                id="door_kid_entry",
+                wall_id="wall_south_door",
+                wall_index=2,
+                t=0.25,
+                width_mm=800.0,
+                height_mm=2100.0,
+                door_type="hinged",
+            )
+        ],
+        windows=[
+            WindowOpening(
+                id="win_kid_study",
+                wall_id="wall_east_window",
+                wall_index=1,
+                t=0.5,
+                width_mm=1400.0,
+                height_mm=1200.0,
+                sill_height_mm=900.0,
+                window_type="sliding",
+                room_id="room_kid_bedroom",
+            )
+        ],
+        furniture_instances=[
+            FurnitureInstance(
+                id="furn_wardrobe_kid",
+                sku="WARD-KID-120-OAK",
+                name="Tủ Quần Áo Trẻ Em 2 Cánh Kịch Trần",
+                category="wardrobe",
+                room_id="room_kid_bedroom",
+                x_mm=600.0,
+                y_mm=400.0,
+                z_mm=0.0,
+                width_mm=1200.0,
+                depth_mm=600.0,
+                height_mm=2400.0,
+                rotation_deg=0.0,
+                color_hex="#8B5A2B",
+                price_vnd=8200000.0,
+                pascal_asset_id="wardrobe",
+                vendor="Gỗ An Cường / Atelier Custom (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_bunk_bed_kid",
+                sku="BED-BUNK-KID-200",
+                name="Giường Tầng Thông Minh Trẻ Em Có Cầu Thang Hộp",
+                category="bed",
+                room_id="room_kid_bedroom",
+                x_mm=2200.0,
+                y_mm=800.0,
+                z_mm=0.0,
+                width_mm=2000.0,
+                depth_mm=1200.0,
+                height_mm=1800.0,
+                rotation_deg=0.0,
+                color_hex="#E8E2D5",
+                price_vnd=16500000.0,
+                pascal_asset_id="bed-double",
+                vendor="Atelier Kids Joinery (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_study_desk_kid",
+                sku="DESK-STUDY-KID-160",
+                name="Bàn Học Đôi Kèm Giá Sách Liên Hoàn",
+                category="desk",
+                room_id="room_kid_bedroom",
+                x_mm=2500.0,
+                y_mm=2400.0,
+                z_mm=0.0,
+                width_mm=1600.0,
+                depth_mm=600.0,
+                height_mm=1600.0,
+                rotation_deg=180.0,
+                color_hex="#C8A986",
+                price_vnd=5800000.0,
+                pascal_asset_id="study-desk",
+                vendor="Atelier Joinery (Minh họa)",
+            ),
+            FurnitureInstance(
+                id="furn_study_chair_kid",
+                sku="CHAIR-ERGO-KID-01",
+                name="Ghế Ngồi Học Chống Gù Ergonomic",
+                category="chair",
+                room_id="room_kid_bedroom",
+                x_mm=2500.0,
+                y_mm=2800.0,
+                z_mm=0.0,
+                width_mm=500.0,
+                depth_mm=500.0,
+                height_mm=850.0,
+                rotation_deg=0.0,
+                color_hex="#5B92E5",
+                price_vnd=1950000.0,
+                pascal_asset_id="desk-chair",
+                vendor="Hòa Phát Ergonomics (Minh họa)",
+            ),
+        ],
+        design_brief=DesignBrief(
+            style="Hiện đại & Tối giản trẻ em",
+            room_function="Phòng ngủ và góc học tập cho 2 bé",
+            color_palette=["#F5F2EB", "#C8A986", "#5B92E5", "#8B5A2B"],
+            liked_elements=["Gỗ chống ẩm", "Màu óc chó ấm cúng", "Góc học tập đủ sáng", "Cầu thang hộp an toàn"],
+            disliked_elements=["Góc nhọn nguy hiểm", "Vật liệu dễ bám bẩn"],
+            budget_limit_vnd=70000000.0,
+            occupants="2 bé (7 tuổi và 10 tuổi)",
+            must_have_constraints=["Lối đi thông thủy >= 750mm", "Vật liệu an toàn thân thiện trẻ em E1"],
+            approved_decisions=[
+                "Xác nhận kích thước phòng ngủ trẻ em 3600×3200mm",
+                "Bố trí giường tầng dọc tường Bắc, tủ quần áo 1.2m góc Tây Bắc",
+                "Bàn học đôi cạnh cửa sổ đón ánh sáng tự nhiên",
+            ],
+        ),
+        approval_state="APPROVED",
+        created_at=ts,
+        updated_at=ts,
+    )
+    proj.estimate_snapshot = calculate_project_estimate(proj)
+    return proj
+
+
+
 def build_japandi_master_bedroom_project() -> CanonicalProject:
     ts = now_iso()
     proj = CanonicalProject(
@@ -1089,6 +1289,26 @@ def init_db() -> None:
             ON atelier_rooms(native_project_id, position, created_at);
         CREATE INDEX IF NOT EXISTS atelier_scene_links_project_idx
             ON atelier_scene_links(native_project_id, room_id, archived);
+
+        CREATE TABLE IF NOT EXISTS unified_boq_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            selected_option_id TEXT,
+            material_spec_json TEXT,
+            selected_quote_id TEXT,
+            custom_quote_json TEXT,
+            approval_state TEXT NOT NULL DEFAULT 'PROPOSED',
+            approved_by TEXT,
+            approved_at TEXT,
+            decision_version TEXT DEFAULT '1.0',
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, item_id)
+        );
+        CREATE INDEX IF NOT EXISTS unified_boq_decisions_proj_idx
+            ON unified_boq_decisions(project_id, item_id);
         """
     )
 
@@ -1665,3 +1885,74 @@ def restore_project_revision(project_id: str, target_revision: int) -> Optional[
     )
     restored.revision = latest_rev
     return save_project(restored, author="Undo/Restore", reason=f"Khôi phục về phiên bản #{target_revision}", bump_revision=True)
+
+
+# ============================================================================
+# UNIFIED BOQ PERSISTENCE (FEAT-2026-033)
+# ============================================================================
+def save_boq_decision_db(
+    project_id: str,
+    item_id: str,
+    selected_option_id: Optional[str] = None,
+    material_spec_json: Optional[str] = None,
+    selected_quote_id: Optional[str] = None,
+    custom_quote_json: Optional[str] = None,
+    approval_state: str = "USER_APPROVED",
+    approved_by: str = "Chủ Project",
+    notes: Optional[str] = None,
+) -> Dict[str, Any]:
+    conn = get_conn()
+    now = now_iso()
+    decision_id = f"dec_{project_id}_{item_id}"
+    conn.execute(
+        """
+        INSERT INTO unified_boq_decisions (
+            id, project_id, item_id, selected_option_id, material_spec_json,
+            selected_quote_id, custom_quote_json, approval_state, approved_by,
+            approved_at, decision_version, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, item_id) DO UPDATE SET
+            selected_option_id = excluded.selected_option_id,
+            material_spec_json = excluded.material_spec_json,
+            selected_quote_id = excluded.selected_quote_id,
+            custom_quote_json = excluded.custom_quote_json,
+            approval_state = excluded.approval_state,
+            approved_by = excluded.approved_by,
+            approved_at = excluded.approved_at,
+            notes = excluded.notes,
+            updated_at = excluded.updated_at
+        """,
+        (
+            decision_id,
+            project_id,
+            item_id,
+            selected_option_id,
+            material_spec_json,
+            selected_quote_id,
+            custom_quote_json,
+            approval_state,
+            approved_by,
+            now,
+            "1.0",
+            notes or "",
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM unified_boq_decisions WHERE project_id = ? AND item_id = ?",
+        (project_id, item_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def get_all_boq_decisions_db(project_id: str) -> Dict[str, Dict[str, Any]]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM unified_boq_decisions WHERE project_id = ?",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return {row["item_id"]: dict(row) for row in rows}
