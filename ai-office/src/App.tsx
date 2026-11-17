@@ -49,17 +49,17 @@ function App() {
         <header className="topbar">
           <div className="brand-lockup">
             <div className="brand-glyph"><span /><span /><span /></div>
-            <div><p className="eyebrow">ATELIER AI / STUDIO NỘI THẤT & KIẾN TRÚC 3D</p><h1>ATELIER AI <em>3D</em></h1></div>
+            <div><p className="eyebrow">ATELIER CONTROL / SIMULATION</p><h1>AI OFFICE <em>03</em></h1></div>
           </div>
           <div className="topbar-actions">
             <div className="live-indicator"><span /> MOCK EVENT STREAM / LIVE</div>
-            <button className="time-button" onClick={stepTime}>Giờ +2h <span>{String(officeHour).padStart(2, '0')}:00</span></button>
+            <button className="time-button" onClick={stepTime}>Tua +2h <span>{String(officeHour).padStart(2, '0')}:00</span></button>
           </div>
         </header>
         <TodayStats {...stats} overtime={overtime} />
-        <div className="office-caption"><span className="caption-line" /><span>ATELIER AI / LUXURY ARCHITECTURE OFFICE / DEMO</span><span className="caption-line" /></div>
+        <div className="office-caption"><span className="caption-line" /><span>BEDROOM KID / 3×4M / 40TR</span><span className="caption-line" /></div>
         <div className="role-legend">
-          <span className="legend-title">ATELIER AGENTS / {agentConfigs.length}</span>
+          <span className="legend-title">AGENTS / 09</span>
           {agentConfigs.slice(0, 5).map((agent) => <span key={agent.id} className="legend-item"><i style={{ background: agent.color }} />{agent.roleLabel}</span>)}
         </div>
         <div className="hint-card"><span className="hint-key">CLICK</span> chọn agent <span className="hint-key">DRAG</span> orbit scene</div>
