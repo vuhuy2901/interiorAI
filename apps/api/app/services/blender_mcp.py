@@ -1950,25 +1950,26 @@ if stair_slab_bounds:
     stair_height = upper_floor_z - ground_z
     if stair_height >= 1.8:
         stair_wood = bpy.data.materials.new("ATELIER_STAIR_WOOD")
-        stair_wood.diffuse_color = (0.38, 0.19, 0.08, 1.0)
-        stair_wood.roughness = 0.5
+        stair_wood.diffuse_color = (0.49, 0.32, 0.19, 1.0)
+        stair_wood.roughness = 0.58
         stair_riser = bpy.data.materials.new("ATELIER_STAIR_RISER")
-        stair_riser.diffuse_color = (0.22, 0.11, 0.05, 1.0)
-        stair_riser.roughness = 0.58
+        stair_riser.diffuse_color = (0.81, 0.77, 0.7, 1.0)
+        stair_riser.roughness = 0.82
         stair_rail = bpy.data.materials.new("ATELIER_STAIR_RAIL")
         stair_rail.diffuse_color = (0.05, 0.055, 0.06, 1.0)
         stair_rail.metallic = 0.68
         stair_rail.roughness = 0.32
 
-        slab_min_x = min(bounds.min.x for _, bounds in stair_slab_bounds)
         slab_max_x = max(bounds.max.x for _, bounds in stair_slab_bounds)
-        slab_max_y = max(bounds.max.y for _, bounds in stair_slab_bounds)
-        stair_width = 1.15
-        stair_count = max(11, min(15, round(stair_height / 0.2)))
-        stair_tread = 0.25
-        top_y = slab_max_y - 0.22
-        bottom_y = top_y + stair_count * stair_tread
-        stair_x = min(slab_max_x - stair_width * 0.5 - 0.35, float(maxs.x) - stair_width * 0.5 - 0.45)
+        # glTF's front edge maps to the minimum Blender Y after import.
+        # Match the WebGL stair placement exactly so previews and renders agree.
+        slab_front_y = min(bounds.min.y for _, bounds in stair_slab_bounds)
+        stair_width = 1.35
+        stair_count = max(12, min(17, round(stair_height / 0.185)))
+        stair_tread = 0.24
+        top_y = slab_front_y - 0.02
+        bottom_y = top_y - stair_count * stair_tread
+        stair_x = min(slab_max_x - stair_width * 0.5 - 0.45, float(maxs.x) - stair_width * 0.5 - 0.55)
 
         def add_stair_box(name, dimensions, location, material):
             bpy.ops.mesh.primitive_cube_add(size=1, location=location)
@@ -1990,29 +1991,38 @@ if stair_slab_bounds:
 
         for index in range(stair_count):
             height = stair_height * (index + 1) / stair_count
+            step_y = bottom_y + index * stair_tread + stair_tread * 0.5
             add_stair_box(
-                f"ATELIER_STAIR_STEP_{index + 1}",
-                (stair_width, stair_tread, height),
-                (stair_x, bottom_y - index * stair_tread - stair_tread * 0.5, ground_z + height * 0.5),
-                stair_wood if index % 2 == 0 else stair_riser,
+                f"ATELIER_STAIR_RISER_{index + 1}",
+                (stair_width, stair_tread - 0.018, height - 0.025),
+                (stair_x, step_y, ground_z + (height - 0.025) * 0.5),
+                stair_riser,
             )
-        add_stair_box("ATELIER_STAIR_TOP_LANDING", (stair_width, 0.72, 0.08), (stair_x, top_y - 0.35, upper_floor_z - 0.04), stair_wood)
+            add_stair_box(
+                f"ATELIER_STAIR_TREAD_{index + 1}",
+                (stair_width + 0.035, stair_tread, 0.035),
+                (stair_x, step_y, ground_z + height - 0.0175),
+                stair_wood,
+            )
+        add_stair_box("ATELIER_STAIR_TOP_THRESHOLD", (stair_width + 0.035, 0.28, 0.035), (stair_x, top_y + 0.14, upper_floor_z + 0.0175), stair_wood)
 
         for side in (-1, 1):
-            rail_x = stair_x + side * (stair_width * 0.5 - 0.08)
-            bottom_rail = (rail_x, bottom_y - stair_tread * 0.5, ground_z + stair_height / stair_count + 0.92)
-            top_rail = (rail_x, top_y + stair_tread * 0.5, upper_floor_z + 0.92)
-            add_stair_cylinder(f"ATELIER_STAIR_HANDRAIL_{'L' if side < 0 else 'R'}", bottom_rail, top_rail, 0.035)
-            for ratio in (0.0, 0.5, 1.0):
-                step_index = round((stair_count - 1) * ratio)
+            rail_x = stair_x + side * (stair_width * 0.5 - 0.045)
+            label = 'L' if side < 0 else 'R'
+            rail_points = []
+            for step_index in (0, (stair_count - 1) // 3, 2 * (stair_count - 1) // 3, stair_count - 1):
                 step_top = ground_z + stair_height * (step_index + 1) / stair_count
-                step_y = bottom_y - step_index * stair_tread - stair_tread * 0.5
+                step_y = bottom_y + step_index * stair_tread + stair_tread * 0.5
+                rail_top = (rail_x, step_y, step_top + 0.9)
                 add_stair_cylinder(
-                    f"ATELIER_STAIR_POST_{'L' if side < 0 else 'R'}_{step_index}",
+                    f"ATELIER_STAIR_POST_{label}_{step_index}",
                     (rail_x, step_y, step_top),
-                    (rail_x, step_y, step_top + 0.92),
-                    0.026,
+                    rail_top,
+                    0.018,
                 )
+                rail_points.append(rail_top)
+            for rail_index in range(1, len(rail_points)):
+                add_stair_cylinder(f"ATELIER_STAIR_HANDRAIL_{label}_{rail_index}", rail_points[rail_index - 1], rail_points[rail_index], 0.026)
 
 for obj in meshes:
     obj.select_set(False)

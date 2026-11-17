@@ -253,14 +253,14 @@ function createExternalStaircase(bounds: THREE.Box3, sourceRoot: THREE.Object3D)
 
   const group = new THREE.Group()
   group.name = 'ATELIER_EXTERNAL_STAIRCASE'
-  const width = 1.15
-  const stepCount = Math.max(11, Math.min(15, Math.round(stairHeight / 0.2)))
-  const treadDepth = 0.25
-  const topZ = slabBounds.max.z - 0.22
+  const width = 1.35
+  const stepCount = Math.max(12, Math.min(17, Math.round(stairHeight / 0.185)))
+  const treadDepth = 0.24
+  const topZ = slabBounds.max.z + 0.02
   const bottomZ = topZ + stepCount * treadDepth
-  const xCenter = Math.min(slabBounds.max.x - width * 0.5 - 0.35, bounds.max.x - width * 0.5 - 0.45)
-  const wood = new THREE.MeshStandardMaterial({ color: 0x9b6a43, roughness: 0.5, metalness: 0.06 })
-  const riser = new THREE.MeshStandardMaterial({ color: 0x6d4830, roughness: 0.58, metalness: 0.04 })
+  const xCenter = Math.min(slabBounds.max.x - width * 0.5 - 0.45, bounds.max.x - width * 0.5 - 0.55)
+  const wood = new THREE.MeshStandardMaterial({ color: 0xb98a60, roughness: 0.58, metalness: 0 })
+  const riser = new THREE.MeshStandardMaterial({ color: 0xe8e2d9, roughness: 0.82, metalness: 0 })
   const rail = new THREE.MeshStandardMaterial({ color: 0x292b2c, roughness: 0.32, metalness: 0.68 })
   const addBox = (name: string, size: THREE.Vector3, position: THREE.Vector3, material: THREE.Material) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material)
@@ -282,28 +282,29 @@ function createExternalStaircase(bounds: THREE.Box3, sourceRoot: THREE.Object3D)
 
   for (let index = 0; index < stepCount; index += 1) {
     const height = stairHeight * (index + 1) / stepCount
+    const z = bottomZ - index * treadDepth - treadDepth * 0.5
     addBox(
-      `STAIR_STEP_${index + 1}`,
-      new THREE.Vector3(width, height, treadDepth),
-      new THREE.Vector3(xCenter, groundY + height * 0.5, bottomZ - index * treadDepth - treadDepth * 0.5),
-      index % 2 === 0 ? wood : riser,
+      `STAIR_RISER_${index + 1}`,
+      new THREE.Vector3(width, height - 0.025, treadDepth - 0.018),
+      new THREE.Vector3(xCenter, groundY + (height - 0.025) * 0.5, z),
+      riser,
     )
+    addBox(`STAIR_TREAD_${index + 1}`, new THREE.Vector3(width + 0.035, 0.035, treadDepth), new THREE.Vector3(xCenter, groundY + height - 0.0175, z), wood)
   }
-  addBox('STAIR_TOP_LANDING', new THREE.Vector3(width, 0.08, 0.72), new THREE.Vector3(xCenter, upperFloorY - 0.04, topZ - 0.35), wood)
+  addBox('STAIR_TOP_THRESHOLD', new THREE.Vector3(width + 0.035, 0.035, 0.28), new THREE.Vector3(xCenter, upperFloorY + 0.0175, topZ - 0.14), wood)
 
   for (const side of [-1, 1]) {
-    const x = xCenter + side * (width * 0.5 - 0.08)
-    const bottomStepTop = groundY + stairHeight / stepCount
-    const topStepTop = upperFloorY
-    const bottomRail = new THREE.Vector3(x, bottomStepTop + 0.92, bottomZ - treadDepth * 0.5)
-    const topRail = new THREE.Vector3(x, topStepTop + 0.92, topZ - stepCount * treadDepth + treadDepth * 0.5)
-    addRailCylinder(`STAIR_HANDRAIL_${side < 0 ? 'L' : 'R'}`, bottomRail, topRail, 0.035)
-    for (const ratio of [0, 0.5, 1]) {
-      const stepIndex = Math.round((stepCount - 1) * ratio)
+    const x = xCenter + side * (width * 0.5 - 0.045)
+    const label = side < 0 ? 'L' : 'R'
+    const railPoints: THREE.Vector3[] = []
+    for (const stepIndex of [0, Math.floor((stepCount - 1) / 3), Math.floor(2 * (stepCount - 1) / 3), stepCount - 1]) {
       const stepTop = groundY + stairHeight * (stepIndex + 1) / stepCount
       const z = bottomZ - stepIndex * treadDepth - treadDepth * 0.5
-      addRailCylinder(`STAIR_POST_${side < 0 ? 'L' : 'R'}_${stepIndex}`, new THREE.Vector3(x, stepTop, z), new THREE.Vector3(x, stepTop + 0.92, z), 0.026)
+      const railTop = new THREE.Vector3(x, stepTop + 0.9, z)
+      addRailCylinder(`STAIR_POST_${label}_${stepIndex}`, new THREE.Vector3(x, stepTop, z), railTop, 0.018)
+      railPoints.push(railTop)
     }
+    for (let i = 1; i < railPoints.length; i += 1) addRailCylinder(`STAIR_HANDRAIL_${label}_${i}`, railPoints[i - 1], railPoints[i], 0.026)
   }
   return group
 }
