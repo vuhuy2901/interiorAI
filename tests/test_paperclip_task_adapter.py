@@ -26,6 +26,11 @@ def test_resolve_agent_uses_published_atelier_key_and_capability_state(monkeypat
 
 def test_create_native_task_returns_observed_task_without_fake_acceptance(monkeypatch: pytest.MonkeyPatch):
     calls = []
+    monkeypatch.setattr(
+        adapter,
+        "get_native_project_for_scene",
+        lambda scene_id, company_id: {"scene_id": scene_id, "native_project_id": "paperclip-project-1", "company_id": company_id},
+    )
 
     def fake_request(method, path, payload=None):
         calls.append((method, path, payload))
@@ -53,6 +58,13 @@ def test_create_native_task_returns_observed_task_without_fake_acceptance(monkey
     assert result["acceptance_observed"] is False
     assert calls[-1][2]["assigneeAgentId"] == "native-floorplan"
     assert calls[-1][2]["idempotencyKey"] == "run-1:floorplan_node:native"
+    assert "run-1" in calls[-1][2]["title"]
+    description = calls[-1][2]["description"]
+    assert "Local ATELIER Project ID: proj_bedroom" in description
+    assert "Native Paperclip Project ID: paperclip-project-1" in description
+    assert "/openapi.json" in description
+    assert '"id": "floorplan_node"' in description
+    assert "fenced JSON block" in description
 
 
 def test_post_issue_comment_uses_idempotent_board_receipt(monkeypatch: pytest.MonkeyPatch):

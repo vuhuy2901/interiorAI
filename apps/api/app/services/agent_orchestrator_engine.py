@@ -19,7 +19,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.db import DATA_DIR, get_conn, get_project, now_iso, save_project
+from app import db
+from app.db import get_conn, get_project, now_iso, save_project
 from app.services.cad_export import export_project_to_dxf, export_project_to_glb
 from app.services.cost_engine import calculate_project_estimate
 from app.services.floorplan_cv import FloorPlanCVEngine
@@ -28,7 +29,14 @@ from app.services.inventory_bom import export_inventory_bom_csv, generate_projec
 from app.services.mcp_gateway import sync_canonical_to_pascal
 from app.services.research_agent import search_real_products
 from app.services.paperclip_task_adapter import PaperclipTaskError, create_native_task, get_issue_runs, get_native_handoff, get_native_task
-from app.services.workflow_runtime import get_ready_nodes, materialize_native_handoff, validate_handoff, workflow_snapshot, write_handoff
+from app.services.workflow_runtime import (
+    get_ready_nodes,
+    materialize_native_handoff,
+    validate_floorplan_contract,
+    validate_handoff,
+    workflow_snapshot,
+    write_handoff,
+)
 
 
 # Published node type is the only runtime dispatch key. Node IDs identify an
@@ -36,6 +44,7 @@ from app.services.workflow_runtime import get_ready_nodes, materialize_native_ha
 NODE_EXECUTOR_REGISTRY: Dict[str, Dict[str, Optional[str]]] = {
     "input_intake": {"executor": "input_intake", "required_role": "orchestrator_concierge"},
     "floorplan_cv": {"executor": "floorplan_cv", "required_role": "floorplan_cv"},
+    "floorplan_validation": {"executor": "floorplan_validation", "required_role": "render_qa"},
     "human_gate": {"executor": "human_gate", "required_role": None},
     "concierge_brief": {"executor": "concierge_brief", "required_role": "orchestrator_concierge"},
     "pascal_geometry": {"executor": "pascal_geometry", "required_role": "geometry_mcp"},
@@ -48,14 +57,85 @@ NODE_EXECUTOR_REGISTRY: Dict[str, Dict[str, Optional[str]]] = {
     "render_qa": {"executor": "render_qa", "required_role": "render_qa"},
     "cad_export": {"executor": "cad_export", "required_role": "geometry_mcp"},
 }
+DEMO_SKIPPED_NODE_TYPES = {"human_gate", "render_gen"}
 
 
 def predecessor_handoff_paths(run_id: str, predecessor_ids: List[str]) -> List[str]:
     """Return workspace-independent absolute handoff paths for native agents."""
     return [
-        str(DATA_DIR / "runs" / run_id / "handoffs" / f"{predecessor_id}.md")
+        str(db.DATA_DIR / "runs" / run_id / "handoffs" / f"{predecessor_id}.md")
         for predecessor_id in predecessor_ids
     ]
+
+
+def verified_predecessor_handoffs(run_id: str, predecessor_ids: List[str]) -> tuple[List[str], List[Dict[str, Any]]]:
+    """Read only verified predecessor handoffs for a native successor task."""
+    markdown_paths = predecessor_handoff_paths(run_id, predecessor_ids)
+    provenance: List[Dict[str, Any]] = []
+    for predecessor_id, markdown_path in zip(predecessor_ids, markdown_paths):
+        manifest_path = db.DATA_DIR / "runs" / run_id / "handoffs" / f"{predecessor_id}.json"
+        manifest = validate_handoff(manifest_path, expected_node_id=predecessor_id)
+        provenance.append({
+            "node_id": predecessor_id,
+            "markdown_path": markdown_path,
+            "manifest_path": str(manifest_path),
+            "artifacts": [
+                {
+                    "artifact_id": artifact["artifact_id"],
+                    "path": artifact["path"],
+                    "sha256": artifact["sha256"],
+                    "type": artifact.get("type"),
+                }
+                for artifact in manifest["artifacts"]
+            ],
+        })
+    return markdown_paths, provenance
+
+
+def validate_geometry_predecessor_contracts(
+    predecessor_artifacts: List[Dict[str, Any]],
+    *,
+    allow_inferred: bool,
+) -> None:
+    """Require a valid Floorplan payload and an independent QA receipt."""
+    floorplan_contract: Optional[Dict[str, Any]] = None
+    floorplan_validation: Optional[Dict[str, Any]] = None
+    for predecessor in predecessor_artifacts:
+        for artifact in predecessor.get("artifacts") or []:
+            path = Path(str(artifact.get("path") or ""))
+            if not path.is_file() or path.suffix.lower() != ".json":
+                continue
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            result = document.get("result") if isinstance(document, dict) else None
+            if not isinstance(result, dict):
+                continue
+            candidate = result.get("floorplan_contract")
+            if isinstance(candidate, dict):
+                floorplan_contract = candidate
+            candidate_validation = result.get("floorplan_validation")
+            if isinstance(candidate_validation, dict):
+                floorplan_validation = candidate_validation
+    if floorplan_contract is None:
+        raise ValueError("Geometry requires predecessor result.floorplan_contract")
+    errors = validate_floorplan_contract(floorplan_contract, allow_inferred=allow_inferred)
+    if errors:
+        raise ValueError("Floorplan Contract invalid: " + "; ".join(errors))
+    if not floorplan_validation or floorplan_validation.get("passed") is not True:
+        raise ValueError("Geometry requires independent floorplan_validation.passed=true")
+
+
+def native_task_demo_instruction(demo_mode: bool) -> str:
+    if not demo_mode:
+        return ""
+    return (
+        "ROUTING_DEMO: Đây là kiểm thử truyền việc, không phải thiết kế thật. "
+        "Không sửa SceneGraph, không tạo revision, không tự phê duyệt gate và không bịa dữ liệu. "
+        "Chỉ xác nhận đã đọc input predecessor, ghi routing receipt thực tế vào handoff theo JSON contract, "
+        "rồi bàn giao cho node kế tiếp. Nếu không thể ghi handoff hợp lệ, trả needs_input hoặc blocked."
+    )
 
 
 async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
@@ -151,15 +231,42 @@ async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
         node = next((item for item in snapshot.get("nodes") or [] if item.get("id") == event.get("node_id")), None)
         if not node:
             continue
-        contract = node_decision_contract(run_doc, decisions, node=node)
+        contract = (
+            {
+                "node_id": node.get("id"),
+                "node_type": node.get("type"),
+                "required_keys": [],
+                "allow_provisional_keys": [],
+            }
+            if run_doc.get("demo_mode")
+            else node_decision_contract(run_doc, decisions, node=node)
+        )
         missing = decision_contract_missing(contract, decisions)
         event["decision_contract"] = {**contract, "missing_keys": missing}
         if not missing:
             event["status"] = "INPUT_RESOLVED"
             event["completed_at"] = now_iso()
             event["output_summary"] = "Decision gate của node đã đủ; node được tái đánh giá theo workflow edges."
+    if run_doc.get("demo_mode"):
+        for event in events:
+            if (
+                event.get("node_type") in DEMO_SKIPPED_NODE_TYPES
+                and event.get("status") in {"WAITING_FOR_AGENT", "RUNNING", "INPUT_RESOLVED", "BLOCKED"}
+                and event.get("native_task_id")
+            ):
+                event["status"] = "SKIPPED"
+                event["demo_gate_status"] = "SKIPPED_FOR_DEMO"
+                event["completed_at"] = now_iso()
+                event["output_summary"] = (
+                    "Node side-effect đã được bỏ qua trong ROUTING_DEMO; task native cũ không được coi là PASS."
+                )
+                event["error"] = None
     statuses = {
-        event["node_id"]: event.get("status", "PENDING")
+        event["node_id"]: (
+            "COMPLETED"
+            if run_doc.get("demo_mode") and event.get("demo_gate_status") == "SKIPPED_FOR_DEMO"
+            else event.get("status", "PENDING")
+        )
         for event in events
         if event.get("status") != "INPUT_RESOLVED"
     }
@@ -168,17 +275,85 @@ async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
         event["node_id"] for event in events
         if event.get("native_task_id") or event.get("status") not in {"INPUT_RESOLVED"}
     }
-    project_id = run_doc["project_id"]
+    project_id = run_doc.get("project_id") or run_doc.get("canonical_project_id")
+    if not project_id:
+        for node_id in ready:
+            events.append({
+                "run_id": run_id,
+                "node_id": node_id,
+                "status": "BLOCKED",
+                "error": "RUN_PROJECT_ID_MISSING",
+                "output_summary": "Workflow run không có canonical Project ID; không dùng project mẫu thay thế.",
+            })
+        run_doc["events"] = events
+        run_doc["status"] = "BLOCKED"
+        run_doc["synced_at"] = now_iso()
+        conn.execute(
+            "UPDATE workflow_runs SET status = ?, payload_json = ?, updated_at = ? WHERE run_id = ?",
+            ("BLOCKED", json.dumps(run_doc, ensure_ascii=False), run_doc["synced_at"], run_id),
+        )
+        conn.commit()
+        conn.close()
+        return run_doc
     for node in snapshot.get("nodes") or []:
         node_id = node.get("id")
         if node_id not in ready or node_id in existing_nodes:
             continue
         agent_id = node.get("agent_id")
         predecessors = [edge["source"] for edge in snapshot.get("edges") or [] if edge.get("target") == node_id]
+        handoff_predecessors = [
+            predecessor for predecessor in predecessors
+            if not (
+                run_doc.get("demo_mode")
+                and any(
+                    event.get("node_id") == predecessor
+                    and event.get("status") == "SKIPPED"
+                    and event.get("demo_gate_status") == "SKIPPED_FOR_DEMO"
+                    for event in events
+                )
+            )
+        ]
         task_key = f"{run_id}:{node_id}:native"
         native_started_at = now_iso()
-        predecessor_handoffs = predecessor_handoff_paths(run_id, predecessors)
-        contract = node_decision_contract(run_doc, decisions, node=node)
+        if run_doc.get("demo_mode") and node.get("type") in DEMO_SKIPPED_NODE_TYPES:
+            events.append({
+                "run_id": run_id, "step": len(events) + 1,
+                "step_id": f"step_{uuid.uuid4().hex[:8]}",
+                "step_run_id": f"step_{uuid.uuid4().hex[:8]}",
+                "node_id": node_id, "node_type": node.get("type"),
+                "executor_type": node.get("type"), "label": node.get("label", node_id),
+                "agent_id": agent_id, "status": "SKIPPED",
+                "demo_gate_status": "SKIPPED_FOR_DEMO",
+                "depends_on": predecessors,
+                "output_summary": "Node side-effect được bỏ qua trong ROUTING_DEMO; không phải approval hoặc execution PASS.",
+                "error": None,
+            })
+            continue
+        try:
+            predecessor_handoffs, predecessor_artifacts = verified_predecessor_handoffs(run_id, handoff_predecessors)
+            if node.get("config", {}).get("requires_floorplan_contract") and not run_doc.get("demo_mode"):
+                validate_geometry_predecessor_contracts(
+                    predecessor_artifacts,
+                    allow_inferred=bool(node.get("config", {}).get("allow_inferred_scale", True)),
+                )
+        except (OSError, ValueError) as exc:
+            events.append({
+                "run_id": run_id, "node_id": node_id, "agent_id": agent_id,
+                "status": "BLOCKED", "error": "PREDECESSOR_HANDOFF_INVALID",
+                "output_summary": f"Không mở node vì handoff predecessor không hợp lệ: {exc}",
+                "depends_on": predecessors,
+            })
+            continue
+        contract = (
+            {
+                "node_id": node.get("id"),
+                "node_type": node.get("type"),
+                "required_keys": [],
+                "allow_provisional_keys": [],
+            }
+            if run_doc.get("demo_mode")
+            else node_decision_contract(run_doc, decisions, node=node)
+        )
         node_missing = decision_contract_missing(contract, decisions)
         if node_missing:
             events.append({
@@ -210,21 +385,34 @@ async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
             if key in decisions
         }
         base_description = str(node.get("config", {}).get("task_description") or node.get("label") or node.get("type") or node_id)
+        demo_instruction = native_task_demo_instruction(bool(run_doc.get("demo_mode")))
         task_description = "\n".join([
             base_description,
+            demo_instruction,
             "",
             "Decision contract của node:",
             json.dumps({**contract, "decisions": decision_context}, ensure_ascii=False, indent=2, default=str),
             "Giá trị PROVISIONAL chỉ dùng cho phương án sơ bộ; không được diễn giải thành phê duyệt cấu tạo, sản xuất hoặc hồ sơ cuối.",
         ])
         try:
+            native_agent_row = conn.execute("SELECT payload_json FROM agents WHERE agent_id = ?", (agent_id,)).fetchone() if agent_id else None
+            native_agent = json.loads(native_agent_row["payload_json"]) if native_agent_row else None
+            native_required_role = (NODE_EXECUTOR_REGISTRY.get(node.get("type")) or {}).get("required_role")
+            if (
+                not native_agent
+                or not native_agent.get("enabled")
+                or (native_required_role and native_agent.get("role") != native_required_role)
+            ):
+                raise ValueError(f"Assigned agent is unavailable: {agent_id or 'missing'}")
             native_task = create_native_task(
                 run_id=run_id,
                 project_id=project_id,
                 node=node,
                 local_agent_id=agent_id or "",
+                paperclip_agent_key=native_agent.get("paperclip_agent_key"),
                 task_description=task_description,
                 predecessor_handoffs=predecessor_handoffs,
+                predecessor_artifacts=predecessor_artifacts,
                 idempotency_key=task_key,
             )
             conn.execute(
@@ -236,7 +424,7 @@ async def sync_native_workflow_run(run_id: str) -> Dict[str, Any]:
                 "node_id": node_id, "node_type": node.get("type"), "executor_type": node.get("type"), "label": node.get("label", node_id),
                 "agent_id": agent_id, "tool_called": "paperclip_native_task", "tool_call_id": None, "status": "WAITING_FOR_AGENT",
                 "started_at": native_started_at, "completed_at": None, "duration_ms": None, "depends_on": predecessors, "blocked_by": None,
-                "input": {"predecessor_handoffs": predecessor_handoffs, "decision_contract": contract, "decisions": decision_context}, "output": {"native_task": native_task, "acceptance_observed": False},
+                "input": {"predecessor_handoffs": predecessor_handoffs, "predecessor_artifacts": predecessor_artifacts, "decision_contract": contract, "decisions": decision_context}, "output": {"native_task": native_task, "acceptance_observed": False},
                 "output_summary": "Node tiếp theo đã được kích hoạt bằng native Paperclip task.", "error": None,
                 "native_task_id": native_task["task_id"], "native_task_status": native_task.get("status", "todo"), "acceptance_observed": False,
             })
@@ -289,6 +477,7 @@ async def execute_real_workflow_run(
     user_message_id: Optional[str] = None,
     user_text: Optional[str] = None,
     native_tasks: bool = False,
+    demo_mode: bool = False,
 ) -> Dict[str, Any]:
     """
     Executes a real Multi-Agent Workflow Run on a project.
@@ -440,10 +629,7 @@ async def execute_real_workflow_run(
         if native_tasks and step_status != "BLOCKED":
             native_started_at = now_iso()
             native_task_key = f"{run_id}:{node_id}:native"
-            predecessor_handoffs = [
-                str(Path("runs") / run_id / "handoffs" / f"{predecessor_id}.md")
-                for predecessor_id in depends_on
-            ]
+            predecessor_handoffs, predecessor_artifacts = verified_predecessor_handoffs(run_id, depends_on)
             native_row = conn.execute(
                 "SELECT task_id, payload_json, status FROM workflow_native_tasks WHERE idempotency_key = ?",
                 (native_task_key,),
@@ -459,8 +645,12 @@ async def execute_real_workflow_run(
                         node=node,
                         local_agent_id=agent_id or "",
                         paperclip_agent_key=(native_agent or {}).get("paperclip_agent_key"),
-                        task_description=str(node.get("config", {}).get("task_description") or label or node_type or node_id),
+                        task_description="\n".join(filter(None, [
+                            str(node.get("config", {}).get("task_description") or label or node_type or node_id),
+                            native_task_demo_instruction(demo_mode),
+                        ])),
                         predecessor_handoffs=predecessor_handoffs,
+                        predecessor_artifacts=predecessor_artifacts,
                         idempotency_key=native_task_key,
                     )
                     conn.execute(
@@ -485,7 +675,7 @@ async def execute_real_workflow_run(
                     "duration_ms": None,
                     "depends_on": depends_on,
                     "blocked_by": None,
-                    "input": {"predecessor_handoffs": predecessor_handoffs, "task_description": str(node.get("config", {}).get("task_description") or label or node_type or node_id)},
+                    "input": {"predecessor_handoffs": predecessor_handoffs, "predecessor_artifacts": predecessor_artifacts, "task_description": str(node.get("config", {}).get("task_description") or label or node_type or node_id)},
                     "output": {"native_task": native_task, "acceptance_observed": False},
                     "output_summary": "Native Paperclip task đã được tạo; chưa có tín hiệu agent nhận việc hoặc hoàn thành.",
                     "error": None,
@@ -558,7 +748,7 @@ async def execute_real_workflow_run(
         # Runtime safety gates remain mandatory even when the published graph
         # does not draw an explicit gate node.
         if step_status == "COMPLETED" and executor_key in {
-            "pascal_geometry", "style_surface", "furniture_layout", "collision_qa",
+            "floorplan_validation", "pascal_geometry", "style_surface", "furniture_layout", "collision_qa",
             "catalog_match", "deterministic_cost", "render_gen", "render_qa", "cad_export",
         } and not project.scale_calibrated:
             step_status = "BLOCKED"
@@ -629,6 +819,43 @@ async def execute_real_workflow_run(
                     input_payload = {"source": "canonical_scene_geometry", "rooms": len(project.rooms), "walls": len(project.walls)}
                     output_payload = {"rooms_count": len(project.rooms), "walls_count": len(project.walls), "openings_count": len(project.openings), "windows_count": len(project.windows)}
                     output_summary = f"Hình học hiện tại: {len(project.rooms)} phòng, {len(project.walls)} tường bao"
+
+            # -------------------------------------------------------------
+            # FLOORPLAN QUALITY ADMISSION — independent QA before Geometry
+            # -------------------------------------------------------------
+            elif executor_key == "floorplan_validation":
+                tool_name = "floorplan_contract_validator"
+                issue_list: List[str] = []
+                if not project.rooms:
+                    issue_list.append("Không có room boundary")
+                if not project.walls:
+                    issue_list.append("Không có tường")
+                if not project.scale_calibrated and not node.get("config", {}).get("allow_inferred_scale", True):
+                    issue_list.append("Tỷ lệ chưa được xác nhận")
+                wall_ids = {wall.id for wall in project.walls}
+                for opening in [*project.openings, *project.windows]:
+                    wall_id = getattr(opening, "wall_id", None)
+                    if wall_id and wall_id not in wall_ids:
+                        issue_list.append(f"Opening {getattr(opening, 'id', '?')} tham chiếu tường không tồn tại")
+                qa_passed = not issue_list
+                input_payload = {
+                    "rooms": len(project.rooms),
+                    "walls": len(project.walls),
+                    "openings": len(project.openings) + len(project.windows),
+                    "scale_calibrated": project.scale_calibrated,
+                }
+                output_payload = {
+                    "floorplan_validation": {
+                        "passed": qa_passed,
+                        "errors": issue_list,
+                        "independent_agent": agent_id,
+                    }
+                }
+                if qa_passed:
+                    output_summary = "Floorplan QA PASS: tường, phòng, lỗ mở và tỷ lệ đủ điều kiện dựng Geometry"
+                else:
+                    step_status = "BLOCKED"
+                    output_summary = "Floorplan QA chặn Geometry: " + "; ".join(issue_list)
 
             # -------------------------------------------------------------
             # NODE 3: SCALE CONFIRMATION GATE (HUMAN-IN-THE-LOOP)
@@ -1036,6 +1263,7 @@ async def execute_real_workflow_run(
         "workflow_version": snapshot.get("workflow_version", 1),
         "workflow_snapshot": snapshot,
         "native_tasks_enabled": native_tasks,
+        "demo_mode": demo_mode,
         "user_message_id": user_message_id,
         "user_text": user_text,
         "scene_revision": project.revision,

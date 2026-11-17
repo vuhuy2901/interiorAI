@@ -32,7 +32,16 @@ def test_real_sofa_03_has_two_actual_material_slots():
 
 
 def test_resize_policies_never_distort_fixed_or_uniform_assets():
-    fixed = FurnitureInstance(id="fixed", sku="SKU", name="Fixed sofa", width_mm=2100, depth_mm=880, height_mm=780)
+    fixed = FurnitureInstance(
+        id="fixed",
+        sku="SKU",
+        name="Fixed sofa",
+        category="sofa",
+        pascal_asset_id="sofa",
+        width_mm=2100,
+        depth_mm=880,
+        height_mm=780,
+    )
     rejected = plan_resize(fixed, [1500, 880, 780])
     assert rejected["ok"] is False
     assert rejected["status"] == "REJECTED_FIXED_SIZE"
@@ -68,6 +77,7 @@ def test_l_shaped_room_sat_collision_and_two_generated_options():
         sku="DECOR",
         name="Decor",
         category="decor",
+        pascal_asset_id="atelier-decor",
         x_mm=800,
         y_mm=800,
         width_mm=400,

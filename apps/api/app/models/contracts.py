@@ -4,7 +4,7 @@ Synchronized across FastAPI Backend, LangGraph Orchestrator, Pascal MCP Gateway,
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ScaleCalibration(BaseModel):
@@ -185,11 +185,45 @@ class AssetMetadata(BaseModel):
     created_at: str = ""
 
 
+class MeasurementEvidence(BaseModel):
+    value: Optional[float] = None
+    unit: Literal["mm", "deg"] = "mm"
+    status: Literal["CONFIRMED", "INFERRED", "UNKNOWN"]
+    source: str
+    source_ref: Optional[str] = None
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_known_value(self) -> "MeasurementEvidence":
+        if not self.source.strip():
+            raise ValueError("measurement source must not be empty")
+        if self.status == "UNKNOWN" and self.value is not None:
+            raise ValueError("UNKNOWN measurement must not carry a numeric value")
+        if self.status != "UNKNOWN" and self.value is None:
+            raise ValueError(f"{self.status} measurement requires a numeric value")
+        return self
+
+
+class DimensionSegment(BaseModel):
+    id: str
+    label: str
+    measurement: MeasurementEvidence
+
+
+class DimensionChain(BaseModel):
+    id: str
+    room_id: str
+    axis: Literal["width", "depth"]
+    segments: List[DimensionSegment]
+    expected_total: MeasurementEvidence
+    tolerance_mm: float = 0.0
+
+
 class FurnitureInstance(BaseModel):
     id: str
     sku: str
     name: str
-    category: str = "sofa"
+    category: str
     room_id: str = "room_main"
     x_mm: float = 2000.0
     y_mm: float = 2500.0
@@ -198,9 +232,13 @@ class FurnitureInstance(BaseModel):
     depth_mm: float = 880.0
     height_mm: float = 780.0
     rotation_deg: float = 0.0
+    wall: Optional[Literal["top", "right", "bottom", "left"]] = None
+    align: Optional[Literal["start", "center", "end", "left", "right", "top", "bottom"]] = None
+    offset_mm: float = 0.0
+    wall_distance_mm: float = 0.0
     color_hex: str = "#E4DDD3"
     price_vnd: float = 14500000.0
-    pascal_asset_id: str = "sofa"
+    pascal_asset_id: str
     pascal_node_id: Optional[str] = None
     source_url: Optional[str] = None
     vendor: Optional[str] = None
@@ -210,43 +248,27 @@ class FurnitureInstance(BaseModel):
     normalized_glb: Optional[str] = None
     material_slots: List[MaterialSlotDefinition] = Field(default_factory=list)
     material_overrides: Dict[str, MaterialOverride] = Field(default_factory=dict)
+    part_materials: Dict[str, str] = Field(default_factory=dict)
     sizing_policy: Literal["FIXED_SIZE", "UNIFORM_SCALABLE", "PARAMETRIC"] = "FIXED_SIZE"
     uniform_scale_range: List[float] = Field(default_factory=lambda: [1.0, 1.0])
     original_dimensions_mm: List[float] = Field(default_factory=list)
     parametric_module_mm: Optional[float] = None
     parametric_axes: List[Literal["width", "depth", "height"]] = Field(default_factory=list)
+    measurement_evidence: Dict[str, MeasurementEvidence] = Field(default_factory=dict)
+    legacy_flags: List[str] = Field(default_factory=list)
 
-
-class ExternalSceneAsset(BaseModel):
-    """Immutable whole-scene GLB used instead of generated room geometry."""
-    asset_id: str
-    name: str
-    file_url: str
-    source_path: Optional[str] = None
-    source_url: Optional[str] = None
-    author: Optional[str] = None
-    license: Optional[str] = None
-    sha256: str
-    root_transform: Dict[str, List[float]] = Field(default_factory=lambda: {
-        "translation": [0.0, 0.0, 0.0],
-        "rotation_euler_deg": [0.0, 0.0, 0.0],
-        "scale": [1.0, 1.0, 1.0],
-    })
-    bounds_min_m: List[float] = Field(default_factory=list)
-    bounds_max_m: List[float] = Field(default_factory=list)
-    bounds_size_m: List[float] = Field(default_factory=list)
-    node_count: int = 0
-    mesh_count: int = 0
-    material_count: int = 0
-    texture_count: int = 0
-    camera_count: int = 0
-    light_count: int = 0
-    audit_url: Optional[str] = None
-    imported_at: str = ""
+    @model_validator(mode="after")
+    def mark_legacy_defaults(self) -> "FurnitureInstance":
+        flags = list(self.legacy_flags)
+        if self.category != "sofa" and self.pascal_asset_id == "sofa":
+            flags.append("LEGACY_DEFAULT_PASCAL_ASSET_SOFA")
+        if not self.measurement_evidence:
+            flags.append("LEGACY_MISSING_MEASUREMENT_EVIDENCE")
+        self.legacy_flags = list(dict.fromkeys(flags))
+        return self
 
 
 class DesignBrief(BaseModel):
-    budget_mode: Literal['fixed', 'estimate_first'] = 'fixed'
     style: str = "Japandi"
     room_function: str = "Phòng khách sinh hoạt chung & tiếp khách"
     color_palette: List[str] = Field(default_factory=lambda: ["#F5F2EB", "#C8A986", "#B8C2B4", "#276E70"])
@@ -274,19 +296,12 @@ class EstimateLineItem(BaseModel):
     price_status: Literal["verified", "illustrative", "provided_unverified", "unknown"] = "illustrative"
     formula_explanation: str
     source_label: str = "GIÁ MINH HỌA"
-    source_note: str = ""
     source_url: Optional[str] = None
     checked_at: str = "2026-11-01"
 
 
 class CostEstimateSnapshot(BaseModel):
-    budget_mode: Literal['fixed', 'estimate_first'] = 'fixed'
     snapshot_id: str
-    scene_asset_hash: Optional[str] = None
-    source_kind: str = "canonical"
-    reference_line_count: int = 0
-    reference_subtotal_vnd: float = 0.0
-    known_subtotal_vnd: float = 0.0
     project_id: str
     revision: int
     created_at: str
@@ -305,12 +320,15 @@ class CostEstimateSnapshot(BaseModel):
     unpriced_item_ids: List[str] = Field(default_factory=list)
     price_coverage_percent: float = 100.0
     total_is_complete: bool = True
-    budget_status: Literal["within_budget", "over_budget", "incomplete", "not_set"] = "within_budget"
+    budget_status: Literal["within_budget", "over_budget", "incomplete"] = "within_budget"
     budget_limit_vnd: float = 120000000.0
     within_budget: bool = True
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."
 
 
+# ============================================================================
+# UNIFIED PROJECT BOQ & AI FINANCIAL MANAGEMENT CONTRACTS (FEAT-2026-033)
+# ============================================================================
 class MaterialSpecDetail(BaseModel):
     board_core: str = "MDF chống ẩm lõi xanh"
     surface_finish: str = "Melamine"
@@ -433,7 +451,6 @@ class UnifiedProjectBOQ(BaseModel):
     generated_at: str = ""
 
 
-
 class BOQDecisionPayload(BaseModel):
     selected_option_id: Optional[str] = None
     custom_material_spec: Optional[Dict[str, Any]] = None
@@ -458,13 +475,14 @@ class CanonicalProject(BaseModel):
     openings: List[DoorOpening] = Field(default_factory=list)
     windows: List[WindowOpening] = Field(default_factory=list)
     furniture_instances: List[FurnitureInstance] = Field(default_factory=list)
+    dimension_chains: List[DimensionChain] = Field(default_factory=list)
     surface_material_overrides: Dict[str, MaterialOverride] = Field(default_factory=dict)
+    active_style_preset: Optional[str] = None
     design_brief: DesignBrief = Field(default_factory=DesignBrief)
     estimate_snapshot: Optional[CostEstimateSnapshot] = None
     pascal_scene_json: Dict[str, Any] = Field(default_factory=dict)
     approval_state: Literal["DRAFT", "WAITING_FOR_INPUT", "WAITING_FOR_APPROVAL", "APPROVED"] = "APPROVED"
     underlay_image_url: Optional[str] = None
-    external_scene: Optional[ExternalSceneAsset] = None
     created_at: str = ""
     updated_at: str = ""
 

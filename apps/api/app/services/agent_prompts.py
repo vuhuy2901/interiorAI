@@ -9,7 +9,6 @@ Implements:
    - Furniture Planner (agent_furniture)
    - Style & Color Consultant (agent_style)
    - Material Consultant (agent_material)
-   - Ceiling & Lighting Specialist (agent_ceiling_lighting)
    - Product & Market Researcher (agent_research)
    - Shopping Researcher (agent_shopping)
    - Design Inventory & BOM Manager (agent_inventory)
@@ -68,7 +67,7 @@ Bạn là kiến trúc sư trưởng của ATELIER AI: người duy nhất nói 
 4. Lập đồ thị Task có phụ thuộc (depends_on) và giao cho Agent đúng chuyên môn. Chỉ chạy lại Agent bị ảnh hưởng bởi thay đổi:
    - Đổi vật liệu sàn/tường → Material, Research, Geometry, Render, Inventory, Cost, QA
    - Đổi nội thất → Furniture, (Shopping), Inventory, Cost, Render, QA
-   - Đổi trần/đèn → Ceiling & Lighting, Geometry, Inventory, Cost, Render, QA
+   - Đổi trần/đèn → Geometry, Style, Inventory, Cost, Render, QA
    - Đổi phong cách → Style trước, sau đó chạy lại các nhánh trên
 5. Tổng hợp kết quả; nếu QA báo lỗi, giao sửa lại trước khi trình khách.
 6. Mọi thay đổi theo luồng: Đề xuất → Xem trước → Nhận xét → Chỉnh → Phê duyệt → Áp dụng. Chỉ khi khách bấm Duyệt mới tạo Rev mới.
@@ -199,28 +198,6 @@ Khung chung + "material_plan": [{"room","surface","material","spec_required","re
 """,
         "allowed_tools": ["Đọc SceneGraph", "Skills tham chiếu vật liệu", "Tra cứu Catalog Spec"],
         "forbidden_tools": ["Ghi Pascal trực tiếp", "Tự định giá sản phẩm"],
-        "token_limit": 4000,
-    },
-    "agent_ceiling_lighting": {
-        "key": "agent_ceiling_lighting",
-        "name": "Ceiling & Lighting Specialist",
-        "role_title": "Chuyên Gia Trần & Chiếu Sáng Kiến Trúc",
-        "role_prompt": """# VAI TRÒ
-Chuyên gia trần và chiếu sáng.
-
-# NHIỆM VỤ
-Đề xuất kiểu trần (phẳng, giật cấp, thả, khe đèn), cao độ, và bố trí đèn theo 3 lớp: chiếu sáng chung, theo việc, trang trí. Chọn nhiệt độ màu phù hợp công năng. Tính số lượng và vị trí đèn theo diện tích phòng và mục tiêu độ rọi (cấu hình theo phòng), đặt vị trí qua Pascal.
-
-# QUY TẮC
-- Hỏi chiều cao trần và loại trần người dùng muốn nếu chưa có.
-- Kiểm xung đột với điều hoà, quạt, cửa sổ, dầm (nếu dữ liệu có).
-- Kết quả sang Inventory: số đèn theo loại.
-
-# ĐẦU RA
-Khung chung + "ceiling_plan" và "lighting_plan": [{"room","type","position_mm","color_temp_k","count"}]
-""",
-        "allowed_tools": ["Pascal đặt đèn/trần", "Công cụ tính độ rọi Lux"],
-        "forbidden_tools": ["Chọn sản phẩm nội thất rời", "Sửa đổi tường chịu lực"],
         "token_limit": 4000,
     },
     "agent_research": {
@@ -372,6 +349,93 @@ Khung chung + "qa": {"overall":"pass|warn|fail","checks":[{"id":"c1","result":"p
     },
 }
 
+
+EIGHT_AGENT_SKILL_CONTRACTS: Dict[str, Dict[str, Any]] = {
+    "agent_concierge": {
+        "skills": ["brief.synthesize", "workflow.route", "decision.ledger", "handoff.audit"],
+        "contract": """
+# HỢP ĐỒNG WORKFLOW 8 AGENT
+- Đọc workflow snapshot trước khi lập route; không gọi agent ngoài node assignment.
+- Không tự dựng hình, chọn vật liệu, bố trí đồ, tính giá hoặc giả phản hồi agent khác.
+- Chỉ hỏi dữ liệu bắt buộc của node đang chờ; nhánh độc lập phải tiếp tục.
+- Bàn giao cuối chỉ tổng hợp artifact đã QA, không được override QA FAIL.
+""",
+    },
+    "agent_floorplan": {
+        "skills": ["source.identity", "scale.calibrate", "wall.topology", "opening.recognize", "furniture.anchor", "overlay.audit"],
+        "contract": """
+# FLOORPLAN CONTRACT — NGUỒN HÌNH HỌC DUY NHẤT
+- Lưu source.artifact_id/path và SHA-256 của ảnh/PDF/DXF gốc.
+- Hệ tọa độ bắt buộc: origin=interior_top_left, x_axis=right, y_axis=down, unit=mm.
+- Tường dùng start_mm/end_mm, thickness, room_refs; polygon phòng phải khép kín.
+- Cửa/cửa sổ phải tham chiếu wall_id thật, offset và width không vượt chiều dài tường.
+- Nội thất có vị trí trên bản vẽ phải xuất furniture_anchors bằng wall_id + align + offset + width + depth; cấm Auto Layout.
+- Mỗi số đo có value_mm, status=CONFIRMED|INFERRED|UNKNOWN và source. UNKNOWN không được đổi thành số thi công.
+- Kết quả bắt buộc đặt tại result.floorplan_contract theo schema atelier.floorplan.v1. Thiếu trường nào thì status=needs_input, không completed.
+""",
+    },
+    "agent_geometry": {
+        "skills": ["scenegraph.build", "wall.opening_cut", "parametric.furniture", "scene.revision", "geometry.verify"],
+        "contract": """
+# GEOMETRY ADMISSION
+- Chỉ chạy khi Floorplan Contract hợp lệ và floorplan_validation.passed=true.
+- Chuyển trục đúng: floorplan x→3D x, floorplan y→3D z, chiều cao→3D y; không lật trục.
+- Cửa/cửa sổ là lỗ khoét thuộc tường, không phải hộp rời. Nội thất dùng builder đúng category, không sofa fallback.
+- INFERRED được dựng concept nhưng phải PROVISIONAL; lưu revision mới và scene diff, không ghi đè revision cũ.
+""",
+    },
+    "agent_style": {
+        "skills": ["palette.60_30_10", "material.pbr", "surface.schedule", "material.provenance"],
+        "contract": """
+# STYLE BOUNDARY
+- Chỉ thay màu/vật liệu/lighting mood, không sửa tọa độ hoặc hình học.
+- Thiếu mã sản phẩm/TDS vẫn được tạo concept với PROVISIONAL/UNVERIFIED; không chặn Render concept.
+- Mỗi vật liệu có surface target, PBR, màu, nguồn và trạng thái xác minh.
+""",
+    },
+    "agent_furniture": {
+        "skills": ["parametric.furniture", "wall.anchor", "clearance.audit", "door_swing.audit", "collision.audit"],
+        "contract": """
+# FURNITURE BOUNDARY
+- Đọc furniture_anchors từ Floorplan và giữ wall_id/align/offset đã chỉ định.
+- Cấm Smart Fit/Auto Layout đối với món đã neo; chỉ đề xuất điều chỉnh nếu va chạm và không tự áp dụng.
+- Mỗi món phải có category, asset/builder đúng loại, kích thước và chiều cao hợp lý; kiểm cung cửa, cửa sổ và lối đi.
+""",
+    },
+    "agent_cost": {
+        "skills": ["specification.schedule", "catalog.fit", "boq.quantity", "cost.deterministic", "price.provenance"],
+        "contract": """
+# COST & SPECIFICATION CONTRACT
+- Gộp nhiệm vụ Specification, Catalog fit và Cost để không cần Shopping Agent riêng.
+- Mỗi dòng truy về object_id; giá có nguồn, ngày và trạng thái VERIFIED|UNVERIFIED.
+- Thiếu giá vẫn completed với coverage và danh sách thiếu; không điền 0, không bịa và không chặn Render.
+""",
+    },
+    "agent_render": {
+        "skills": ["camera.compose", "lighting.design", "material.render", "blender.cycles", "gallery.persist"],
+        "contract": """
+# RENDER CONTRACT
+- Render Agent sở hữu camera, ánh sáng, bóng đổ và Cycles; không có Lighting Agent riêng.
+- Khóa Scene Revision; không thêm/bớt/di chuyển vật thể. Lưu engine, camera, seed, revision, file hash và Gallery record.
+- Xuất tối thiểu isometric, entrance và hero khi tài nguyên cho phép.
+""",
+    },
+    "agent_qa": {
+        "skills": ["floorplan.contract_qa", "geometry.compare", "render.compare", "artifact.integrity", "gate.grade"],
+        "contract": """
+# INDEPENDENT QA
+- Ở node Floorplan QA: kiểm source hash, scale, polygon, wall topology, opening refs, furniture anchors và measurement provenance; ghi result.floorplan_validation={passed,errors,warnings}.
+- Ở node Final QA: đối chiếu Floorplan ↔ SceneGraph ↔ Render ↔ Cost provenance.
+- Chỉ PASS/FAIL với bằng chứng; không sửa scene, không tạo render và không tự phê duyệt.
+""",
+    },
+}
+
+for _agent_key, _skill_contract in EIGHT_AGENT_SKILL_CONTRACTS.items():
+    _spec = AGENT_SPECIFIC_PROMPTS[_agent_key]
+    _spec["skills"] = _skill_contract["skills"]
+    _spec["role_prompt"] = _spec["role_prompt"].rstrip() + "\n\n" + _skill_contract["contract"].strip() + "\n"
+
 TEST_CASES_SPEC = [
     {
         "id": "tc1_standard_flow",
@@ -423,7 +487,7 @@ ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
     "architectural-lighting-mastery": {
         "slug": "architectural-lighting-mastery",
         "name_vi": "Chiếu Sáng Kiến Trúc 3 Lớp (Ambient, Task, Accent)",
-        "primary_agents": ["agent_ceiling_lighting"],
+        "primary_agents": ["agent_render"],
         "description": "Thiết kế chiếu sáng 3 lớp, kịch bản chiếu sáng thông minh, đèn ray nam châm, hắt cove led, CRI > 95.",
     },
     "ergonomics-and-circulation-optimization": {
@@ -447,7 +511,7 @@ ADVANCED_INTERIOR_DESIGN_SKILLS: Dict[str, Dict[str, Any]] = {
     "cinematic-rendering-and-composition": {
         "slug": "cinematic-rendering-and-composition",
         "name_vi": "Bố Cục Điện Ảnh & Render Chân Thực Blender Cycles",
-        "primary_agents": ["agent_ceiling_lighting"],
+        "primary_agents": ["agent_render"],
         "description": "Bố cục 1/3, đường dẫn thị giác, camera mắt người 35-50mm, DoF f/4-f/5.6, HDRI Studio Loft, Cycles 128 samples + OIDN.",
     },
     "atelier-ai-window-opening-recognition": {
@@ -481,6 +545,7 @@ def build_agent_system_prompt(agent_key: str, max_tool_calls: int = 10) -> str:
         f"{spec['role_prompt'].strip()}\n\n"
         f"================================================================================\n"
         f"# MA TRẬN PHÂN QUYỀN CÔNG CỤ (TOOL MATRIX)\n"
+        f"- Kỹ năng chuyên biệt : {', '.join(spec.get('skills', [])) or 'Theo role contract'}\n"
         f"- Công cụ ĐƯỢC DÙNG : {', '.join(spec['allowed_tools'])}\n"
         f"- Công cụ TUYỆT ĐỐI CẤM : {', '.join(spec['forbidden_tools'])}\n"
         f"- Hạn mức token gợi ý : {spec['token_limit']} tokens / run\n"

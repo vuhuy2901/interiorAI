@@ -1,0 +1,233 @@
+# [FEAT-2026-036] Strict source-to-Studio geometry pipeline
+
+| Trường | Giá trị |
+|---|---|
+| Trạng thái | IMPLEMENTING |
+| Phiên bản hợp đồng | 1.5 |
+| Owner | Codex |
+| Người chấp thuận | User request 2026-11-13 |
+| Ngày tạo | 2026-11-13 |
+| Frozen at | 2026-11-13T19:00:00+07:00 |
+| Revision bắt đầu | ce745117d19dbffb0f0bf993a605a38ad02415a6 |
+| Revision cuối | Chưa có |
+
+## 1. Bối cảnh
+
+Studio currently creates a new project by cloning the living-room demo, allows
+`FurnitureInstance.category` and `pascal_asset_id` to silently default to
+`sofa`, accepts unproven raster scale at 10 mm/pixel, and can persist guessed
+door/window/furniture geometry. Studio, Pascal and Blender also contain separate
+geometry fallbacks that can diverge. Project `proj_564f46a5` revision 4 is the
+first regression case; existing demo scenes and one additional non-bedroom
+fixture must remain compatible.
+
+## 2. Mục tiêu
+
+Provide one strict, provenance-aware canonical pipeline from source
+measurements to editable Studio/Pascal/Blender geometry. Invalid or ambiguous
+measurements must stop before persistence. Existing projects and revisions stay
+readable and are never silently migrated. Complete milestones M1 through M7 in
+order, with a dedicated commit and green focused tests for each milestone.
+
+## 3. Phạm vi
+
+### In scope
+
+- M1: strict furniture identity, measurement provenance/status, dimension-chain
+  validation, and explicit legacy-default flags.
+- M2: shared parametric geometry descriptions for supported architectural and
+  furniture categories, consumed by Studio, Pascal and Blender.
+- M3: deterministic wall anchoring and real wall-bound openings.
+- M4: persistence-blocking geometry validation with declared contact exceptions.
+- M5: truthful floor-plan intake with confirmed scale and UNKNOWN outputs rather
+  than guessed openings or dimensions.
+- M6: source overlay evidence and three regression scenes.
+- M7: lighting/material/shadow quality only after M1-M6 pass. ControlNet requires
+  a separate explicit user approval and is not implicitly authorized here.
+- Preserve project `proj_564f46a5` revision 4, then create revision 5 only after
+  the relevant validators pass. Use 3100 x 4000 mm for regression case 1; record
+  the 600 + 1970 + 520 = 3090 mm chain and never substitute 2278 mm.
+- Reimplement ideas independently; do not copy code from the three reference
+  repositories.
+
+### Out of scope
+
+- No Studio UI redesign, feature removal, second editor, second project system,
+  new production project, or deletion/rewriting of old revisions.
+- No automatic coordinate repair, implicit scaling, inferred construction
+  dimensions, final bunk-bed safety approval, material/style change, or new
+  furniture objects.
+- No repository cloning or source copying from Planova,
+  ai-floorplan-to-3d, or Janavee01/floorplan.
+- No ControlNet implementation without a later approved change request.
+
+## 4. Dependency và tài nguyên cần bảo vệ
+
+- Dependency: Pydantic canonical contracts, SQLite revision store, Pascal MCP,
+  Paperclip Studio/Three.js, Blender 4.2.3/Cycles, OpenCV floor-plan intake.
+- Dữ liệu dùng chung: `C:/Users/TUAN/Downloads/data/atelier.db`, all current
+  project/revision rows, source-plan inputs and render artifacts.
+- Service/port/database không được ảnh hưởng: Paperclip 3100 and API 8000 may be
+  inspected but are not restarted or repointed without process ownership and a
+  rollback path. No destructive database migration.
+- Dirty worktree changes outside this contract remain user-owned and must not be
+  reset, restored, stashed or included in milestone commits.
+
+## 5. Thiết kế và kế hoạch triển khai
+
+1. M1 introduces strict input contracts and legacy read compatibility. New
+   writes reject missing identity. Measurements carry value, source and status;
+   dimension chains reject mismatch. Legacy defaults remain readable but are
+   flagged in API output and fail strict re-save until reviewed.
+2. M2 defines a renderer-neutral parametric geometry descriptor and category
+   registry. Studio, Pascal and Blender adapt that descriptor without category
+   specific duplicate dimensions.
+3. M3 resolves wall/align/offset/distance into canonical transforms and validates
+   opening membership before constructing wall cuts.
+4. M4 runs strict validation before `save_project` creates a revision. Declared
+   contacts are allowed; all other out-of-bounds, overlap, semantic and height
+   errors return structured 422 responses.
+5. M5 separates source extraction from user confirmation. Unconfirmed scale or
+   unreadable dimensions remain UNKNOWN; no door/window is synthesized.
+6. M6 creates deterministic overlay/report tooling and regression fixtures for
+   the children's bedroom, existing living-room demo and one additional room.
+7. M7 improves existing render outputs without altering geometry or UI.
+
+Each milestone is verified and committed before work starts on the next one.
+Discovery of a measurement contradiction pauses only the dependent milestone
+and records the exact conflicting chains.
+
+## 6. File/component dự kiến thay đổi
+
+| File hoặc component | Loại thay đổi | Lý do |
+|---|---|---|
+| `apps/api/app/models/contracts.py` | M1 contracts | Remove unsafe write defaults; add provenance/legacy markers |
+| `apps/api/app/services/measurement_validation.py` | M1 new service | Validate statuses and dimension chains |
+| `apps/api/app/main.py` | M1/M4/M5 API enforcement | Reject invalid writes before revision persistence |
+| `apps/api/app/db.py` | Compatibility only | Flag legacy payloads without rewriting stored JSON |
+| `apps/api/app/services/parametric_geometry.py` | M2 new registry | Single renderer-neutral geometry description |
+| `packages/pascal-adapter/gateway.mjs` | M1-M3 adapter | Remove sofa fallback; consume canonical geometry/anchors |
+| `paperclip/ui/src/features/atelier/StudioViewport.tsx` | M2-M3 renderer adapter | Consume shared descriptors; no UI changes |
+| `apps/api/app/services/blender_mcp.py` | M2/M6/M7 renderer adapter | Consume shared descriptors and produce evidence renders |
+| `apps/api/app/services/geometry.py` | M3-M4 validator | Strict boundaries, contacts, semantics and opening checks |
+| `apps/api/app/services/floorplan_cv.py` | M5 intake | Remove guessed scale/openings; preserve UNKNOWN provenance |
+| `apps/api/app/services/source_overlay.py` | M6 new tool | Produce 40% overlay and measured deviation report |
+| focused tests/fixtures | M1-M7 verification | Three-room regression coverage |
+| `NOTICE` | only if required | No third-party code planned; update only if that changes |
+
+## 7. Acceptance criteria
+
+- [ ] AC-01: New writes cannot omit furniture category or use an implicit sofa
+  asset; errors identify the field and entity.
+- [ ] AC-02: Every authored measurement carries source and
+  CONFIRMED/INFERRED/UNKNOWN status; UNKNOWN is not construction geometry.
+- [ ] AC-03: Dimension-chain mismatch returns the exact chain, expected total,
+  actual total and delta; no scaling or persistence occurs.
+- [ ] AC-04: Existing revisions remain byte-for-byte unchanged and readable;
+  legacy default values are explicitly flagged.
+- [ ] AC-05: Supported categories use one parametric geometry description across
+  Studio, Pascal and Blender; stairs are one object with multiple steps.
+- [ ] AC-06: Wall-anchored transforms use only wall, align, offset and
+  wall_distance_mm; doors/windows reference and cut the correct wall.
+- [ ] AC-07: Invalid boundary, overlap, semantic, height or opening data blocks a
+  new revision. Declared bunk/stair contact is the only case-1 exception.
+- [ ] AC-08: Floor-plan intake never assumes 10 mm/pixel and never synthesizes
+  unproven doors/windows.
+- [ ] AC-09: Regression fixtures for three rooms pass strict validation and
+  overlays report <=20 mm deviation where source dimensions are confirmed.
+- [ ] AC-10: Children's-bedroom revision 4 is preserved and revision 5 is created
+  only after the source-aligned 3100 x 4000 mm scene passes M1-M6 checks.
+- [ ] AC-11: Creating a project from an arbitrary image produces neither a
+  default sofa nor an automatically placed opening.
+- [ ] AC-12: M7 does not alter canonical geometry. ControlNet is not executed
+  without explicit later approval.
+
+## 8. Verification plan
+
+| Kiểm tra | Lệnh/cách chạy | Kết quả mong đợi |
+|---|---|---|
+| M1 contracts | focused pytest for strict/legacy/chain cases | reject unsafe writes; preserve legacy reads |
+| M2 registry | descriptor snapshots plus adapter/renderer tests | identical semantic parts and extents |
+| M3 anchors/openings | coordinate and wall-cut tests | exact transforms and host-wall membership |
+| M4 persistence gate | API tests against temporary DB | invalid PUT creates no revision |
+| M5 intake | raster fixtures with/without scale evidence | UNKNOWN/no guessed openings when unconfirmed |
+| M6 regression | three fixtures + overlay pixel/mm report | validators pass and confirmed deviation <=20 mm |
+| M7 render | Cycles verification and visual inspection | improved image; unchanged geometry hash |
+| Compatibility | read old project/revision snapshots | old data opens; legacy flags visible |
+
+## 9. Rủi ro và rollback
+
+| Rủi ro | Giảm thiểu |
+|---|---|
+| Strict Pydantic fields break legacy reads | Separate legacy-read normalization from strict-write validation |
+| Dirty worktree contaminates commits | Stage only contract-owned files/hunks; inspect every staged diff |
+| Three renderers drift | Shared descriptor snapshots and hash/extents checks |
+| Source dimensions contradict | Stop and report exact chains; never infer a replacement |
+| Validator blocks normal contact | Explicit contact contracts with narrow category/entity scope |
+| External license ambiguity | No source copying; independent implementation only |
+| Revision corruption | Validate before save; preserve revision 4 and use revision 5 only after pass |
+
+Rollback point and cách rollback: each milestone commit is independently
+revertible. Revert only the relevant milestone commit; never reset the worktree
+or delete database rows. Revision 4 remains the live recovery point until
+revision 5 passes M1-M6.
+
+## 10. Xác nhận đóng băng
+
+- [x] Phạm vi và non-goals đã rõ.
+- [x] Acceptance criteria kiểm tra được.
+- [x] Dependency dùng chung đã được bảo vệ.
+- [x] Kế hoạch rollback và verification đã đủ.
+- Trạng thái chuyển sang `FROZEN` bởi: Codex, theo yêu cầu trực tiếp của user.
+- Thời điểm: 2026-11-13T19:00:00+07:00
+
+> Sau khi mục này được chốt, không viết lại yêu cầu cũ. Mọi thay đổi phải đi qua
+> Change Log bên dưới.
+
+## 11. Change Log
+
+| CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
+|---|---|---|---|---|---|---|
+| CR-001 | 2026-11-13T19:40:00+07:00 | Tạm dừng M2-M7 system hardening; thực hiện một presentation revision cho đúng project phòng trẻ em hiện tại, cho phép sai số bố cục 100-200 mm và chọn số hợp lý khi nguồn mâu thuẫn. Ưu tiên semantic furniture, materials, lighting, decor và ba render; không thêm validator/refactor. | Người dùng đổi mục tiêu từ hồ sơ kỹ thuật sang ảnh trình bày và yêu cầu không dừng hỏi số đo. | M1 vẫn giữ nguyên. Revision cũ được bảo toàn. Phạm vi pass này chỉ gồm scene data/revision và render outputs; không thay UI, workflow hay project identity. | User request 2026-11-13 | 1.1 |
+| CR-002 | 2026-11-14T00:12:00+07:00 | Sửa chất lượng hiển thị/render của project hiện có `proj_bedroom_japandi_4x4m` từ mặt bằng 4190×4040: thay fallback khối hộp cho giường đôi, tap, thảm và kệ TV bằng hình học tham số có chức năng trong Studio, Pascal và Blender; dùng lại project/revision hiện có rồi tạo render kiểm tra. | Kiểm tra trực tiếp cho thấy API 8000 đang tắt, Pascal/Studio không có builder cho các category trên và Blender rơi về một khối hộp, nên Agent nhận đúng bố cục vẫn tạo hình xấu. | Không tạo project/task mới, không đổi bố cục hoặc UI. Chỉ mở rộng semantic fallback, test các category, khởi động lại API qua entrypoint hợp lệ và tạo render mới gắn đúng project/revision. Không tuyên bố ảnh thi công. | User request 2026-11-14 | 1.2 |
+| CR-003 | 2026-11-14T00:18:00+07:00 | Sau render Cycles đầu tiên, sửa preset trình bày chung: giữ HDRI để chiếu sáng nhưng dùng nền trung tính cho tia camera, đưa camera `corner` gần scene hơn và nhận biết floor material ID có `oak/wood` là sàn gỗ khi registry thiếu alias. | Render job `rjob_de364b69f8` PASS kỹ thuật nhưng quan sát ảnh cho thấy phòng chiếm khung quá nhỏ, nền studio lộ phía sau mô hình và `floor_oak_natural_800x120` rơi về texture gạch 600×600. | Chỉ đổi camera/environment/fallback texture ở render manifest; không đổi project, revision, tọa độ, vật thể hoặc material hash. Render lại bằng seed mới và chỉ nghiệm thu sau kiểm tra ảnh. | Visual inspection 2026-11-14 | 1.3 |
+| CR-004 | 2026-11-14T00:28:00+07:00 | Đối chiếu trực tiếp ảnh `thiet-ke-phong-ngu-15m2-1001.jpg` và tạo revision mới cho chính `proj_bedroom_japandi_4x4m`: chuyển cửa sang tường trái, sửa tap 700, bàn phấn 900×500 ở góc trên phải, tủ 2790×600 dưới trái và khôi phục cụm bàn làm việc–giá sách–két dưới phải cùng hai ghế thể hiện trên ảnh. | Revision 2 không chỉ render xấu mà còn chứa dữ liệu khác nguồn: cửa tường dưới, bàn phấn xoay/đặt sai, tap 400, kệ TV thay cho cụm bàn dưới phải và thiếu ghế. Chỉnh renderer không thể sửa bố cục sai. | Bảo toàn revision 2; script áp dụng có provenance ảnh nguồn và chỉ tạo revision 3. Cho phép sai số trình bày khoảng 100–200 mm theo yêu cầu hiện tại, không coi là kích thước thi công. Render Cycles từ revision mới và kiểm tra trực quan. | User supplied source image and follow-up 2026-11-14 | 1.4 |
+| CR-005 | 2026-11-14T00:36:00+07:00 | Tách vật liệu trình bày cho semantic bed/wardrobe trong Blender: nệm và gối trắng ấm, chăn sage, khung bọc greige và cánh tủ gỗ sáng; không thay canonical geometry. | Render revision 3 `rjob_e0a2fa8e2f` đúng bố cục nhưng mọi bộ phận của giường/tủ dùng chung một material nên ảnh vẫn phẳng và giống mô hình kỹ thuật. | Chỉ thay material assignment trong Blender fallback, giữ nguyên object bounds, material hash, revision và scene verification. Render seed mới để so sánh trực quan. | Visual inspection 2026-11-14 | 1.5 |
+
+### Phạm vi đóng băng CR-002
+
+- Giữ nguyên project `proj_bedroom_japandi_4x4m`, kích thước phòng, tọa độ và revision đã lưu.
+- Bổ sung hình học nhận diện được cho `bed`, `nightstand`, `rug`, `tv_cabinet`; giữ `desk` và `wardrobe` hiện có.
+- Mỗi renderer phải tạo nhiều bộ phận chức năng thay vì một khối đặc cho các category trên.
+- Chạy test tập trung, kiểm tra Blender/Cycles thật, sau đó tạo ít nhất một ảnh góc nghiêng mới trong Render Gallery.
+- Không thêm nội thất không có trong scene, không thay bảng màu, không ghi đè revision cũ và không dùng ảnh AI làm bằng chứng Scene 3D.
+
+## 12. Implementation log
+
+| Thời điểm | Revision | Công việc | Ghi chú |
+|---|---|---|---|
+| 2026-11-13T19:00:00+07:00 | ce745117 | Contract frozen | No implementation files changed by this contract yet |
+| 2026-11-13T19:20:00+07:00 | M1 commit (this revision) | Strict identity, measurement evidence, legacy flags and dimension-chain gate | No database rows or scene revisions changed |
+| 2026-11-14T00:12:00+07:00 | bd855bb | CR-002 frozen; semantic furniture fallbacks implemented in Studio, Pascal and Blender | Existing dirty worktree preserved; no task/project created |
+| 2026-11-14T00:28:00+07:00 | ca0f333 | CR-004 frozen; source-plan revision script applied | `proj_bedroom_japandi_4x4m` revision 2 preserved; revision 3 created with source SHA provenance |
+| 2026-11-14T00:36:00+07:00 | 95c2db7 + working tree | CR-005 frozen; bed/wardrobe material parts separated and Cycles render regenerated | Canonical geometry and revision unchanged after material pass |
+
+## 13. Verification evidence
+
+| Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
+|---|---|---|---|---|
+| 2026-11-13T19:18:00+07:00 | M1 working tree | Focused strict contract tests | PASS | `7 passed in 3.91s` |
+| 2026-11-13T19:20:00+07:00 | M1 working tree | Strict + Pascal + smart-fit + project compatibility suite | PASS | `21 passed in 10.25s` |
+| 2026-11-13T19:20:00+07:00 | M1 working tree | Python compile, Node syntax, diff check | PASS | No syntax or whitespace errors; line-ending warnings only |
+| 2026-11-14T00:34:00+07:00 | 95c2db7 + working tree | Blender/Pascal semantic geometry tests | PASS | `8 passed`; Python compile, Node syntax and Paperclip UI production build passed |
+| 2026-11-14T00:24:51+07:00 | Scene revision 3 | Blender Cycles render and scene verification | PASS | Job `rjob_85f541c115`; 1280x960, 96 samples, CUDA GTX 1650; exact counts and all transforms/dimensions within 2 mm; SHA-256 `74ef479ba5dfc6068d99b474aa7dea16634f4bf4934c962aa163b9be397ddf39` |
+| 2026-11-14T00:50:00+07:00 | Scene revision 3 | Paperclip reload/UI persistence | PASS | Paperclip 3100 healthy; Studio selected `Phòng Ngủ Master Japandi (4.19m x 4.04m) (Rev #3)`, `Pascal SceneGraph: VALID`, 9 furniture items |
+
+## 14. Kết quả và đóng chức năng
+
+- Kết quả: Chưa hoàn tất.
+- Hạn chế còn lại: M1-M7 chưa triển khai.
+- Việc chưa hoàn tất: Toàn bộ milestone implementation and verification.
+- Rollback point: ce745117d19dbffb0f0bf993a605a38ad02415a6
+- Trạng thái `CLOSED` bởi: Chưa đóng.
+- Thời điểm: Chưa đóng.

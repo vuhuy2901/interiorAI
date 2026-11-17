@@ -22,6 +22,7 @@ from app.services.workflow_runtime import (  # noqa: E402
     workflow_snapshot,
     write_handoff,
 )
+from app.services.agent_orchestrator_engine import verified_predecessor_handoffs  # noqa: E402
 
 
 def e(source: str, target: str) -> dict:
@@ -91,6 +92,17 @@ def test_native_handoff_artifact_identity_is_stable_for_same_verified_content(
     second = materialize_native_handoff("run_stable", "floorplan", "agent_floorplan", document)
     assert first["artifacts"][0]["artifact_id"] == second["artifacts"][0]["artifact_id"]
     assert first["artifacts"][0]["sha256"] == second["artifacts"][0]["sha256"]
+
+
+def test_successor_receives_only_verified_predecessor_handoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+    write_handoff("run_provenance", n("floorplan"), "agent_floorplan", "Parse", [], {"walls": 4})
+    paths, provenance = verified_predecessor_handoffs("run_provenance", ["floorplan"])
+    assert paths[0].endswith(str(Path("runs") / "run_provenance" / "handoffs" / "floorplan.md"))
+    assert provenance[0]["artifacts"][0]["sha256"]
+    (tmp_path / "runs" / "run_provenance" / "handoffs" / "floorplan.artifact.json").write_text("tampered", encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        verified_predecessor_handoffs("run_provenance", ["floorplan"])
 
 
 def test_save_validation_rejects_cycle_orphan_agent_and_io_mismatch():

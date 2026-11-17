@@ -30,12 +30,13 @@ from app.services.cost_engine import calculate_project_estimate
 ROOT_DIR = Path(__file__).resolve().parents[4]
 DATA_DIR = ROOT_DIR / "data"
 DB_PATH = DATA_DIR / "atelier.db"
+DEFAULT_WORKFLOW_ID = "wf_default_interior_pipeline"
 
 
-# Pascal's MCP surface evolves independently from persisted Agent records. Keep
-# this migration deliberately explicit: unknown custom tools are preserved and
-# the gateway will report them as unavailable, while known legacy names are
-# translated to the current v1.0.7 registry during startup.
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 LEGACY_MCP_TOOL_REPLACEMENTS: Dict[str, List[str]] = {
     "get_scene_info": ["get_scene"],
     "list_nodes_by_type": ["find_by_type"],
@@ -60,10 +61,6 @@ def normalize_mcp_tool_allowlist(tool_names: List[str]) -> List[str]:
     return normalized
 
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def get_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)
@@ -74,7 +71,12 @@ def get_conn() -> sqlite3.Connection:
 
 
 def get_project_workflow_id(project_id: str) -> Optional[str]:
-    """Resolve the published workflow for a project without embedding a node graph."""
+    """Resolve a project's explicit workflow or the stable product default.
+
+    Never route an unbound project through whichever workflow happened to be
+    updated most recently; test and draft workflows must not become production
+    routing authority by timestamp.
+    """
     conn = get_conn()
     try:
         binding = conn.execute(
@@ -83,10 +85,43 @@ def get_project_workflow_id(project_id: str) -> Optional[str]:
         ).fetchone()
         if binding:
             return binding["workflow_id"]
-        latest = conn.execute(
-            "SELECT workflow_id FROM workflows ORDER BY updated_at DESC LIMIT 1"
+        default = conn.execute(
+            "SELECT workflow_id FROM workflows WHERE workflow_id = ?",
+            (DEFAULT_WORKFLOW_ID,),
         ).fetchone()
-        return latest["workflow_id"] if latest else None
+        return default["workflow_id"] if default else None
+    finally:
+        conn.close()
+
+
+def bind_project_workflow(project_id: str, workflow_id: str = DEFAULT_WORKFLOW_ID) -> str:
+    """Persist the workflow authority for one canonical project."""
+    conn = get_conn()
+    try:
+        project = conn.execute(
+            "SELECT project_id FROM projects WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        if not project:
+            raise ValueError(f"Không tìm thấy dự án {project_id}")
+        workflow = conn.execute(
+            "SELECT workflow_id FROM workflows WHERE workflow_id = ?",
+            (workflow_id,),
+        ).fetchone()
+        if not workflow:
+            raise ValueError(f"Không tìm thấy workflow đã publish: {workflow_id}")
+        conn.execute(
+            """
+            INSERT INTO project_workflow_bindings (project_id, workflow_id, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                workflow_id = excluded.workflow_id,
+                updated_at = excluded.updated_at
+            """,
+            (project_id, workflow_id, now_iso()),
+        )
+        conn.commit()
+        return workflow_id
     finally:
         conn.close()
 
@@ -516,7 +551,6 @@ def build_kid_bedroom_project() -> CanonicalProject:
     return proj
 
 
-
 def build_japandi_master_bedroom_project() -> CanonicalProject:
     ts = now_iso()
     proj = CanonicalProject(
@@ -787,7 +821,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "(tỷ lệ bản vẽ, công năng, ngân sách, phong cách), sinh thẻ câu hỏi tương tác (ask_user), "
             "điều phối các Agent chuyên gia và tổng hợp phương án A/B/C kèm bảng so sánh Trước/Sau."
         ),
-        "allowed_mcp_tools": ["get_scene", "find_by_type", "verify_scene", "check_collisions"],
+        "allowed_mcp_tools": ["get_scene_info", "list_nodes_by_type", "verify_scene", "check_collisions"],
         "permissions": {"can_ask_user": True, "can_propose_scene": True, "direct_commit": False},
     },
     {
@@ -803,7 +837,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Trích xuất tường, cửa đi, cửa sổ, vùng phòng và chữ kích thước từ DXF/PDF/PNG. "
             "Nếu bản vẽ ảnh chưa có tỷ lệ chuẩn (mm/px), bắt buộc dừng và gọi ask_user để người dùng xác nhận 1 cạnh."
         ),
-        "allowed_mcp_tools": ["get_scene", "verify_scene"],
+        "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
         "permissions": {"can_ask_user": True, "can_propose_scene": True, "direct_commit": False},
     },
     {
@@ -820,8 +854,8 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Không bao giờ phá hủy tường chịu lực khi chưa được người dùng phê duyệt."
         ),
         "allowed_mcp_tools": [
-            "get_scene", "place_building", "create_room", "add_wall", "add_door", "add_window",
-            "move_node", "delete_node", "verify_scene", "export_json"
+            "create_building", "create_room", "add_wall", "add_door", "add_window",
+            "update_node", "delete_nodes", "verify_scene", "export_json"
         ],
         "permissions": {"can_ask_user": False, "can_propose_scene": True, "direct_commit": False},
     },
@@ -838,7 +872,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Tư vấn bảng màu sơn tường (Dulux/Jotun), tường điểm nhấn (Accent Wall), gạch lát sàn/ốp tường "
             "(An Cường, Eurotile, Đồng Tâm) và gọi công cụ paint / set_zone_material trong Pascal MCP."
         ),
-        "allowed_mcp_tools": ["get_scene", "paint", "search_materials", "verify_scene"],
+        "allowed_mcp_tools": ["paint", "set_zone_material", "search_materials", "apply_preset_material"],
         "permissions": {"can_ask_user": True, "can_propose_scene": True, "direct_commit": False},
     },
     {
@@ -854,7 +888,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Đề xuất bố cục nội thất Phương án A/B/C, kiểm tra vùng quét cửa mở, đảm bảo hành lang đi lại >= 750mm "
             "và kiểm tra kích thước đồ nội thất lọt cửa phòng."
         ),
-        "allowed_mcp_tools": ["get_scene", "place_items", "move_node", "delete_node", "check_collisions", "search_assets", "verify_scene"],
+        "allowed_mcp_tools": ["place_items", "move_items", "swap_item", "check_collisions", "search_assets"],
         "permissions": {"can_ask_user": True, "can_propose_scene": True, "direct_commit": False},
     },
     {
@@ -870,7 +904,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Thực thi công thức tính bóc tách khối lượng xác định (sơn trừ lỗ mở, làm tròn thùng sơn & thùng gạch ceil, "
             "hao hụt vật tư, nhân công, thuế VAT 8%). Tuyệt đối không tự bịa giá bằng LLM."
         ),
-        "allowed_mcp_tools": ["get_scene", "find_by_type", "export_json"],
+        "allowed_mcp_tools": ["get_scene_info", "list_nodes_by_type"],
         "permissions": {"can_ask_user": True, "can_propose_scene": False, "direct_commit": False},
     },
     {
@@ -886,7 +920,7 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
             "Tra cứu sản phẩm từ catalog_vn.csv theo kích thước và ngân sách, kiểm tra lọt lòng phòng "
             "và đề xuất thay thế trực tiếp vào Scene 3D."
         ),
-        "allowed_mcp_tools": ["get_scene", "search_assets", "delete_node", "place_items", "check_collisions", "verify_scene"],
+        "allowed_mcp_tools": ["search_assets", "swap_item", "check_collisions"],
         "permissions": {"can_ask_user": False, "can_propose_scene": True, "direct_commit": False},
     },
     {
@@ -899,12 +933,9 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
         "version": "1.0.0",
         "confidence_threshold": 0.85,
         "system_prompt": (
-            "Áp dụng skill interior-photoreal-render (và bedroom-photoreal-render cho QA chuyên biệt). Chụp phối cảnh từ camera khóa cố định; "
-            "phòng ngủ mặc định dùng camera tầm mắt hướng về giường, không dùng top-down nếu người dùng không chọn. "
-            "Đối chiếu hình học 3D gốc để không thêm/bớt cửa sổ, đồ vật hoặc đổi kết cấu."
+            "Chụp phối cảnh từ góc camera khóa cố định và kiểm tra đối chiếu với hình học 3D gốc để không thêm/bớt cửa sổ hoặc đổi kết cấu."
         ),
-        "skills": ["interior-photoreal-render", "bedroom-photoreal-render"],
-        "allowed_mcp_tools": ["get_scene", "verify_scene", "view_scene", "export_glb"],
+        "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
         "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
     },
     {
@@ -917,10 +948,92 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
         "version": "1.0.0",
         "confidence_threshold": 0.99,
         "system_prompt": "Kiểm tra độc lập artifact scene và ảnh render; chỉ phát QA report PASS/FAIL, không tạo ảnh và không tự phê duyệt.",
-        "allowed_mcp_tools": ["get_scene", "verify_scene", "check_collisions"],
+        "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
         "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
     },
 ]
+
+
+EIGHT_AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
+    "agent_chief_architect": {
+        "version": "2.0.0",
+        "skills": ["brief.synthesize", "workflow.route", "decision.ledger", "handoff.audit"],
+        "system_prompt": (
+            "Điều phối workflow snapshot và Design Brief; chỉ giao việc theo edges, không làm thay agent chuyên môn. "
+            "Chỉ hỏi dữ liệu bắt buộc của node hiện tại, giữ các nhánh độc lập tiếp tục và tổng hợp kết quả sau QA."
+        ),
+    },
+    "agent_floorplan": {
+        "version": "2.0.0",
+        "skills": [
+            "floorplan.source_identity", "floorplan.scale_calibration", "floorplan.wall_topology",
+            "floorplan.opening_recognition", "floorplan.furniture_anchoring", "floorplan.overlay_audit",
+        ],
+        "system_prompt": (
+            "Chuyên gia Floorplan. Đọc PNG/JPG/PDF/DXF và xuất Floorplan Contract; nguồn phải có SHA-256. "
+            "Hệ tọa độ bắt buộc: gốc góc trong trên-trái, x sang phải, y xuống dưới, mm. "
+            "Mỗi phòng, tường, cửa, cửa sổ và neo nội thất phải có nguồn cùng trạng thái CONFIRMED/INFERRED/UNKNOWN. "
+            "Nội thất có vị trí trên bản vẽ phải dùng wall_id + align + offset, không auto-layout. "
+            "Không dựng 3D và không biến UNKNOWN thành số thi công. Kết quả đặt tại result.floorplan_contract."
+        ),
+        "allowed_mcp_tools": ["get_scene_info", "verify_scene", "floorplan_overlay", "floorplan_measure"],
+    },
+    "agent_geometry": {
+        "version": "2.0.0",
+        "skills": ["scenegraph.build", "wall.opening_cut", "parametric.furniture", "scene.revision", "geometry.verify"],
+        "system_prompt": (
+            "Chỉ dựng từ Floorplan Contract đã PASS QA. Giữ nguyên hệ tọa độ x→x, y→z và chiều cao→y; "
+            "dựng tường/sàn/cửa/cửa sổ thật, không dùng hộp chung hoặc sofa fallback. "
+            "INFERRED được phép cho concept và phải PROVISIONAL; không tự đổi vị trí neo nội thất."
+        ),
+    },
+    "agent_style": {
+        "version": "2.0.0",
+        "skills": ["style.palette", "material.pbr", "surface.schedule", "material.provenance"],
+        "system_prompt": (
+            "Chọn bảng màu, vật liệu bề mặt và thông số PBR mà không đổi hình học. "
+            "Thiếu mã sản phẩm không được chặn concept; ghi PROVISIONAL/UNVERIFIED và nguồn cần xác minh."
+        ),
+    },
+    "agent_furniture": {
+        "version": "2.0.0",
+        "skills": ["furniture.parametric", "furniture.wall_anchor", "clearance.audit", "door_swing.audit", "collision.audit"],
+        "system_prompt": (
+            "Giữ các vị trí đã được Floorplan neo vào tường; chỉ kiểm tra và dựng đúng category/kích thước. "
+            "Không Smart Fit hoặc Auto Layout khi bản vẽ đã chỉ định. Kiểm tra lối đi, cung cửa, cửa sổ và va chạm."
+        ),
+    },
+    "agent_cost": {
+        "version": "2.0.0",
+        "skills": ["specification.schedule", "catalog.fit", "boq.quantity", "cost.deterministic", "price.provenance"],
+        "system_prompt": (
+            "Gộp Specification, Catalog fit và Cost. Mọi dòng phải truy về object_id; giá phải có nguồn/ngày. "
+            "Thiếu giá vẫn hoàn thành bản concept bằng coverage và UNVERIFIED, không bịa giá và không chặn Render."
+        ),
+    },
+    "agent_render": {
+        "version": "2.0.0",
+        "skills": ["camera.compose", "lighting.design", "material.render", "blender.cycles", "render.persistence"],
+        "system_prompt": (
+            "Chịu trách nhiệm camera, ánh sáng, vật liệu render và Blender Cycles; không có Lighting Agent riêng. "
+            "Không thêm/bớt/di chuyển vật thể; lưu camera, revision, seed, engine và ảnh vào Render Gallery."
+        ),
+    },
+    "agent_qa": {
+        "version": "2.0.0",
+        "skills": ["floorplan.contract_qa", "geometry.compare", "render.compare", "artifact.integrity", "gate.grade"],
+        "system_prompt": (
+            "QA độc lập, chỉ kiểm tra và báo PASS/FAIL. Trước Geometry phải kiểm Floorplan Contract, wall/opening/anchor refs, "
+            "polygon, scale và nguồn đo; ghi result.floorplan_validation. Cuối workflow kiểm SceneGraph, render và provenance. "
+            "Không tự sửa scene và không tự phê duyệt quyết định người dùng."
+        ),
+    },
+}
+
+for _agent_profile in DEFAULT_AGENTS:
+    _override = EIGHT_AGENT_PROFILES.get(_agent_profile["agent_id"])
+    if _override:
+        _agent_profile.update(_override)
 
 
 DEFAULT_CONNECTIONS: List[Dict[str, Any]] = [
@@ -1020,40 +1133,35 @@ DEFAULT_CONNECTIONS: List[Dict[str, Any]] = [
 
 DEFAULT_WORKFLOW: Dict[str, Any] = {
     "workflow_id": "wf_default_interior_pipeline",
-    "name": "Quy Trình Thiết Kế Nội Thất Đa Agent Chuẩn (14 Nodes)",
-    "version": 1,
-    "description": "Luồng phối hợp từ nhập bản vẽ 2D, hỏi đáp gia chủ, dựng 3D Pascal MCP, bố trí nội thất, phối màu sơn/gạch đến bóc tách dự toán và xuất CAD.",
+    "name": "ATELIER — Workflow Nội Thất 8 Agent",
+    "version": 3,
+    "description": "Luồng 8 agent: Brief, Floorplan chính xác, QA mặt bằng, Geometry, Style/Furniture song song, Cost & Specification, Render và QA độc lập.",
     "nodes": [
-        {"id": "n1_intake", "type": "input_intake", "label": "1. Nhập Mặt Bằng & Nhu Cầu", "agent_id": "agent_chief_architect", "position": {"x": 40, "y": 140}, "enabled": True, "status": "COMPLETED", "config": {"timeout_s": 30, "retry": 1}},
-        {"id": "n2_floorplan", "type": "floorplan_cv", "label": "2. Phân Tích Tường & Cửa 2D", "agent_id": "agent_floorplan", "position": {"x": 300, "y": 60}, "enabled": True, "status": "COMPLETED", "config": {"require_scale": True}},
-        {"id": "n3_scale_gate", "type": "human_gate", "label": "3. Xác Nhận Tỷ Lệ Chuẩn (mm)", "agent_id": "agent_floorplan", "position": {"x": 300, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"gate_type": "SCALE_CONFIRMATION"}},
-        {"id": "n4_brief", "type": "concierge_brief", "label": "4. Hỏi Đáp & Chốt Design Brief", "agent_id": "agent_chief_architect", "position": {"x": 570, "y": 140}, "enabled": True, "status": "COMPLETED", "config": {"allow_ask_user": True}},
-        {"id": "n5_geometry", "type": "pascal_geometry", "label": "5. Dựng Khung 3D Pascal MCP", "agent_id": "agent_geometry", "position": {"x": 840, "y": 60}, "enabled": True, "status": "COMPLETED", "config": {"mcp_server": "conn_pascal_mcp"}},
-        {"id": "n6_style", "type": "style_surface", "label": "6. Phối Sơn Tường & Gạch Sàn (7B)", "agent_id": "agent_style", "position": {"x": 840, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"apply_accent_wall": True}},
-        {"id": "n7_furniture", "type": "furniture_layout", "label": "7. Bố Trí Nội Thất Phương Án A/B", "agent_id": "agent_furniture", "position": {"x": 1110, "y": 60}, "enabled": True, "status": "COMPLETED", "config": {"min_walkway_mm": 750}},
-        {"id": "n8_clearance", "type": "collision_qa", "label": "8. Kiểm Tra Va Chạm & Lối Đi", "agent_id": "agent_furniture", "position": {"x": 1110, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"check_door_swing": True}},
-        {"id": "n9_shopping", "type": "catalog_match", "label": "9. Khớp SKU Catalog Việt Nam", "agent_id": "agent_shopping", "position": {"x": 1380, "y": 60}, "enabled": True, "status": "COMPLETED", "config": {"catalog": "catalog_vn.csv"}},
-        {"id": "n10_cost", "type": "deterministic_cost", "label": "10. Tính Dự Toán BOQ Xác Định", "agent_id": "agent_cost", "position": {"x": 1380, "y": 230}, "enabled": True, "status": "COMPLETED", "config": {"vat_rate": 0.08}},
-        {"id": "n11_approval", "type": "human_gate", "label": "11. Cổng Duyệt Phương Án & Giá", "agent_id": "agent_chief_architect", "position": {"x": 1650, "y": 140}, "enabled": True, "status": "COMPLETED", "config": {"gate_type": "PROPOSAL_APPROVAL"}},
-        {"id": "n12_render", "type": "render_gen", "label": "12. Kết Xuất Phối Cảnh Minh Họa", "agent_id": "agent_render", "position": {"x": 1920, "y": 60}, "enabled": True, "status": "READY", "config": {"lock_camera": True, "skill": "bedroom-photoreal-render", "default_camera": "eye_level"}},
-        {"id": "n13_render_qa", "type": "render_qa", "label": "13. Kiểm Định Chống Sai Lệch 3D", "agent_id": "agent_qa", "position": {"x": 1920, "y": 230}, "enabled": True, "status": "READY", "config": {"strict_geometry": True}},
-        {"id": "n14_export", "type": "cad_export", "label": "14. Xuất Hồ Sơ DXF / GLB / IFC / BOQ", "agent_id": "agent_geometry", "position": {"x": 2190, "y": 140}, "enabled": True, "status": "READY", "config": {"formats": ["dxf", "glb", "ifc", "dae", "xlsx"]}},
+        {"id": "brief", "type": "concierge_brief", "label": "1. Chief — Design Brief & Route", "agent_id": "agent_chief_architect", "position": {"x": 40, "y": 160}, "enabled": True, "status": "READY", "config": {"allow_ask_user": True, "max_questions": 3}},
+        {"id": "floorplan", "type": "floorplan_cv", "label": "2. Floorplan — Tường, Cửa & Neo Nội Thất", "agent_id": "agent_floorplan", "position": {"x": 320, "y": 160}, "enabled": True, "status": "READY", "config": {"contract": "atelier.floorplan.v1", "coordinate_system": "interior_top_left_xy_down_mm", "allow_inferred_scale": True, "require_source_sha256": True, "require_wall_anchors": True}},
+        {"id": "floorplan_qa", "type": "floorplan_validation", "label": "3. QA — Kiểm Định Mặt Bằng", "agent_id": "agent_qa", "position": {"x": 600, "y": 160}, "enabled": True, "status": "READY", "config": {"independent": True, "allow_inferred_scale": True, "block_geometry_on_error": True}},
+        {"id": "geometry", "type": "pascal_geometry", "label": "4. Geometry — SceneGraph 3D", "agent_id": "agent_geometry", "position": {"x": 880, "y": 160}, "enabled": True, "status": "READY", "config": {"mcp_server": "conn_pascal_mcp", "requires_floorplan_contract": True, "allow_inferred_scale": True, "provisional_when_inferred": True}},
+        {"id": "style", "type": "style_surface", "label": "5A. Style — Màu & Vật Liệu", "agent_id": "agent_style", "position": {"x": 1160, "y": 60}, "enabled": True, "status": "READY", "config": {"allow_provisional_products": True, "must_not_mutate_geometry": True}},
+        {"id": "furniture", "type": "furniture_layout", "label": "5B. Furniture — Nội Thất & Clearance", "agent_id": "agent_furniture", "position": {"x": 1160, "y": 260}, "enabled": True, "status": "READY", "config": {"respect_floorplan_anchors": True, "disable_auto_layout_for_anchored_items": True, "min_walkway_mm": 750, "check_door_swing": True}},
+        {"id": "cost_spec", "type": "deterministic_cost", "label": "6A. Cost & Specification", "agent_id": "agent_cost", "position": {"x": 1450, "y": 60}, "enabled": True, "status": "READY", "config": {"include_catalog_fit": True, "allow_unverified_prices": True, "vat_rate": 0.08}},
+        {"id": "render", "type": "render_gen", "label": "6B. Render — Camera, Ánh Sáng & Cycles", "agent_id": "agent_render", "position": {"x": 1450, "y": 260}, "enabled": True, "status": "READY", "config": {"lock_geometry": True, "persist_gallery": True, "required_views": ["isometric", "entrance", "hero"]}},
+        {"id": "final_qa", "type": "render_qa", "label": "7. QA — Scene, Render & Provenance", "agent_id": "agent_qa", "position": {"x": 1740, "y": 160}, "enabled": True, "status": "READY", "config": {"strict_geometry": True, "independent": True, "verify_floorplan_alignment": True}},
+        {"id": "delivery", "type": "concierge_brief", "label": "8. Chief — Tổng Kết & Bàn Giao", "agent_id": "agent_chief_architect", "position": {"x": 2020, "y": 160}, "enabled": True, "status": "READY", "config": {"delivery_only": True, "cannot_override_qa": True}},
     ],
     "edges": [
-        {"id": "e1-2", "source": "n1_intake", "target": "n2_floorplan"},
-        {"id": "e2-3", "source": "n2_floorplan", "target": "n3_scale_gate"},
-        {"id": "e3-4", "source": "n3_scale_gate", "target": "n4_brief"},
-        {"id": "e4-5", "source": "n4_brief", "target": "n5_geometry"},
-        {"id": "e5-6", "source": "n5_geometry", "target": "n6_style"},
-        {"id": "e5-7", "source": "n5_geometry", "target": "n7_furniture"},
-        {"id": "e7-8", "source": "n7_furniture", "target": "n8_clearance"},
-        {"id": "e8-9", "source": "n8_clearance", "target": "n9_shopping"},
-        {"id": "e6-10", "source": "n6_style", "target": "n10_cost"},
-        {"id": "e9-10", "source": "n9_shopping", "target": "n10_cost"},
-        {"id": "e10-11", "source": "n10_cost", "target": "n11_approval"},
-        {"id": "e11-12", "source": "n11_approval", "target": "n12_render"},
-        {"id": "e12-13", "source": "n12_render", "target": "n13_render_qa"},
-        {"id": "e11-14", "source": "n11_approval", "target": "n14_export"},
+        {"id": "e-brief-floorplan", "source": "brief", "target": "floorplan"},
+        {"id": "e-floorplan-qa", "source": "floorplan", "target": "floorplan_qa"},
+        {"id": "e-floorplan-geometry", "source": "floorplan", "target": "geometry"},
+        {"id": "e-floorplanqa-geometry", "source": "floorplan_qa", "target": "geometry"},
+        {"id": "e-geometry-style", "source": "geometry", "target": "style"},
+        {"id": "e-geometry-furniture", "source": "geometry", "target": "furniture"},
+        {"id": "e-style-cost", "source": "style", "target": "cost_spec"},
+        {"id": "e-furniture-cost", "source": "furniture", "target": "cost_spec"},
+        {"id": "e-style-render", "source": "style", "target": "render"},
+        {"id": "e-furniture-render", "source": "furniture", "target": "render"},
+        {"id": "e-cost-qa", "source": "cost_spec", "target": "final_qa"},
+        {"id": "e-render-qa", "source": "render", "target": "final_qa"},
+        {"id": "e-qa-delivery", "source": "final_qa", "target": "delivery"},
     ],
 }
 
@@ -1405,6 +1513,50 @@ def init_db() -> None:
             ),
         )
 
+    # Seed Kid Bedroom Project if missing (FEAT-2026-033)
+    row_kid = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_kid_bedroom",)).fetchone()
+    if not row_kid:
+        kid_proj = build_kid_bedroom_project()
+        k_payload = kid_proj.model_dump_json()
+        cur.execute(
+            "INSERT INTO projects (project_id, name, revision, payload_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (kid_proj.project_id, kid_proj.name, kid_proj.revision, k_payload, kid_proj.updated_at),
+        )
+        cur.execute(
+            "INSERT INTO scene_revisions (project_id, revision, author, reason, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (kid_proj.project_id, 1, "System Seed", "Khởi tạo dự án Phòng Ngủ Trẻ Em 3.6×3.2m giường tầng & tủ áo", k_payload, kid_proj.updated_at),
+        )
+        k_welcome_meta = {
+            "agent_id": "agent_chief_architect",
+            "highlights": [
+                "Phòng ngủ trẻ em 3.6m × 3.2m (11.52 m²), trần cao 2.7m, tỷ lệ đã xác nhận.",
+                "Hệ giường tầng thông minh tích hợp cầu thang hộp lưu trữ, tủ áo kịch trần 1.2m.",
+                "Bàn học đôi liền giá sách cạnh cửa sổ đón sáng tự nhiên.",
+                f"Tổng dự toán hoàn thiện: {kid_proj.estimate_snapshot.total_vnd:,.0f} VNĐ (Trong ngân sách 70,000,000 VNĐ).",
+            ],
+            "suggested_prompts": [
+                "Materials AI hãy đề xuất vật liệu gỗ ván phù hợp cho tủ quần áo và bàn học trẻ em",
+                "Shopping AI tra cứu báo giá các nhà cung cấp uy tín tại Việt Nam cho tủ quần áo MDF chống ẩm",
+                "Cost AI tính toán bóc tách dự toán chi tiết từng hạng mục tủ, giường và nhân công",
+            ],
+        }
+        cur.execute(
+            "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "msg_welcome_kid_01",
+                kid_proj.project_id,
+                "assistant",
+                "Kiến Trúc Sư Trưởng (Chief Architect)",
+                (
+                    "Xin chào! Tôi là **Kiến Trúc Sư Trưởng AI** phụ trách dự án **Phòng Ngủ Trẻ Em (3.6m × 3.2m)**. "
+                    "Không gian phòng ngủ và góc học tập của 2 bé đã được thiết lập với đầy đủ hệ tủ áo, giường tầng thông minh và bàn học đôi.\n\n"
+                    "Materials AI và Shopping AI đã sẵn sàng đề xuất giải pháp vật liệu gỗ ván an toàn và tìm kiếm báo giá thực tế."
+                ),
+                json.dumps(k_welcome_meta, ensure_ascii=False),
+                now_iso(),
+            ),
+        )
+
     # Seed Connections
     for c in DEFAULT_CONNECTIONS:
         exists = cur.execute("SELECT connection_id FROM connections WHERE connection_id = ?", (c["connection_id"],)).fetchone()
@@ -1430,22 +1582,16 @@ def init_db() -> None:
             if current_payload.get("paperclip_agent_key") != agent_payload["paperclip_agent_key"]:
                 current_payload["paperclip_agent_key"] = agent_payload["paperclip_agent_key"]
                 changed = True
-            current_tools = current_payload.get("allowed_mcp_tools")
-            if isinstance(current_tools, list):
-                migrated_tools = normalize_mcp_tool_allowlist(current_tools)
-                # Default agents may gain supported tools as the execution
-                # contract evolves. Merge the checked seed baseline while
-                # retaining any valid custom additions in persisted records.
-                for seed_tool in agent_payload.get("allowed_mcp_tools", []):
-                    if seed_tool not in migrated_tools:
-                        migrated_tools.append(seed_tool)
-                if migrated_tools != current_tools:
-                    current_payload["allowed_mcp_tools"] = migrated_tools
-                    changed = True
+            profile = EIGHT_AGENT_PROFILES.get(a["agent_id"])
+            if profile and current_payload.get("version") != profile["version"]:
+                for key in ("version", "skills", "system_prompt", "allowed_mcp_tools"):
+                    if key in profile:
+                        current_payload[key] = profile[key]
+                changed = True
             if changed:
                 cur.execute(
-                    "UPDATE agents SET payload_json = ?, updated_at = ? WHERE agent_id = ?",
-                    (json.dumps(current_payload, ensure_ascii=False), now_iso(), a["agent_id"]),
+                    "UPDATE agents SET name = ?, role = ?, payload_json = ?, updated_at = ? WHERE agent_id = ?",
+                    (a["name"], a["role"], json.dumps(current_payload, ensure_ascii=False), now_iso(), a["agent_id"]),
                 )
 
     # Seed Workflow
@@ -1462,17 +1608,18 @@ def init_db() -> None:
             ),
         )
     else:
-        # One-time safe registry migration: preserve the user-drawn graph and all
-        # edges, but replace the old self-review assignment with the independent QA agent.
         existing_wf = cur.execute("SELECT payload_json, version FROM workflows WHERE workflow_id = ?", (DEFAULT_WORKFLOW["workflow_id"],)).fetchone()
-        workflow_payload = json.loads(existing_wf["payload_json"])
-        qa_node = next((node for node in workflow_payload.get("nodes", []) if node.get("id") == "n13_render_qa"), None)
-        if qa_node and qa_node.get("agent_id") == "agent_render":
-            qa_node["agent_id"] = "agent_qa"
-            workflow_payload["version"] = int(existing_wf["version"]) + 1
+        if int(existing_wf["version"]) < int(DEFAULT_WORKFLOW["version"]):
+            workflow_payload = json.loads(json.dumps(DEFAULT_WORKFLOW, ensure_ascii=False))
             cur.execute(
-                "UPDATE workflows SET version = ?, payload_json = ?, updated_at = ? WHERE workflow_id = ?",
-                (workflow_payload["version"], json.dumps(workflow_payload, ensure_ascii=False), now_iso(), DEFAULT_WORKFLOW["workflow_id"]),
+                "UPDATE workflows SET name = ?, version = ?, payload_json = ?, updated_at = ? WHERE workflow_id = ?",
+                (
+                    workflow_payload["name"],
+                    workflow_payload["version"],
+                    json.dumps(workflow_payload, ensure_ascii=False),
+                    now_iso(),
+                    DEFAULT_WORKFLOW["workflow_id"],
+                ),
             )
 
     cur.execute(
@@ -1598,6 +1745,33 @@ def get_native_project_workspace(native_project_id: str) -> Optional[AtelierProj
             rooms=rooms,
             scenes=scenes,
         )
+    finally:
+        conn.close()
+
+
+def get_native_project_for_scene(scene_id: str, company_id: str) -> Optional[Dict[str, str]]:
+    """Return the only native Paperclip Project explicitly linked to a Studio scene.
+
+    Task dispatch must never guess this association from a project name, URL key,
+    or description.  The caller also supplies its resolved company so an old or
+    cross-company link cannot be used accidentally.
+    """
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT l.scene_id, l.native_project_id, n.company_id, n.project_name
+            FROM atelier_scene_links AS l
+            JOIN native_project_links AS n
+              ON n.native_project_id = l.native_project_id
+            WHERE l.scene_id = ?
+              AND l.archived = 0
+              AND n.company_id = ?
+              AND n.initialization_status = 'ready'
+            """,
+            (scene_id, company_id),
+        ).fetchone()
+        return dict(row) if row else None
     finally:
         conn.close()
 
@@ -1801,12 +1975,7 @@ def get_project(project_id: str) -> Optional[CanonicalProject]:
     conn.close()
     if not row:
         return None
-    project = CanonicalProject.model_validate_json(row["payload_json"])
-    if project.external_scene:
-        # Legacy snapshots can remain in saved projects after an imported-scene
-        # migration. All readers must see the active asset's current BOQ.
-        project.estimate_snapshot = calculate_project_estimate(project)
-    return project
+    return CanonicalProject.model_validate_json(row["payload_json"])
 
 
 def save_project(project: CanonicalProject, author: str = "User", reason: str = "Cập nhật mô hình", bump_revision: bool = True) -> CanonicalProject:
@@ -1956,3 +2125,4 @@ def get_all_boq_decisions_db(project_id: str) -> Dict[str, Dict[str, Any]]:
     ).fetchall()
     conn.close()
     return {row["item_id"]: dict(row) for row in rows}
+

@@ -23,11 +23,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.db import (
     audit_legacy_scenes,
+    bind_project_workflow,
     build_default_demo_project,
     create_atelier_room,
     get_conn,
@@ -89,6 +90,7 @@ from app.services.geometry import (
     analyze_scene_spatial_quality,
     check_catalog_product_fit,
 )
+from app.services.measurement_validation import validate_project_for_persistence
 from app.services.mcp_gateway import (
     call_pascal_mcp_tool,
     list_pascal_mcp_tools,
@@ -103,8 +105,8 @@ from app.services.research_agent import search_real_products, VERIFIED_VIETNAM_P
 from app.services.inventory_bom import generate_project_inventory_bom, export_inventory_bom_csv
 from app.services import ide_bridge_service
 from app.services.blender_mcp import (
-    RENDERS_DIR,
     build_and_verify_blender_scene,
+    build_project_credits_report,
     cancel_render_job,
     enqueue_render_job,
     generate_custom_furniture_glb,
@@ -112,10 +114,8 @@ from app.services.blender_mcp import (
     is_blender_available,
     list_project_render_jobs,
     probe_blender_capabilities,
-    public_render_job,
     retry_render_job,
 )
-from app.services.comfyui_enhancer import probe_comfyui
 from app.services.asset_pipeline import (
     ASSET_LIBRARY_DIR,
     ASSET_ROOT,
@@ -138,7 +138,6 @@ from app.services.material_system import (
     save_material,
 )
 from app.services.smart_fit import assess_fit, generate_placement_options, plan_resize
-from app.services.scene_furniture import router as scene_furniture_router
 from app.services.agent_orchestrator_engine import execute_real_workflow_run, sync_native_workflow_run
 from app.services.workflow_input_sync import list_run_decisions, reconcile_workflow_inputs
 from app.services.workflow_runtime import validate_workflow_snapshot
@@ -152,7 +151,7 @@ from app.services.orchestrator import (
     test_ai_connection,
 )
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
+ROOT_DIR = Path(__file__).resolve().parents[3]
 UPLOADS_DIR = ROOT_DIR / "data" / "uploads"
 
 
@@ -216,12 +215,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(scene_furniture_router)
-from app.construction_history import router as construction_history_router
-app.include_router(construction_history_router)
-from app.services.scene_cost import router as scene_cost_router
-app.include_router(scene_cost_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -266,6 +259,7 @@ class CreateProjectPayload(BaseModel):
     style: str = "Japandi"
     budget_limit_vnd: float = 120000000.0
     scale_calibrated: bool = False
+    workflow_id: Optional[str] = None
 
 
 class InitializeNativeProjectPayload(BaseModel):
@@ -345,6 +339,15 @@ def api_list_projects(include_fixtures: bool = True):
 
 @app.post("/api/v1/projects")
 async def api_create_project(body: CreateProjectPayload):
+    workflow_id = body.workflow_id or "wf_default_interior_pipeline"
+    conn = get_conn()
+    workflow_exists = conn.execute(
+        "SELECT 1 FROM workflows WHERE workflow_id = ?",
+        (workflow_id,),
+    ).fetchone()
+    conn.close()
+    if not workflow_exists:
+        raise HTTPException(status_code=409, detail=f"Không tìm thấy workflow đã publish: {workflow_id}")
     pid = f"proj_{uuid.uuid4().hex[:8]}"
     base = build_default_demo_project()
     base.project_id = pid
@@ -369,6 +372,10 @@ async def api_create_project(body: CreateProjectPayload):
         base.pascal_scene_json = sync_res["sceneJson"]
 
     saved = save_project(base, author="User", reason="Khởi tạo dự án mới", bump_revision=False)
+    try:
+        bind_project_workflow(saved.project_id, workflow_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return saved.model_dump()
 
 
@@ -378,8 +385,6 @@ def api_get_project(project_id: str):
     if not proj:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     qa = analyze_scene_spatial_quality(proj)
-    if proj.external_scene:
-        proj.estimate_snapshot = calculate_project_estimate(proj)
     return {
         **proj.model_dump(),
         "spatial_qa": qa,
@@ -394,6 +399,16 @@ async def api_update_scene(project_id: str, updated: CanonicalProject):
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     updated.project_id = project_id
     updated.revision = existing.revision
+    strict_report = validate_project_for_persistence(updated)
+    if not strict_report["valid"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "SCENE_MEASUREMENT_VALIDATION_FAILED",
+                "message": "Scene was not saved because identity or measurement evidence is invalid.",
+                "issues": strict_report["issues"],
+            },
+        )
     sync_res = await sync_canonical_to_pascal(updated)
     if sync_res.get("ok") and sync_res.get("sceneJson"):
         updated.pascal_scene_json = sync_res["sceneJson"]
@@ -454,6 +469,88 @@ async def api_update_surfaces(project_id: str, body: SurfaceUpdatePayload):
         proj.pascal_scene_json = sync_res["sceneJson"]
 
     saved = save_project(proj, author="Style & Surface Engine (7B)", reason="Cập nhật vật liệu Sơn/Gạch bề mặt", bump_revision=True)
+    return {
+        "ok": True,
+        "invalidated_nodes": invalidated_nodes,
+        "geometry_rebuilt": False,
+        "project": saved.model_dump(),
+    }
+
+
+class ProjectMaterialsUpdatePayload(BaseModel):
+    """Material-only update payload that preserves existing geometry and measurements."""
+
+    active_style_preset: Optional[str] = None
+    surface_material_overrides: Optional[Dict[str, MaterialOverride]] = None
+    rooms: Optional[List[Dict[str, Any]]] = None
+    walls: Optional[List[Dict[str, Any]]] = None
+    furniture_instances: Optional[List[Dict[str, Any]]] = None
+    reason: str = "Cập nhật vật liệu PBR & phong cách"
+    bump_revision: bool = True
+
+
+@app.post("/api/v1/projects/{project_id}/materials")
+async def api_update_project_materials(project_id: str, body: ProjectMaterialsUpdatePayload):
+    """Update only PBR materials, surface overrides, and style preset without modifying geometry."""
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    if body.active_style_preset is not None:
+        proj.active_style_preset = body.active_style_preset
+    if body.surface_material_overrides is not None:
+        merged_overrides = dict(proj.surface_material_overrides or {})
+        merged_overrides.update(body.surface_material_overrides)
+        proj.surface_material_overrides = merged_overrides
+
+    if body.rooms:
+        room_patch_by_id = {str(r.get("id")): r for r in body.rooms if r.get("id")}
+        for rm in proj.rooms:
+            patch = room_patch_by_id.get(rm.id)
+            if not patch:
+                continue
+            for field in ("floor_material_id", "wall_base_material_id", "ceiling_material_id", "skirting_material_id"):
+                if patch.get(field) is not None:
+                    setattr(rm, field, str(patch[field]))
+
+    if body.walls:
+        wall_patch_by_id = {str(w.get("id")): w for w in body.walls if w.get("id")}
+        for wl in proj.walls:
+            patch = wall_patch_by_id.get(wl.id)
+            if not patch:
+                continue
+            for field in ("face_a_material_id", "face_b_material_id"):
+                if patch.get(field) is not None:
+                    setattr(wl, field, str(patch[field]))
+
+    if body.furniture_instances:
+        furn_patch_by_id = {str(f.get("id")): f for f in body.furniture_instances if f.get("id")}
+        for furn in proj.furniture_instances:
+            patch = furn_patch_by_id.get(furn.id)
+            if not patch:
+                continue
+            if isinstance(patch.get("part_materials"), dict):
+                furn.part_materials = {str(k): str(v) for k, v in patch["part_materials"].items()}
+            if patch.get("color_hex") is not None:
+                furn.color_hex = str(patch["color_hex"])
+            if isinstance(patch.get("material_overrides"), dict):
+                furn.material_overrides = {
+                    str(k): (v if isinstance(v, MaterialOverride) else MaterialOverride(**v))
+                    for k, v in patch["material_overrides"].items()
+                }
+
+    proj.estimate_snapshot = calculate_project_estimate(proj)
+    invalidated_nodes = mark_workflow_invalidation("surface_material_change")
+    sync_res = await sync_canonical_to_pascal(proj)
+    if sync_res.get("ok") and sync_res.get("sceneJson"):
+        proj.pascal_scene_json = sync_res["sceneJson"]
+
+    saved = save_project(
+        proj,
+        author="Material & Style Engine",
+        reason=body.reason,
+        bump_revision=body.bump_revision,
+    )
     return {
         "ok": True,
         "invalidated_nodes": invalidated_nodes,
@@ -583,9 +680,20 @@ class ChatMessagePayload(BaseModel):
     project_id: str = "proj_demo_4x5m"
     message: str
     workflow_id: Optional[str] = None
-    native_tasks: bool = False
+    native_tasks: Optional[bool] = None
     selected_entity_id: Optional[str] = None
     to_ide: Optional[bool] = False
+
+
+def resolve_chat_native_tasks(*, project_scoped: bool, requested: Optional[bool]) -> bool:
+    """Select execution mode without allowing Studio to bypass native agents."""
+    if project_scoped:
+        if requested is False:
+            raise ValueError(
+                "Studio Chat chỉ chạy bằng Native Paperclip Tasks; không thể chuyển sang chế độ một tiến trình giả lập nhiều agent"
+            )
+        return True
+    return bool(requested)
 
 
 class ResolveBridgeTaskPayload(BaseModel):
@@ -659,6 +767,13 @@ def api_get_project_workflow_events(
 @app.post("/api/v1/projects/{project_id}/chat/messages")
 async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[str] = None):
     pid = project_id or body.project_id
+    try:
+        native_tasks = resolve_chat_native_tasks(
+            project_scoped=project_id is not None,
+            requested=body.native_tasks,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     
     # Check if request routes to Antigravity IDE Reverse Bridge (Zero API Cost)
     if ide_bridge_service.is_ide_bridge_enabled():
@@ -698,12 +813,12 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
             raise HTTPException(status_code=409, detail="Project chưa được gắn workflow đã publish")
         run = await execute_real_workflow_run(
             selected_workflow_id, pid, user_message_id=user_message_id, user_text=body.message,
-            native_tasks=body.native_tasks,
+            native_tasks=native_tasks,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     legacy_metadata: Dict[str, Any] = {}
-    if not body.native_tasks:
+    if not native_tasks:
         # Preserve the existing Questions/Approval response contract for the
         # legacy UI. Native mode deliberately skips this local handler so a
         # Chief-side compatibility response cannot masquerade as agent work.
@@ -724,6 +839,7 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
         "workflow_run_id": run["run_id"],
         "events": len(run["events"]),
         "native_task_ids": [event["native_task_id"] for event in run["events"] if event.get("native_task_id")],
+        "execution_mode": "native_paperclip_tasks" if native_tasks else "legacy_local_compatibility",
     }
     for key in ("question", "question_request", "proposal", "proposal_id", "spatial_qa", "invalidated_nodes"):
         if key in legacy_metadata:
@@ -936,6 +1052,11 @@ def api_catalog_fit_check(body: FitCheckPayload):
     product = next((p for p in catalog if p["sku"] == body.sku), None)
     if not product:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy sản phẩm {body.sku}")
+    if not product.get("pascal_asset_id"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Sản phẩm {body.sku} thiếu pascal_asset_id; không thể thay bằng asset sofa mặc định",
+        )
     return check_catalog_product_fit(proj, product, body.replace_furniture_id)
 
 
@@ -948,6 +1069,11 @@ async def api_catalog_replace_in_scene(body: FitCheckPayload):
     product = next((p for p in catalog if p["sku"] == body.sku), None)
     if not product:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy sản phẩm {body.sku}")
+    if not product.get("pascal_asset_id"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Sản phẩm {body.sku} thiếu pascal_asset_id; không thể thay bằng asset sofa mặc định",
+        )
 
     fit = check_catalog_product_fit(proj, product, body.replace_furniture_id)
     target_id = fit.get("target_furniture_id")
@@ -967,7 +1093,7 @@ async def api_catalog_replace_in_scene(body: FitCheckPayload):
         rotation_deg=90.0 if product["category"] == "sofa" else 0.0,
         color_hex=product.get("color_hex", "#D9D2C5"),
         price_vnd=float(product["price_vnd"]),
-        pascal_asset_id=product.get("pascal_asset_id", "sofa"),
+        pascal_asset_id=product["pascal_asset_id"],
         source_url=product.get("source_url"),
         vendor=product.get("vendor"),
     )
@@ -1005,8 +1131,7 @@ def api_get_estimate(project_id: str):
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     est = calculate_project_estimate(proj)
     proj.estimate_snapshot = est
-    if not proj.external_scene:
-        save_project(proj, author="Cost Engine", reason="Tính toán lại dự toán", bump_revision=False)
+    save_project(proj, author="Cost Engine", reason="Tính toán lại dự toán", bump_revision=False)
     return est.model_dump()
 
 
@@ -1328,12 +1453,14 @@ async def api_mcp_call_tool(body: McpCallPayload):
         )
 
     scene_snapshot = project.pascal_scene_json
-    if not isinstance(scene_snapshot, dict) or not scene_snapshot.get("nodes"):
-        sync_result = await sync_canonical_to_pascal(project)
-        scene_snapshot = sync_result.get("sceneJson") or sync_result.get("scene")
-        if not sync_result.get("ok") or not isinstance(scene_snapshot, dict) or not scene_snapshot.get("nodes"):
+    if not scene_snapshot or not isinstance(scene_snapshot, dict) or not scene_snapshot.get("nodes"):
+        from app.services.scene_furniture import synchronize_canonical_pascal_scene
+        sync_result = await synchronize_canonical_pascal_scene(project)
+        if sync_result.get("ok"):
+            scene_snapshot = project.pascal_scene_json
+        else:
             raise HTTPException(
-                status_code=503,
+                status_code=422,
                 detail={
                     "code": "CANONICAL_SCENE_SYNC_FAILED",
                     "project_id": project.project_id,
@@ -1390,6 +1517,9 @@ def api_export_project_file(project_id: str, fmt: str):
     return FileResponse(path=str(path), filename=path.name, media_type=media)
 
 
+# ==============================================================================
+# UNIFIED BOQ & AI FINANCIAL MANAGEMENT (FEAT-2026-033)
+# ==============================================================================
 @app.get("/api/v1/projects/{project_id}/unified-boq")
 def api_get_unified_boq(project_id: str):
     """Returns single unified BOQ & BOM breakdown with 9 groups, AI proposals, and quotes."""
@@ -1422,7 +1552,7 @@ def api_export_unified_boq_xlsx_endpoint(project_id: str):
         data = export_unified_boq_xlsx(project_id)
         proj = get_project(project_id)
         name_slug = proj.project_id if proj else project_id
-        filename = f"BOQ_{name_slug}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+        filename = f"BOQ_{name_slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         return Response(
             content=data,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1729,18 +1859,6 @@ async def api_assign_asset_to_furniture(project_id: str, object_id: str, body: A
     furniture.normalized_glb = metadata.normalized_glb
     furniture.material_slots = metadata.material_slots
     furniture.source_url = metadata.source_url
-    furniture.sizing_policy = metadata.sizing_policy
-    furniture.uniform_scale_range = metadata.uniform_scale_range
-    furniture.parametric_axes = metadata.parametric_axes
-    furniture.original_dimensions_mm = list(metadata.dimensions_mm)
-    # Registry dimensions use GLB axes [width/X, height/Y, depth/Z]. A fixed-size
-    # product is authoritative: update the scene footprint instead of distorting it.
-    if metadata.sizing_policy == "FIXED_SIZE" and len(metadata.dimensions_mm) >= 3:
-        width_mm, height_mm, depth_mm = metadata.dimensions_mm[:3]
-        if width_mm > 0 and height_mm > 0 and depth_mm > 0:
-            furniture.width_mm = width_mm
-            furniture.height_mm = height_mm
-            furniture.depth_mm = depth_mm
     sync_res = await sync_canonical_to_pascal(project)
     if sync_res.get("ok") and sync_res.get("sceneJson"):
         project.pascal_scene_json = sync_res["sceneJson"]
@@ -1954,8 +2072,6 @@ class RenderScenePayload(BaseModel):
     wait_for_completion: Optional[bool] = None
     simulate_delay_ms: int = 0
     force_invalid_arg: bool = False
-    expected_revision: Optional[int] = None
-    camera_snapshot: Optional[Dict[str, Any]] = None
 
 
 class RetryRenderJobPayload(BaseModel):
@@ -1963,7 +2079,7 @@ class RetryRenderJobPayload(BaseModel):
     wait_for_completion: Optional[bool] = None
 
 
-VALID_RENDER_CAMERAS = {"eye_level", "corner", "detail_sofa", "wide", "top", "cutaway", "walk", "orbit"}
+VALID_RENDER_CAMERAS = {"dollhouse", "eye_level", "corner", "detail_sofa", "wide", "top", "cutaway", "walk", "orbit"}
 
 
 @app.get("/api/v1/render/capabilities")
@@ -1972,10 +2088,7 @@ def api_get_render_capabilities():
     probe = probe_blender_capabilities()
     return {
         **probe,
-        # A binary path alone does not mean the renderer is usable. Windows
-        # Application Control can allow discovery while blocking DLL loading.
-        "available": bool(probe.get("ok") and probe.get("cycles_available")),
-        "ai_enhancement": probe_comfyui(),
+        "available": bool(probe.get("blender_available") or probe.get("ok")),
     }
 
 
@@ -2004,28 +2117,6 @@ def api_get_hdri_file(filename: str):
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="Không tìm thấy file HDRI")
     return FileResponse(path=str(candidate), filename=safe, media_type="application/octet-stream")
-
-
-@app.get("/api/v1/scene-assets/{asset_id}/file")
-def api_get_whole_scene_asset(asset_id: str):
-    """Serve an audited whole-scene GLB without flattening its hierarchy/materials."""
-    safe_id = Path(asset_id).name
-    if safe_id != asset_id:
-        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
-    scene_root = ASSET_ROOT / "scenes" / safe_id
-    candidates = sorted(scene_root.glob("*.glb")) if scene_root.is_dir() else []
-    if not candidates:
-        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
-    return FileResponse(path=str(candidates[0]), filename=candidates[0].name, media_type="model/gltf-binary")
-
-
-@app.get("/api/v1/scene-assets/{asset_id}/audit")
-def api_get_whole_scene_audit(asset_id: str):
-    safe_id = Path(asset_id).name
-    audit_path = ASSET_ROOT / "scenes" / safe_id / "audit.json"
-    if safe_id != asset_id or not audit_path.is_file():
-        raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo scene")
-    return json.loads(audit_path.read_text(encoding="utf-8"))
 
 
 @app.post("/api/v1/projects/{project_id}/surfaces/{surface_key}/material-proposals")
@@ -2146,14 +2237,6 @@ def api_build_project_scene_bridge(project_id: str, body: SceneBridgePayload = S
 @app.post("/api/v1/projects/{project_id}/render-jobs")
 def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = RenderScenePayload()):
     proj = get_project(project_id)
-    if proj and body.expected_revision is not None and int(body.expected_revision) != int(proj.revision):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Design changed from revision #{body.expected_revision} to #{proj.revision}. "
-                "Review the scene before rendering."
-            ),
-        )
     if not proj:
         raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
     cam = body.camera_id or body.camera or "eye_level"
@@ -2164,7 +2247,7 @@ def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = R
         raise HTTPException(status_code=422, detail=f"Render mode '{body.mode}' không hợp lệ")
     render_mode = "final" if body.mode == "final" else "preview"
     is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
-    return public_render_job(enqueue_render_job(
+    return enqueue_render_job(
         project_id,
         mode=render_mode,
         camera=cam,
@@ -2177,15 +2260,12 @@ def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = R
         async_exec=is_async,
         simulate_delay_ms=body.simulate_delay_ms,
         force_invalid_arg=body.force_invalid_arg,
-        expected_revision=body.expected_revision,
-        camera_snapshot=body.camera_snapshot,
-    ))
+    )
 
 
 @app.get("/api/v1/projects/{project_id}/render-jobs")
 def api_list_project_render_jobs(project_id: str, limit: int = 30):
-    jobs = [public_render_job(job) for job in list_project_render_jobs(project_id, limit=limit)]
-    return {"ok": True, "project_id": project_id, "jobs": jobs}
+    return {"ok": True, "project_id": project_id, "jobs": list_project_render_jobs(project_id, limit=limit)}
 
 
 @app.get("/api/v1/projects/{project_id}/render-gallery")
@@ -2196,7 +2276,7 @@ def api_get_project_render_gallery(project_id: str):
         "ok": True,
         "project_id": project_id,
         "count": len(completed),
-        "gallery": [public_render_job(job) for job in completed],
+        "gallery": completed,
     }
 
 
@@ -2205,13 +2285,13 @@ def api_get_render_job_detail(job_id: str):
     job = get_render_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Không tìm thấy render job")
-    return public_render_job(job)
+    return job
 
 
 @app.post("/api/v1/render-jobs/{job_id}/cancel")
 def api_cancel_render_job(job_id: str):
     try:
-        return public_render_job(cancel_render_job(job_id))
+        return cancel_render_job(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -2222,7 +2302,7 @@ def api_retry_render_job(job_id: str, body: Optional[RetryRenderJobPayload] = No
         is_async = False
         if body is not None:
             is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
-        return public_render_job(retry_render_job(job_id, async_exec=is_async))
+        return retry_render_job(job_id, async_exec=is_async)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -2245,15 +2325,36 @@ def api_download_render_job_image(job_id: str):
 
 @app.get("/api/v1/renders/{filename}")
 def api_get_rendered_image(filename: str):
-    # blender_mcp lives one package level deeper than this module, so deriving
-    # the directory again from main.py pointed one level above the repository.
-    if Path(filename).name != filename or Path(filename).suffix.lower() != ".png":
-        raise HTTPException(status_code=400, detail="Tên tệp render không hợp lệ")
-    file_path = RENDERS_DIR / filename
+    file_path = ROOT_DIR / "data" / "exports" / "renders" / filename
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Không tìm thấy ảnh kết xuất")
-    return FileResponse(path=str(file_path), filename=filename, media_type="image/png")
-    create_atelier_room,
-    get_native_project_workspace,
-    initialize_native_project_link,
-    link_scene_to_native_project,
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp kết xuất")
+    suffix = file_path.suffix.lower()
+    media_type = (
+        "application/json"
+        if suffix == ".json"
+        else ("text/markdown; charset=utf-8" if suffix == ".md" else "image/png")
+    )
+    return FileResponse(path=str(file_path), filename=filename, media_type=media_type)
+
+
+@app.get("/api/v1/projects/{project_id}/credits")
+def api_get_project_credits(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    return build_project_credits_report(proj)
+
+
+@app.get("/api/v1/projects/{project_id}/credits.md")
+def api_get_project_credits_markdown(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    report = build_project_credits_report(proj)
+    return PlainTextResponse(report["markdown"], media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/api/v1/credits")
+def api_get_default_credits():
+    proj = get_project("proj_demo_4x5m") or build_default_demo_project()
+    return build_project_credits_report(proj)

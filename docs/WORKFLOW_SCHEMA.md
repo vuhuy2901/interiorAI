@@ -60,14 +60,14 @@ flowchart TD
     FloorPlan --> Geometry["Geometry & BIM"]
     Geometry --> Furniture["Furniture"]
     Geometry --> Style["Style & Materials"]
-    Furniture --> Lighting["Lighting & Visualization"]
-    Style --> Lighting
+    Furniture --> Render["Rendering Specialist"]
+    Style --> Render
     Furniture --> Research["Product Research"]
     Style --> Research
     Geometry --> QA["QA & Validation"]
     Furniture --> QA
     Style --> QA
-    Lighting --> QA
+    Render --> QA
     Research --> Cost["Cost & BOM"]
     QA --> Cost
     Cost --> ChiefReview["Chief: Final Review & Approval"]

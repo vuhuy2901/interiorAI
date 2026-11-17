@@ -857,7 +857,7 @@ async def process_user_chat_message(
         reply_text = (
             "🏛️ **KTS Trưởng (Chief Architect) đã điều phối thành công 5 Agent chuyên môn:**\n\n"
             "1. 🎨 **Material Agent**: Đổi sàn sang **Gạch Porcelain Sa Thạch 600×600mm Mờ (Eurotile)** chống trơn trượt.\n"
-            "2. 💡 **Ceiling & Lighting Agent**: Thiết kế **Trần giật cấp hắt sáng Vĩnh Tường BASI** + 4 đèn LED Rạng Đông 9W.\n"
+            "2. 🖼️ **Rendering Agent**: Thiết lập camera, HDRI và ánh sáng kết xuất để tạo phối cảnh bám sát SceneGraph.\n"
             "3. 🛋️ **Furniture & Decor Agent**: Bổ sung **Cây Bàng Singapore 1.4m** tại góc đón sáng.\n"
             "4. 📊 **Cost Estimator**: Cập nhật dự toán BOQ: Biến động `{cost_delta:+,.0f} VNĐ` (Tổng mới: **{new_est.total_vnd:,.0f} VNĐ**).\n"
             f"5. 📐 **QA Agent**: Kiểm định lối đi thông thủy `{int(qa['min_walkway_mm'])}mm` (Đạt chuẩn >= 750mm).\n\n"
@@ -866,7 +866,7 @@ async def process_user_chat_message(
         )
         meta = {
             "agent_id": "agent_chief_architect",
-            "collaboration_pipeline": ["agent_material", "agent_ceiling_lighting", "agent_furniture", "agent_cost", "agent_qa"],
+            "collaboration_pipeline": ["agent_material", "agent_render", "agent_furniture", "agent_cost", "agent_qa"],
             "proposal": proposal.model_dump(),
             "inventory_summary": {
                 "total_items": bom.total_items_count,

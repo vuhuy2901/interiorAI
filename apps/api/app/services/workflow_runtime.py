@@ -21,6 +21,162 @@ from app import db
 TERMINAL_SUCCESS = {"COMPLETED", "SKIPPED"}
 TERMINAL_FAILURE = {"FAILED", "BLOCKED", "CANCELLED"}
 _SAFE_NODE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+_MEASUREMENT_STATUS = {"CONFIRMED", "INFERRED", "UNKNOWN"}
+
+
+def _measurement_errors(value: Any, path: str, *, allow_unknown: bool = False) -> List[str]:
+    if not isinstance(value, dict):
+        return [f"{path} must be a measurement object"]
+    errors: List[str] = []
+    status = str(value.get("status") or "").upper()
+    if status not in _MEASUREMENT_STATUS:
+        errors.append(f"{path}.status must be CONFIRMED, INFERRED or UNKNOWN")
+    if status == "UNKNOWN" and not allow_unknown:
+        errors.append(f"{path} cannot be UNKNOWN for geometry admission")
+    if status != "UNKNOWN":
+        number = value.get("value_mm")
+        if not isinstance(number, (int, float)) or isinstance(number, bool):
+            errors.append(f"{path}.value_mm must be numeric")
+    if not str(value.get("source") or "").strip():
+        errors.append(f"{path}.source is required")
+    return errors
+
+
+def validate_floorplan_contract(payload: Dict[str, Any], *, allow_inferred: bool = True) -> List[str]:
+    """Validate the geometry-bearing Floorplan handoff before Geometry runs."""
+    errors: List[str] = []
+    if not isinstance(payload, dict):
+        return ["floorplan_contract must be an object"]
+
+    source = payload.get("source")
+    if not isinstance(source, dict):
+        errors.append("source is required")
+    else:
+        if not str(source.get("artifact_id") or source.get("path") or "").strip():
+            errors.append("source.artifact_id or source.path is required")
+        if not _SHA256.fullmatch(str(source.get("sha256") or "")):
+            errors.append("source.sha256 must be a 64-character SHA-256")
+
+    coordinate = payload.get("coordinate_system")
+    expected_coordinate = {
+        "origin": "interior_top_left",
+        "x_axis": "right",
+        "y_axis": "down",
+        "unit": "mm",
+    }
+    if not isinstance(coordinate, dict):
+        errors.append("coordinate_system is required")
+    else:
+        for key, expected in expected_coordinate.items():
+            if coordinate.get(key) != expected:
+                errors.append(f"coordinate_system.{key} must be {expected}")
+
+    scale = payload.get("scale")
+    if not isinstance(scale, dict):
+        errors.append("scale is required")
+    else:
+        scale_status = str(scale.get("status") or "").upper()
+        allowed_scale = {"CONFIRMED", "INFERRED"} if allow_inferred else {"CONFIRMED"}
+        if scale_status not in allowed_scale:
+            errors.append(f"scale.status must be one of {sorted(allowed_scale)}")
+        if not str(scale.get("source") or "").strip():
+            errors.append("scale.source is required")
+
+    rooms = payload.get("rooms")
+    if not isinstance(rooms, list) or not rooms:
+        errors.append("rooms must contain at least one room")
+        rooms = []
+    room_ids: set[str] = set()
+    for index, room in enumerate(rooms):
+        path = f"rooms[{index}]"
+        if not isinstance(room, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        room_id = str(room.get("id") or "")
+        if not room_id or room_id in room_ids:
+            errors.append(f"{path}.id must be unique and non-empty")
+        room_ids.add(room_id)
+        polygon = room.get("polygon_mm")
+        if not isinstance(polygon, list) or len(polygon) < 4:
+            errors.append(f"{path}.polygon_mm must contain at least four points")
+        elif polygon[0] != polygon[-1]:
+            errors.append(f"{path}.polygon_mm must be closed")
+        if str(room.get("status") or "").upper() not in _MEASUREMENT_STATUS:
+            errors.append(f"{path}.status is required")
+        if not str(room.get("source") or "").strip():
+            errors.append(f"{path}.source is required")
+
+    walls = payload.get("walls")
+    if not isinstance(walls, list) or not walls:
+        errors.append("walls must contain at least one wall")
+        walls = []
+    wall_ids: set[str] = set()
+    wall_lengths: Dict[str, float] = {}
+    for index, wall in enumerate(walls):
+        path = f"walls[{index}]"
+        if not isinstance(wall, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        wall_id = str(wall.get("id") or "")
+        if not wall_id or wall_id in wall_ids:
+            errors.append(f"{path}.id must be unique and non-empty")
+        wall_ids.add(wall_id)
+        start, end = wall.get("start_mm"), wall.get("end_mm")
+        if not (
+            isinstance(start, list) and len(start) == 2
+            and isinstance(end, list) and len(end) == 2
+            and all(isinstance(number, (int, float)) for number in [*start, *end])
+        ):
+            errors.append(f"{path}.start_mm/end_mm must be numeric [x, y] points")
+        else:
+            length = ((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2) ** 0.5
+            if length <= 0:
+                errors.append(f"{path} has zero length")
+            wall_lengths[wall_id] = length
+        errors.extend(_measurement_errors(wall.get("thickness"), f"{path}.thickness"))
+        refs = wall.get("room_refs")
+        if not isinstance(refs, list) or not refs or any(ref not in room_ids for ref in refs):
+            errors.append(f"{path}.room_refs must reference known rooms")
+        if str(wall.get("status") or "").upper() not in _MEASUREMENT_STATUS:
+            errors.append(f"{path}.status is required")
+        if not str(wall.get("source") or "").strip():
+            errors.append(f"{path}.source is required")
+
+    for collection_name in ("openings", "furniture_anchors"):
+        collection = payload.get(collection_name, [])
+        if not isinstance(collection, list):
+            errors.append(f"{collection_name} must be a list")
+            continue
+        for index, item in enumerate(collection):
+            path = f"{collection_name}[{index}]"
+            if not isinstance(item, dict):
+                errors.append(f"{path} must be an object")
+                continue
+            wall_id = str(item.get("wall_id") or "")
+            if wall_id not in wall_ids:
+                errors.append(f"{path}.wall_id must reference a known wall")
+            errors.extend(_measurement_errors(item.get("offset"), f"{path}.offset", allow_unknown=False))
+            errors.extend(_measurement_errors(item.get("width"), f"{path}.width", allow_unknown=False))
+            if collection_name == "furniture_anchors":
+                errors.extend(_measurement_errors(item.get("depth"), f"{path}.depth", allow_unknown=False))
+                if item.get("align") not in {"start", "center", "end", "left", "right"}:
+                    errors.append(f"{path}.align is invalid")
+                if not str(item.get("category") or "").strip():
+                    errors.append(f"{path}.category is required")
+            offset = item.get("offset") if isinstance(item.get("offset"), dict) else {}
+            width = item.get("width") if isinstance(item.get("width"), dict) else {}
+            if wall_id in wall_lengths and isinstance(offset.get("value_mm"), (int, float)) and isinstance(width.get("value_mm"), (int, float)):
+                if offset["value_mm"] < 0 or width["value_mm"] <= 0 or offset["value_mm"] + width["value_mm"] > wall_lengths[wall_id] + 1:
+                    errors.append(f"{path} exceeds its referenced wall")
+
+    if not allow_inferred:
+        for section in (rooms, walls, payload.get("openings", []), payload.get("furniture_anchors", [])):
+            for item in section if isinstance(section, list) else []:
+                if isinstance(item, dict) and str(item.get("status") or "").upper() != "CONFIRMED":
+                    errors.append("all geometry items must be CONFIRMED")
+                    break
+    return errors
 
 
 def workflow_snapshot(workflow: Dict[str, Any]) -> Dict[str, Any]:

@@ -12,6 +12,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
 
+from app.db import get_native_project_for_scene
+
 
 PAPERCLIP_BASE_URL = os.getenv("PAPERCLIP_BASE_URL", "http://127.0.0.1:3100").rstrip("/")
 
@@ -56,15 +58,21 @@ def resolve_agent(agent_key: str, *, company_id: Optional[str] = None) -> Dict[s
 
 
 def resolve_project(project_id: str, company_id: str) -> Dict[str, Any]:
+    linked = get_native_project_for_scene(project_id, company_id)
+    if not linked:
+        raise PaperclipTaskError(
+            f"Paperclip project mapping not found for local project {project_id}; "
+            "link the Studio scene to its exact native Paperclip Project first"
+        )
     payload = _request_json("GET", f"/api/companies/{company_id}/projects")
     if not isinstance(payload, list):
         raise PaperclipTaskError("Paperclip project response is not a list")
-    marker = f"({project_id})".lower()
     for project in payload:
-        text = f"{project.get('name', '')} {project.get('description', '')}".lower()
-        if project.get("id") == project_id or marker in text or project.get("urlKey") == project_id:
+        if project.get("id") == linked["native_project_id"]:
             return project
-    raise PaperclipTaskError(f"Paperclip project mapping not found for local project {project_id}")
+    raise PaperclipTaskError(
+        f"Linked Paperclip project {linked['native_project_id']} is unavailable in company {company_id}"
+    )
 
 
 def create_native_task(
@@ -76,6 +84,7 @@ def create_native_task(
     paperclip_agent_key: Optional[str] = None,
     task_description: str,
     predecessor_handoffs: list[str],
+    predecessor_artifacts: Optional[list[Dict[str, Any]]] = None,
     idempotency_key: str,
 ) -> Dict[str, Any]:
     agent = resolve_agent(paperclip_agent_key or local_agent_id)
@@ -88,14 +97,26 @@ def create_native_task(
         f"Workflow Run ID: {run_id}",
         f"Workflow Node ID: {node.get('id')}",
         f"Agent assignment: {local_agent_id}",
+        f"Local ATELIER Project ID: {project_id}",
+        f"Native Paperclip Project ID: {project['id']}",
+        "ATELIER backend: " + os.getenv("ATELIER_PYTHON_CAD_API_URL", "http://127.0.0.1:8000").rstrip("/"),
+        "Discover callable services with GET /api/v1/health and GET /openapi.json on the ATELIER backend. Check the HTTP response before reporting a missing runtime.",
+        "Scene access: GET /api/v1/projects/{local_project_id}; update through PUT /api/v1/projects/{local_project_id}/scene using its documented schema and preserve previous revisions.",
+        "Snapshot node configuration: " + json.dumps(node, ensure_ascii=False),
+        "Preserve source object positions, dimensions and wall references. Auto layout or furniture fitting requires explicit user authorization. Report unknown measurements separately.",
         "Predecessor handoffs cần đọc:",
         predecessor_text,
+        "Verified predecessor provenance:",
+        json.dumps(predecessor_artifacts or [], ensure_ascii=False),
         "",
-        "Khi hoàn tất, ghi đúng handoff Markdown/JSON của node và nêu artifact thực tế. Không tự nhận TASK_ACCEPTED nếu Paperclip chưa phát tín hiệu nhận việc.",
+        "Handoff contract bắt buộc: ghi document key `handoff` bằng Markdown và KẾT THÚC document bằng một fenced JSON block hợp lệ.",
+        "JSON bắt buộc có: status, run_id, node_id, agent_id, input_artifact_ids, artifacts, result, verified, assumptions, issues, handoff_conditions.",
+        "status chỉ được `completed` khi artifact thực tế tồn tại; nếu thiếu input dùng `needs_input` và nêu rõ issues. Prose đơn thuần không phải handoff hợp lệ.",
+        "Không tự nhận TASK_ACCEPTED nếu Paperclip chưa phát tín hiệu nhận việc.",
     ])
     task = _request_json("POST", f"/api/companies/{company_id}/issues", {
         "projectId": project["id"],
-        "title": f"[ATELIER • {node.get('id')}] {node.get('label') or node.get('type') or 'Workflow task'}",
+        "title": f"[ATELIER • {node.get('id')} • {run_id}] {node.get('label') or node.get('type') or 'Workflow task'}",
         "description": description,
         "status": "todo",
         "priority": "high",

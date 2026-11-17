@@ -203,13 +203,13 @@ def _build_fast_studio_reply(agent_name: str, user_text: str, project_id: str = 
     furn_count = len(project.furniture_instances)
     glb_ref = "`/static/assets/glb/tv_console_wall_1800x350x300.glb`"
 
-    if "lighting" in lower_agent or "chiếu sáng" in lower_agent or "visualization" in lower_agent:
+    if "render" in lower_agent or "visualization" in lower_agent or "phối cảnh" in lower_agent:
         body = (
-            f"Chào bạn! **Lighting & Visualization Specialist** đã phản hồi ngay:\n\n"
+            f"Chào bạn! **Rendering Specialist** đã phản hồi ngay:\n\n"
             f"- **Dự án & Không gian**: `{project.project_id}` (`{room.name if room else 'Phòng khách'}`, `{room_dims}`, `Revision #{project.revision}`).\n"
             f"- **Kịch bản ánh sáng hiện tại**: Ánh sáng tự nhiên ban ngày kết hợp đèn hắt khe trần `3000K`.\n"
             f"- **Vật liệu & Model 3D kiểm định**: {glb_ref} với 3 khe PBR chuẩn (`MAT_wood_body`, `MAT_wood_door`, `MAT_metal_handle`).\n"
-            f"- **Gợi ý tiếp theo**: Nhắn góc camera, nhiệt độ màu (`2700K–4000K`) hoặc lệnh *\"render / chụp 6 góc\"* để tôi xử lý chi tiết."
+            f"- **Gợi ý tiếp theo**: Nhắn góc camera, thời điểm (`day/sunset/night`) hoặc lệnh *\"render / chụp 6 góc\"* để tôi xử lý chi tiết."
         )
     elif "cost" in lower_agent or "bom" in lower_agent or "dự toán" in lower_agent:
         body = (

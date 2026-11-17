@@ -649,7 +649,10 @@ def reconcile_workflow_inputs(run_id: str, *, auto_respond_native: bool = True, 
         conn.close()
         raise ValueError(f"Không tìm thấy workflow run: {run_id}")
     run_doc = json.loads(run_row["payload_json"])
-    project_id = str(run_doc["project_id"])
+    project_id = str(run_doc.get("project_id") or "")
+    if not project_id:
+        conn.close()
+        return {"run_id": run_id, "status": "SKIPPED_NO_PROJECT", "missing_keys": []}
     run_started_at = _parse_time(run_doc.get("started_at"))
     try:
         context = _paperclip_context(conn, run_id)
