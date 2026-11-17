@@ -320,36 +320,15 @@ export function AtelierRenderCompareRoute() {
 
 export function AtelierCostEstimationRoute() {
   const { project, refreshProjectBundle } = useAtelierStudio();
-  const [viewMode, setViewMode] = useState<"unified" | "scene">("unified");
 
   if (project?.external_scene) {
     return (
       <div className="atelier-surface-root h-full overflow-y-auto">
-        <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2">
-          <button
-            type="button"
-            className={`btn btn-xs ${viewMode === "unified" ? "btn-primary" : "btn-soft"}`}
-            onClick={() => setViewMode("unified")}
-          >
-            Bảng Dự Toán Toàn Diện (BOQ)
-          </button>
-          <button
-            type="button"
-            className={`btn btn-xs ${viewMode === "scene" ? "btn-primary" : "btn-soft"}`}
-            onClick={() => setViewMode("scene")}
-          >
-            Chi Phí Scene 3D
-          </button>
-        </div>
-        {viewMode === "unified" ? (
-          <UnifiedBOQPage />
-        ) : (
-          <SceneCostPanel
-            key={`${project.project_id}:${project.external_scene.sha256}`}
-            project={project}
-            onRefresh={() => refreshProjectBundle(project.project_id)}
-          />
-        )}
+        <SceneCostPanel
+          key={`${project.project_id}:${project.external_scene.sha256}`}
+          project={project}
+          onRefresh={() => refreshProjectBundle(project.project_id)}
+        />
       </div>
     );
   }
