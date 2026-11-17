@@ -268,6 +268,34 @@ class FurnitureInstance(BaseModel):
         return self
 
 
+class ExternalSceneAsset(BaseModel):
+    """Immutable whole-scene GLB used instead of generated room geometry."""
+    asset_id: str
+    name: str
+    file_url: str
+    source_path: Optional[str] = None
+    source_url: Optional[str] = None
+    author: Optional[str] = None
+    license: Optional[str] = None
+    sha256: str
+    root_transform: Dict[str, List[float]] = Field(default_factory=lambda: {
+        "translation": [0.0, 0.0, 0.0],
+        "rotation_euler_deg": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0],
+    })
+    bounds_min_m: List[float] = Field(default_factory=list)
+    bounds_max_m: List[float] = Field(default_factory=list)
+    bounds_size_m: List[float] = Field(default_factory=list)
+    node_count: int = 0
+    mesh_count: int = 0
+    material_count: int = 0
+    texture_count: int = 0
+    camera_count: int = 0
+    light_count: int = 0
+    audit_url: Optional[str] = None
+    imported_at: str = ""
+
+
 class DesignBrief(BaseModel):
     style: str = "Japandi"
     room_function: str = "Phòng khách sinh hoạt chung & tiếp khách"
@@ -483,6 +511,7 @@ class CanonicalProject(BaseModel):
     pascal_scene_json: Dict[str, Any] = Field(default_factory=dict)
     approval_state: Literal["DRAFT", "WAITING_FOR_INPUT", "WAITING_FOR_APPROVAL", "APPROVED"] = "APPROVED"
     underlay_image_url: Optional[str] = None
+    external_scene: Optional[ExternalSceneAsset] = None
     created_at: str = ""
     updated_at: str = ""
 
