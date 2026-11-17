@@ -39,8 +39,8 @@ def price(project, **changes):
 
 def test_glb_scope_replaces_all_legacy_furniture_and_surfaces(project):
     estimate = calculate_project_estimate(project)
-    assert len(estimate.lines) == 34
-    assert len({line.id for line in estimate.lines}) == 34
+    assert len(estimate.lines) == 37
+    assert len({line.id for line in estimate.lines}) == 37
     assert all(line.id.startswith('construction:') for line in estimate.lines)
     assert not any('bedroom' in line.id or 'bench' in line.title.lower() for line in estimate.lines)
     assert estimate.reference_line_count == 9
@@ -50,7 +50,10 @@ def test_glb_scope_replaces_all_legacy_furniture_and_surfaces(project):
     assert calculate_project_estimate(project).snapshot_id == estimate.snapshot_id
     bom = generate_project_inventory_bom(project)
     assert {item.id for item in bom.all_items} == {line.id for line in estimate.lines}
-    assert bom.unpriced_items_count == 25
+    assert bom.unpriced_items_count == 28
+    assert {line.id for line in estimate.lines if line.id.startswith('construction:stair-')} == {
+        'construction:stair-structure', 'construction:stair-railing', 'construction:stair-installation'
+    }
     assert all(item.sku == '' for item in bom.all_items)
 
 def test_estimate_first_does_not_reuse_old_room_budget(project):
@@ -117,7 +120,7 @@ def test_added_furniture_requires_explicit_history_membership(project):
         state = {'history': [{'id':'furniture:new'}], 'pending':[], 'baseline':['furniture:'+project.furniture_instances[0].id]}
         conn.execute('INSERT INTO construction_history VALUES(?,?,?)', (project.project_id,HASH,json.dumps(state)))
     estimate = calculate_project_estimate(project)
-    assert len(estimate.lines) == 35
+    assert len(estimate.lines) == 38
     assert next(line for line in estimate.lines if line.id == 'furniture:new').subtotal_vnd == 1230000
 
 def test_exports_recalculate_current_prices_and_never_export_unknown_as_free(project, client, tmp_path):
@@ -142,6 +145,6 @@ def test_cost_executor_stops_incomplete_boq_before_handoff(project):
     assert event['tool_called'] == 'deterministic_cost_engine', event
     assert event['status'] == 'WAITING_FOR_INPUT'
     assert event['output']['scene_asset_hash'] == HASH
-    assert len(event['output']['lines']) == 34
+    assert len(event['output']['lines']) == 37
     assert event['output']['missing_item_ids']
     assert not event.get('handoff')
