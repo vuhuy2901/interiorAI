@@ -227,8 +227,8 @@ describe("isInlineAttachmentContentType", () => {
 
 describe("formatAttachmentSize", () => {
   it("renders the default deployment cap as a round megabyte figure", () => {
-    expect(MAX_ATTACHMENT_BYTES).toBe(10 * 1024 * 1024);
-    expect(formatAttachmentSize(MAX_ATTACHMENT_BYTES)).toBe("10 MB");
+    expect(MAX_ATTACHMENT_BYTES).toBe(100 * 1024 * 1024);
+    expect(formatAttachmentSize(MAX_ATTACHMENT_BYTES)).toBe("100 MB");
   });
 
   it("keeps one decimal place for fractional sizes and drops a trailing .0", () => {

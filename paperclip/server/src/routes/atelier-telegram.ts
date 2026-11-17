@@ -116,6 +116,7 @@ export function atelierTelegramRoutes(db: Db, heartbeat?: IssueAssignmentWakeupD
         defaultAgentId,
         notificationsEnabled,
         notificationLevel,
+        inboundMode,
         allowedChatIds,
         allowedUserIds,
         allowedUsernames,
@@ -129,6 +130,7 @@ export function atelierTelegramRoutes(db: Db, heartbeat?: IssueAssignmentWakeupD
       if (defaultAgentId !== undefined) updates.defaultAgentId = defaultAgentId;
       if (typeof notificationsEnabled === "boolean") updates.notificationsEnabled = notificationsEnabled;
       if (notificationLevel) updates.notificationLevel = notificationLevel;
+      if (inboundMode === "interactive" || inboundMode === "notifications_only") updates.inboundMode = inboundMode;
       if (Array.isArray(allowedChatIds)) {
         updates.allowedChatIds = allowedChatIds.map((id: any) => Number(id)).filter((id: number) => Number.isSafeInteger(id));
       }

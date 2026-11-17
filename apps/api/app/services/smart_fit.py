@@ -50,6 +50,36 @@ def polygons_overlap_sat(first: Sequence[Point], second: Sequence[Point]) -> boo
     return True
 
 
+def vertical_ranges_overlap(first: FurnitureInstance, second: FurnitureInstance) -> bool:
+    """Return whether two objects occupy a common vertical interval (Z-up)."""
+    return min(first.z_mm + first.height_mm, second.z_mm + second.height_mm) > max(first.z_mm, second.z_mm)
+
+
+def front_clearance_polygon(
+    furniture: FurnitureInstance,
+    *,
+    x_mm: float | None = None,
+    y_mm: float | None = None,
+    rotation_deg: float | None = None,
+) -> List[Point]:
+    """Build the required access zone in front of an object's local +Y face."""
+    clearance = max(0.0, furniture.front_clearance_mm)
+    if clearance <= 0:
+        return []
+    x = furniture.x_mm if x_mm is None else x_mm
+    y = furniture.y_mm if y_mm is None else y_mm
+    rotation = furniture.rotation_deg if rotation_deg is None else rotation_deg
+    angle = math.radians(rotation)
+    offset = furniture.depth_mm / 2.0 + clearance / 2.0
+    center_x = x - math.sin(angle) * offset
+    center_y = y + math.cos(angle) * offset
+    return oriented_corners(center_x, center_y, furniture.width_mm, clearance, rotation)
+
+
+def _is_floor_covering(item: FurnitureInstance) -> bool:
+    return item.category.lower() in {"rug", "carpet"} and item.height_mm <= 50 and item.z_mm <= 50
+
+
 def _bounds(points: Sequence[Sequence[float]]) -> Tuple[float, float, float, float]:
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
@@ -84,14 +114,29 @@ def assess_fit(
         issues.append("Chiều cao model vượt trần")
 
     collisions = []
+    front_clearance_collisions = []
+    front_zone = front_clearance_polygon(furniture, x_mm=x, y_mm=y, rotation_deg=rotation)
+    front_clearance_inside_room = not front_zone or all(point_in_polygon(point, room.polygon_mm) for point in front_zone)
+    if not front_clearance_inside_room:
+        issues.append("Khoảng trống thao tác phía trước vượt ngoài phòng")
     for other in project.furniture_instances:
         if other.id in {furniture.id, exclude_id}:
             continue
+        if other.room_id != furniture.room_id or _is_floor_covering(other):
+            continue
         other_footprint = oriented_corners(other.x_mm, other.y_mm, other.width_mm, other.depth_mm, other.rotation_deg)
-        if polygons_overlap_sat(footprint, other_footprint):
+        if vertical_ranges_overlap(furniture, other) and polygons_overlap_sat(footprint, other_footprint):
             collisions.append(other.id)
+        if front_zone and vertical_ranges_overlap(furniture, other) and polygons_overlap_sat(front_zone, other_footprint):
+            front_clearance_collisions.append(other.id)
+        other_front_zone = front_clearance_polygon(other)
+        if other_front_zone and vertical_ranges_overlap(furniture, other) and polygons_overlap_sat(footprint, other_front_zone):
+            front_clearance_collisions.append(other.id)
     if collisions:
         issues.append("Va chạm với: " + ", ".join(collisions))
+    front_clearance_collisions = sorted(set(front_clearance_collisions))
+    if front_clearance_collisions:
+        issues.append("Cản khoảng trống thao tác phía trước của/với: " + ", ".join(front_clearance_collisions))
 
     doorway_width = max((door.width_mm for door in project.openings), default=900.0)
     doorway_height = max((door.height_mm for door in project.openings), default=2100.0)
@@ -106,6 +151,10 @@ def assess_fit(
         "inside_room_polygon": inside_room,
         "fits_doorway": fits_doorway,
         "collision_ids": collisions,
+        "front_clearance_mm": furniture.front_clearance_mm,
+        "front_clearance_inside_room": front_clearance_inside_room,
+        "front_clearance_collision_ids": front_clearance_collisions,
+        "front_clearance_polygon_mm": [[round(px, 3), round(py, 3)] for px, py in front_zone],
         "issues": issues,
         "footprint_mm": [[round(px, 3), round(py, 3)] for px, py in footprint],
         "room_id": room.id,
@@ -166,6 +215,13 @@ def generate_placement_options(project: CanonicalProject, furniture_id: str, lim
     furniture = next((item for item in project.furniture_instances if item.id == furniture_id), None)
     if not furniture:
         return {"ok": False, "status": "NOT_FOUND", "options": []}
+    if furniture.locked:
+        return {
+            "ok": False,
+            "status": "LOCKED_OBJECT",
+            "reason": "Đồ vật đã khóa vị trí và không được tự động di chuyển.",
+            "options": [],
+        }
     room = _room_for(project, furniture)
     if not room:
         return {"ok": False, "status": "BLOCKED", "options": []}
@@ -176,11 +232,14 @@ def generate_placement_options(project: CanonicalProject, furniture_id: str, lim
     while x <= max_x - step:
         y = min_y + step
         while y <= max_y - step:
-            for rotation in (0.0, 90.0, 180.0, 270.0):
+            rotations = furniture.allowed_rotation_deg or [0.0, 90.0, 180.0, 270.0]
+            for rotation in rotations:
                 result = assess_fit(project, furniture, x_mm=x, y_mm=y, rotation_deg=rotation)
                 if not result["fits"]:
                     continue
-                distance_from_current = math.hypot(x - furniture.x_mm, y - furniture.y_mm)
+                target_x = furniture.preferred_x_mm if furniture.preferred_x_mm is not None else furniture.x_mm
+                target_y = furniture.preferred_y_mm if furniture.preferred_y_mm is not None else furniture.y_mm
+                distance_from_current = math.hypot(x - target_x, y - target_y)
                 wall_distance = min(x - min_x, max_x - x, y - min_y, max_y - y)
                 score = round(1000 - abs(wall_distance - 250) * 0.15 - distance_from_current * 0.01, 3)
                 candidates.append({"x_mm": round(x), "y_mm": round(y), "rotation_deg": rotation, "score": score, "fit": result})
@@ -198,5 +257,5 @@ def generate_placement_options(project: CanonicalProject, furniture_id: str, lim
         "status": "OPTIONS_FOUND" if selected else "NO_VALID_PLACEMENT",
         "evaluated_candidates": len(candidates),
         "options": selected,
-        "algorithm": "room-polygon grid search + SAT collision + doorway/ceiling constraints",
+        "algorithm": "room-polygon grid search + 3D interval/SAT collision + front-access + doorway/ceiling constraints",
     }

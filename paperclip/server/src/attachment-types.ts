@@ -162,14 +162,14 @@ export function isAllowedContentType(contentType: string): boolean {
  * value, so an operator raises or lowers the limit in exactly one place.
  */
 export const MAX_ATTACHMENT_BYTES =
-  Number(process.env.PAPERCLIP_ATTACHMENT_MAX_BYTES) || 10 * 1024 * 1024;
+  Number(process.env.PAPERCLIP_ATTACHMENT_MAX_BYTES) || 100 * 1024 * 1024;
 
 const ATTACHMENT_SIZE_UNITS: readonly string[] = ["KB", "MB", "GB"];
 
 /**
  * Render a byte count the way a person reading an error message expects it:
  * 1024-based steps under the conventional consumer labels, at most one decimal
- * place, and no trailing ".0". The default cap renders as "10 MB" rather than
+ * place, and no trailing ".0". The default cap renders as "100 MB" rather than
  * "10485760 bytes". Sub-kilobyte values stay in bytes so a tiny configured cap
  * does not collapse to "0 KB".
  */

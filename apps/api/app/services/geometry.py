@@ -12,7 +12,13 @@ import math
 from typing import Any, Dict, List, Tuple
 
 from app.models.contracts import CanonicalProject, FurnitureInstance
-from app.services.smart_fit import oriented_corners, polygons_overlap_sat
+from app.services.smart_fit import (
+    front_clearance_polygon,
+    oriented_corners,
+    point_in_polygon,
+    polygons_overlap_sat,
+    vertical_ranges_overlap,
+)
 
 
 def get_oriented_bbox_mm(furn: FurnitureInstance) -> Tuple[float, float, float, float]:
@@ -52,6 +58,7 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
     collisions: List[str] = []
     boundary_violations: List[str] = []
     door_swing_warnings: List[str] = []
+    front_clearance_violations: List[str] = []
 
     items = project.furniture_instances
     boxes = {f.id: get_oriented_bbox_mm(f) for f in items}
@@ -111,24 +118,60 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
                     f"Cửa '{door.id}' ({int(door.width_mm)}mm) khi mở có nguy cơ vướng vào '{f.name}'."
                 )
 
+    # 4. Object-specific access/service clearance. Local +Y is the canonical
+    # front face (wardrobe doors, drawers, service fronts, and similar items).
+    configured_front_clearance = [f for f in items if f.front_clearance_mm > 0]
+    room_by_id = {room.id: room for room in project.rooms}
+    for furniture in configured_front_clearance:
+        zone = front_clearance_polygon(furniture)
+        room = room_by_id.get(furniture.room_id)
+        if room and not all(point_in_polygon(point, room.polygon_mm) for point in zone):
+            front_clearance_violations.append(
+                f"Khoảng thao tác {int(furniture.front_clearance_mm)}mm phía trước '{furniture.name}' vượt ranh giới phòng."
+            )
+        for other in items:
+            if other.id == furniture.id or other.room_id != furniture.room_id or other.id in floor_coverings:
+                continue
+            if vertical_ranges_overlap(furniture, other) and polygons_overlap_sat(
+                zone,
+                oriented_corners(other.x_mm, other.y_mm, other.width_mm, other.depth_mm, other.rotation_deg),
+            ):
+                front_clearance_violations.append(
+                    f"'{other.name}' cản khoảng thao tác phía trước '{furniture.name}'."
+                )
+
     walkway_ok = min_walkway_mm >= 750.0 if min_walkway_mm is not None else None
-    warnings = collisions + boundary_violations + door_swing_warnings
+    warnings = collisions + boundary_violations + door_swing_warnings + front_clearance_violations
     if walkway_ok is False:
         warnings.append(f"Khoảng cách lối đi hẹp nhất ({int(min_walkway_mm)}mm) nhỏ hơn tiêu chuẩn tối thiểu 750mm.")
 
     return {
-        "valid": len(collisions) == 0 and len(boundary_violations) == 0 and len(door_swing_warnings) == 0,
+        "valid": not (collisions or boundary_violations or door_swing_warnings or front_clearance_violations),
         "collision_count": len(collisions),
         "boundary_violation_count": len(boundary_violations),
         "door_swing_warning_count": len(door_swing_warnings),
+        "front_clearance_violation_count": len(front_clearance_violations),
         "min_walkway_mm": min_walkway_mm,
         "walkway_ok": walkway_ok,
         "warnings": warnings,
+        "checks": {
+            "geometry": "PASS" if not (collisions or boundary_violations or door_swing_warnings) else "FAIL",
+            "front_access": (
+                "NOT_CHECKED" if not configured_front_clearance
+                else "PASS" if not front_clearance_violations
+                else "FAIL"
+            ),
+            "electrical": "NOT_CHECKED",
+            "window_operation": "NOT_CHECKED",
+            "fire_safety": "NOT_CHECKED",
+            "ifc_export": "NOT_CHECKED",
+            "manufacturing": "NOT_CHECKED",
+        },
         "method": "rotated_footprint_sat_with_vertical_intervals",
         "limitations": [
             "Pairwise AABB gaps are a conservative clearance heuristic, not a traversable route or access assessment.",
             "Door swing uses a conservative bounding box, not a swept door leaf; baseline warnings need review.",
-            "Room boundary uses the first room bounding rectangle; concave and multi-room containment needs separate assessment.",
+            "General room boundary uses the first room bounding rectangle; front-access zones use their assigned room polygon.",
             "Thin floor rugs are treated as supporting floor coverings, not furniture obstacles.",
         ],
     }

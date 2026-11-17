@@ -236,6 +236,12 @@ class FurnitureInstance(BaseModel):
     align: Optional[Literal["start", "center", "end", "left", "right", "top", "bottom"]] = None
     offset_mm: float = 0.0
     wall_distance_mm: float = 0.0
+    # Deterministic placement constraints. Defaults preserve old payloads.
+    locked: bool = False
+    preferred_x_mm: Optional[float] = None
+    preferred_y_mm: Optional[float] = None
+    allowed_rotation_deg: List[float] = Field(default_factory=list)
+    front_clearance_mm: float = Field(default=0.0, ge=0.0)
     color_hex: str = "#E4DDD3"
     price_vnd: float = 14500000.0
     pascal_asset_id: str

@@ -311,7 +311,7 @@ API: `present` — GET task attachments; POST /api/companies/{companyId}/issues/
 
 Agent access: `partial` — REST/CLI attachments/upload/download/delete; admitted native multipart call_api or scoped register_deliverable/current-task attachment tools according to actual binding. report_progress is not upload.
 
-Policy: Company/task binding, stricter mutation and deliverable run-context gates. Nonempty permitted bytes, default 10 MiB deployment ceiling via PAPERCLIP_ATTACHMENT_MAX_BYTES; bound conversation owner/flag. In-progress agent requires run; CLI multipart forwards header. Content reads enforce retained task/run privacy including removed records.
+Policy: Company/task binding, stricter mutation and deliverable run-context gates. Nonempty permitted bytes, default 100 MiB deployment ceiling via PAPERCLIP_ATTACHMENT_MAX_BYTES; bound conversation owner/flag. In-progress agent requires run; CLI multipart forwards header. Content reads enforce retained task/run privacy including removed records.
 
 Evidence: `source-only` — reviewed at `3bbc2104b65caf9f7763938a01260a5673e12f7a`; [issues.ts](../../server/src/routes/issues.ts), [issue.ts](../../cli/src/commands/client/issue.ts), [attachment-types.ts](../../server/src/attachment-types.ts), [issue-attachment-routes.test.ts](../../server/src/__tests__/issue-attachment-routes.test.ts), [privacy-production-review.test.ts](../../server/src/__tests__/privacy-production-review.test.ts). No live execution claimed.
 

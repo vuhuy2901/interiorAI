@@ -22,6 +22,7 @@ const DEFAULT_CONFIG: TelegramBridgeConfig = {
   defaultAgentId: null,
   notificationsEnabled: true,
   notificationLevel: "all",
+  inboundMode: "notifications_only",
   allowedChatIds: [],
   allowedUserIds: [],
   allowedUsernames: [],

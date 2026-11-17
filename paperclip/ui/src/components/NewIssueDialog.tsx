@@ -1262,9 +1262,20 @@ function AccountNewIssueDialog({ ignoreDefaults }: { ignoreDefaults: boolean }) 
       : getRecentAssigneeSelectionIds().filter((value) => value.startsWith("agent:"));
     const recent = recents.find((value) => available.has(value));
     const targets = agents.filter(isAgentTaskTarget);
-    const fallback = targets.find((agent) => agent.id === primaryAgent?.primaryAgentId)
+    const chiefArchitect = targets.find((agent) => {
+      const text = `${agent.name} ${agent.role} ${agent.title ?? ""}`.toLowerCase();
+      return String((agent as { key?: string }).key ?? "").toLowerCase() === "agent_chief_architect"
+        || text.includes("chief architect")
+        || text.includes("kiến trúc sư trưởng");
+    });
+    const fallback = chiefArchitect
+      ?? targets.find((agent) => agent.id === primaryAgent?.primaryAgentId)
       ?? targets.find((agent) => agent.role === "ceo") ?? targets[0];
-    setAssigneeValue(recent ?? (fallback ? assigneeValueFromSelection({ assigneeAgentId: fallback.id }) : ""));
+    // Atelier web tasks are coordinated by the Chief Architect by default.
+    // The user can still choose another assignee explicitly in the composer.
+    setAssigneeValue(chiefArchitect
+      ? assigneeValueFromSelection({ assigneeAgentId: chiefArchitect.id })
+      : (recent ?? (fallback ? assigneeValueFromSelection({ assigneeAgentId: fallback.id }) : "")));
   }, [newIssueOpen, effectiveCompanyId, agents, assigneeOptions, sessionFetched, membersFetched, primaryAgent?.loading, primaryAgent?.primaryAgentId]);
   useEffect(() => {
     if (!newIssueOpen || !effectiveCompanyId || !defaultProjectPendingRef.current || !projects) return;

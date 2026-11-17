@@ -48,6 +48,7 @@ interface TelegramStatus {
   whitelistedUserCount: number
   configuredChatIds: number[]
   notificationsEnabled: boolean
+  inboundMode?: 'interactive' | 'notifications_only'
   defaultAgentId: string | null
 }
 
@@ -88,6 +89,7 @@ export const AtelierTelegramSettingsPage: React.FC = () => {
   const [botEnabled, setBotEnabled] = useState(true)
   const [defaultAgentId, setDefaultAgentId] = useState<string>('')
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+  const [inboundMode, setInboundMode] = useState<'interactive' | 'notifications_only'>('notifications_only')
   const [notificationLevel, setNotificationLevel] = useState<'all' | 'mentions_and_tasks' | 'approvals_only'>('all')
 
   const [loading, setLoading] = useState(false)
@@ -103,6 +105,7 @@ export const AtelierTelegramSettingsPage: React.FC = () => {
         setStatus(data)
         setBotEnabled(data.botEnabled)
         setNotificationsEnabled(data.notificationsEnabled)
+        setInboundMode(data.inboundMode === 'interactive' ? 'interactive' : 'notifications_only')
         if (data.defaultAgentId) setDefaultAgentId(data.defaultAgentId)
       }
     } catch {
@@ -194,6 +197,7 @@ export const AtelierTelegramSettingsPage: React.FC = () => {
         botEnabled,
         defaultAgentId,
         notificationsEnabled,
+        inboundMode,
         notificationLevel,
         allowedChatIds,
         allowedUserIds: allowedIds,
@@ -522,7 +526,7 @@ export const AtelierTelegramSettingsPage: React.FC = () => {
               }}
             />
             <p style={{ fontSize: 11, color: '#64748B', margin: '4px 0 0 0' }}>
-              Có thể nhập nhiều Chat ID, cách nhau bằng dấu phẩy. Chat đã cấu hình sẽ nhận báo cáo tiến độ và được phép gửi lệnh cho bot.
+              Có thể nhập nhiều Chat ID, cách nhau bằng dấu phẩy. Chat đã cấu hình sẽ nhận thông báo task hoàn thành và tiến độ dự án.
             </p>
           </div>
 
@@ -558,15 +562,30 @@ export const AtelierTelegramSettingsPage: React.FC = () => {
           <div style={{ marginBottom: 16, borderTop: '1px solid #F1F5F9', paddingTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: '#334155' }}>Bật thông báo 2 chiều Telegram</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#334155' }}>Bật thông báo Telegram</div>
                 <div style={{ fontSize: 11, color: '#64748B' }}>
-                  Gửi thông báo tiến độ, câu hỏi và đề xuất duyệt về Telegram.
+                  Gửi thông báo task hoàn thành kèm tiến độ dự án về Telegram.
                 </div>
               </div>
               <input
                 type="checkbox"
                 checked={notificationsEnabled}
                 onChange={(e) => setNotificationsEnabled(e.target.checked)}
+                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0F766E' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingTop: 10, borderTop: '1px solid #F1F5F9' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#334155' }}>Chỉ nhận thông báo từ Telegram</div>
+                <div style={{ fontSize: 11, color: '#64748B' }}>
+                  Giao task, gửi phản hồi và phê duyệt thực hiện trên web; Telegram chỉ báo task đã xong kèm tiến độ.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={inboundMode === 'notifications_only'}
+                onChange={(e) => setInboundMode(e.target.checked ? 'notifications_only' : 'interactive')}
                 style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0F766E' }}
               />
             </div>

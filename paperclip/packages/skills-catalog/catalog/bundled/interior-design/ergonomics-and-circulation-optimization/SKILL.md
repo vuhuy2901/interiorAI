@@ -44,6 +44,26 @@ tags:
 - `geometry.verify_kitchen_triangle`
 - `geometry.calculate_sightlines`
 
+## Ràng buộc canonical của ATELIER
+
+Hệ tọa độ canonical dùng `X/Y` trên mặt sàn và `Z` hướng lên. Không chuyển trực tiếp công thức từ nguồn dùng `X/Z` làm mặt sàn.
+
+Khi đọc hoặc đề xuất thay đổi `FurnitureInstance`, phải xử lý các trường sau:
+
+- `locked=true`: không tạo phương án tự động và không gửi yêu cầu đổi transform. Chỉ tiếp tục sau khi người dùng mở khóa rõ ràng.
+- `allowed_rotation_deg`: nếu danh sách không rỗng, mọi phương án chỉ được dùng các góc trong danh sách.
+- `preferred_x_mm`, `preferred_y_mm`: dùng làm điểm ưu tiên khi xếp hạng phương án; không phải quyền bỏ qua collision hay clearance.
+- `front_clearance_mm`: vùng thao tác nằm trước mặt local `+Y` của đồ vật. Vùng này phải nằm trong polygon phòng và không bị đồ vật khác chiếm ở cùng khoảng cao độ.
+- `z_mm`, `height_mm`: chỉ báo va chạm khi hai footprint giao nhau **và** hai khoảng cao độ giao nhau. Thảm mỏng sát sàn không được coi là vật cản đồ nội thất đặt trên thảm.
+
+Luồng ghi layout hợp lệ là `PATCH /api/v1/projects/{project_id}/furniture/layout` với `base_revision`, evidence phê duyệt và các transform được duyệt. Endpoint có thể từ chối bằng `furniture_locked`, `rotation_not_allowed`, `invalid_furniture_layout` hoặc `minimum_clearance_not_met`; không được bỏ qua lỗi để ghi Pascal trực tiếp.
+
+Kết quả QA phải dùng đúng ba trạng thái:
+
+- `PASS`: có phép đo/evidence và đạt yêu cầu.
+- `FAIL`: có phép đo/evidence và vi phạm yêu cầu.
+- `NOT_CHECKED`: chưa có dữ liệu hoặc capability để kiểm tra. Không được đổi `NOT_CHECKED` thành `PASS`.
+
 ## Input / Output JSON Schema
 
 ### Input Schema
@@ -56,7 +76,7 @@ tags:
     "room_zone": { "type": "string" },
     "check_types": {
       "type": "array",
-      "items": { "type": "string", "enum": ["walkways", "door_swings", "kitchen_triangle", "tv_viewing_distance"] }
+      "items": { "type": "string", "enum": ["walkways", "door_swings", "front_access", "kitchen_triangle", "tv_viewing_distance"] }
     }
   }
 }

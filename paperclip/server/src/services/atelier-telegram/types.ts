@@ -38,7 +38,9 @@ export interface TelegramBridgeConfig {
   defaultAgentId: string | null;
   notificationsEnabled: boolean;
   notificationLevel: "all" | "mentions_and_tasks" | "approvals_only";
-  /** Telegram chats that receive notifications and are allowed to send commands. */
+  /** Telegram receives outbound updates only when this mode is enabled. */
+  inboundMode?: "interactive" | "notifications_only";
+  /** Telegram chats that receive outbound notifications. */
   allowedChatIds: number[];
   allowedUserIds: number[];
   allowedUsernames: string[];
@@ -90,6 +92,7 @@ export interface TelegramBridgeStatus {
   whitelistedUserCount: number;
   configuredChatIds: number[];
   notificationsEnabled: boolean;
+  inboundMode?: "interactive" | "notifications_only";
   defaultAgentId: string | null;
 }
 

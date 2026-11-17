@@ -494,18 +494,18 @@ describe("issue attachment routes", () => {
     const app = await createApp(storage);
     const res = await request(app)
       .post("/api/companies/company-1/issues/11111111-1111-4111-8111-111111111111/attachments")
-      .attach("file", Buffer.alloc(10 * 1024 * 1024 + 1), {
+      .attach("file", Buffer.alloc(100 * 1024 * 1024 + 1), {
         filename: "large.bin",
         contentType: "application/octet-stream",
       });
 
     expect(res.status).toBe(422);
-    expect(res.body.error).toBe("Attachment is larger than the 10 MB limit");
+    expect(res.body.error).toBe("Attachment is larger than the 100 MB limit");
     expect(storage.__calls.putFile).toBeUndefined();
     // The deployment cap is the only limit left. The route no longer reads a
     // per-company override, so it never loads the company to size an upload.
     expect(mockCompanyService.getById).not.toHaveBeenCalled();
-  });
+  }, 60_000);
 
   it("serves html attachments as downloads with nosniff", async () => {
     const storage = createStorageService();

@@ -101,3 +101,67 @@ def test_l_shaped_room_sat_collision_and_two_generated_options():
     assert len(options["options"]) == 2
     assert options["evaluated_candidates"] > 2
     assert all(option["fit"]["fits"] for option in options["options"])
+
+
+def test_front_clearance_and_vertical_intervals_are_enforced():
+    project = build_default_demo_project()
+    cabinet = FurnitureInstance(
+        id="cabinet",
+        sku="CABINET",
+        name="Cabinet",
+        category="cabinet",
+        x_mm=1000,
+        y_mm=1000,
+        width_mm=600,
+        depth_mm=600,
+        height_mm=600,
+        front_clearance_mm=600,
+    )
+    blocker = FurnitureInstance(
+        id="blocker",
+        sku="BLOCKER",
+        name="Blocker",
+        category="chair",
+        x_mm=1000,
+        y_mm=1600,
+        width_mm=300,
+        depth_mm=300,
+        height_mm=500,
+    )
+    project.furniture_instances = [cabinet, blocker]
+
+    blocked = assess_fit(project, cabinet)
+    assert blocked["fits"] is False
+    assert blocked["collision_ids"] == []
+    assert blocked["front_clearance_collision_ids"] == ["blocker"]
+
+    blocker.z_mm = 1000
+    separated = assess_fit(project, cabinet)
+    assert separated["fits"] is True
+    assert separated["front_clearance_collision_ids"] == []
+
+
+def test_locked_items_and_allowed_rotations_control_placement_search():
+    project = build_default_demo_project()
+    item = FurnitureInstance(
+        id="controlled",
+        sku="CONTROLLED",
+        name="Controlled cabinet",
+        category="cabinet",
+        x_mm=1000,
+        y_mm=1000,
+        width_mm=400,
+        depth_mm=300,
+        height_mm=800,
+        locked=True,
+        allowed_rotation_deg=[90.0],
+    )
+    project.furniture_instances = [item]
+    locked = generate_placement_options(project, item.id)
+    assert locked["ok"] is False
+    assert locked["status"] == "LOCKED_OBJECT"
+
+    item.locked = False
+    options = generate_placement_options(project, item.id, limit=2)
+    assert options["ok"] is True
+    assert {option["rotation_deg"] for option in options["options"]} == {90.0}

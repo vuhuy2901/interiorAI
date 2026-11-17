@@ -229,7 +229,7 @@ exports or binary API downloads. It does not raise attachment upload limits or
 limit files an agent creates and edits inside its workspace. Saved asset downloads
 stream from storage and support byte ranges, including video seeking.
 
-`PAPERCLIP_ATTACHMENT_MAX_BYTES` separately defaults to 10 MiB for uploads and
+`PAPERCLIP_ATTACHMENT_MAX_BYTES` separately defaults to 100 MiB for uploads and
 native file handoffs. `call_api` uploads also have their own 10 MiB limit. Several
 upload and handoff paths buffer complete files in memory; raising those defaults
 to GiB sizes requires streaming ingestion and corresponding admission/budget

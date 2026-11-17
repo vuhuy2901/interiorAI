@@ -142,6 +142,7 @@ export class AtelierTelegramPoller {
       whitelistedUserCount: config.allowedUserIds.length,
       configuredChatIds: config.allowedChatIds,
       notificationsEnabled: config.notificationsEnabled,
+      inboundMode: config.inboundMode,
       defaultAgentId: config.defaultAgentId,
     };
   }
@@ -226,15 +227,24 @@ export class AtelierTelegramPoller {
     const config = getTelegramConfigSync();
 
     if (update.callback_query) {
+      if (config.inboundMode === "notifications_only") {
+        await this.client.answerCallbackQuery(update.callback_query.id, "Telegram đang ở chế độ chỉ nhận thông báo.");
+        return;
+      }
       await this.handleCallbackQuery(update.callback_query);
       return;
     }
 
     const message = update.message || update.edited_message;
-    if (!message || !message.text) return;
+    if (!message) return;
 
     config.stats.incomingMessages++;
     await saveTelegramConfig();
+
+    // Web is the authoritative place for creating tasks, comments and
+    // approvals while Telegram is configured as a notification channel.
+    if (config.inboundMode === "notifications_only") return;
+    if (!message.text) return;
 
     const text = message.text.trim();
     const fromUser = message.from;
@@ -1145,7 +1155,9 @@ export class AtelierTelegramPoller {
       config.allowedChatIds.length > 0 || config.allowedUserIds.length > 0 || config.userPairings.length > 0;
     if (!config.notificationsEnabled || !hasNotificationTargets) return;
 
-    await this.checkAndNotifyMappedTaskUpdates();
+    if (config.inboundMode !== "notifications_only") {
+      await this.checkAndNotifyMappedTaskUpdates();
+    }
 
     const progress = await this.taskManager.getProjectProgress();
     const snapshot = JSON.stringify(progress);
@@ -1158,13 +1170,14 @@ export class AtelierTelegramPoller {
     const previous = JSON.parse(this.lastProgressSnapshot) as typeof progress;
     this.lastProgressSnapshot = snapshot;
 
-    const approvalIncreased = progress.pendingApprovals > previous.pendingApprovals;
-    const maySendProgress = config.notificationLevel !== "approvals_only";
-    if (!approvalIncreased && !maySendProgress) return;
+    // Telegram is a completion inbox in notifications-only mode. Do not
+    // send a message for every intermediate agent transition.
+    const doneIncreased = progress.doneTasks > previous.doneTasks;
+    if (!doneIncreased) return;
 
     const filledBars = Math.round((progress.percentDone / 100) * 10);
     const bar = "█".repeat(filledBars) + "░".repeat(10 - filledBars);
-    const heading = approvalIncreased ? "⚖️ **CÓ YÊU CẦU MỚI CHỜ PHÊ DUYỆT**" : "📈 **TIẾN ĐỘ CÔNG VIỆC TOÀN CÔNG TY VỪA CẬP NHẬT**";
+    const heading = "✅ **CÓ TASK VỪA HOÀN THÀNH**";
     await this.broadcastNotification(
       `${heading}\n\n[${bar}] **${progress.percentDone}%**\n` +
         `• Tổng công việc: **${progress.totalTasks}**\n` +
@@ -1172,7 +1185,7 @@ export class AtelierTelegramPoller {
         `• Đang thực hiện: **${progress.inProgressTasks}**\n` +
         `• Đang chờ phản hồi/duyệt: **${progress.inReviewTasks}**\n` +
         `• Chờ phê duyệt: **${progress.pendingApprovals}**\n\n` +
-        `Gõ \`/progress\`, \`/tasks\` hoặc \`/approvals\` để xem chi tiết.`
+        `Chi tiết task và giao việc tiếp theo: mở ATELIER AI trên web.`
     );
   }
 }
