@@ -1948,7 +1948,7 @@ if stair_slab_bounds:
         mesh_points = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
         floor_bounds.append(Vector([max(point[i] for point in mesh_points) for i in range(3)]))
     ground_z = max((point.z for point in floor_bounds), default=float(mins.z))
-    upper_floor_z = max(bounds.max.z for _, bounds in stair_slab_bounds)
+    upper_floor_z = max(high.z for _, high in stair_slab_bounds)
     stair_height = upper_floor_z - ground_z
     if stair_height >= 1.8:
         stair_wood = bpy.data.materials.new("ATELIER_STAIR_WOOD")
@@ -1962,10 +1962,10 @@ if stair_slab_bounds:
         stair_rail.metallic = 0.68
         stair_rail.roughness = 0.32
 
-        slab_max_x = max(bounds.max.x for _, bounds in stair_slab_bounds)
+        slab_max_x = max(high.x for _, high in stair_slab_bounds)
         # glTF's front edge maps to the minimum Blender Y after import.
         # Match the WebGL stair placement exactly so previews and renders agree.
-        slab_front_y = min(bounds.min.y for _, bounds in stair_slab_bounds)
+        slab_front_y = min(low.y for low, _ in stair_slab_bounds)
         stair_width = 1.35
         stair_count = max(12, min(17, round(stair_height / 0.185)))
         stair_tread = 0.24
