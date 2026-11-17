@@ -128,6 +128,117 @@ function createProceduralTileTexture(
   return tex
 }
 
+function createExternalLightingLayer(
+  bounds: THREE.Box3,
+  lightingPreset: 'day' | 'sunset' | 'night',
+  lowSpecMode: boolean,
+  ceilingLevels?: number[],
+) {
+  const group = new THREE.Group()
+  group.name = 'ATELIER_EXTERNAL_LIGHTING_LAYER'
+  const min = bounds.min
+  const size = bounds.getSize(new THREE.Vector3())
+  const center = bounds.getCenter(new THREE.Vector3())
+  const warm = lightingPreset === 'day' ? 0xfff4d6 : lightingPreset === 'sunset' ? 0xffc58f : 0xffcf83
+  const glow = lightingPreset === 'night' ? 2.4 : lightingPreset === 'sunset' ? 1.15 : 0.7
+  const pointIntensity = lightingPreset === 'night' ? 3.5 : lightingPreset === 'sunset' ? 1.2 : 0.45
+  const levels = ceilingLevels?.length
+    ? ceilingLevels
+    : size.y > 5.8
+      ? [min.y + size.y * 0.34, min.y + size.y * 0.72]
+      : [min.y + size.y * 0.82]
+  const xInset = Math.max(0.45, size.x * 0.16)
+  const zInset = Math.max(0.55, size.z * 0.18)
+
+  const addRecessed = (x: number, y: number, z: number, index: number) => {
+    const housing = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.035, 32),
+      new THREE.MeshStandardMaterial({ color: 0x292722, roughness: 0.34, metalness: 0.28 }),
+    )
+    housing.position.set(x, y, z)
+    housing.name = `LIGHT_RECESSED_${index}`
+    const emitter = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.085, 0.085, 0.012, 32),
+      new THREE.MeshStandardMaterial({ color: warm, emissive: new THREE.Color(warm), emissiveIntensity: glow }),
+    )
+    emitter.position.set(x, y - 0.024, z)
+    emitter.name = `LIGHT_RECESSED_EMITTER_${index}`
+    group.add(housing, emitter)
+    const light = new THREE.PointLight(warm, pointIntensity, Math.max(3.2, size.y * 0.72), 2)
+    light.position.set(x, y - 0.06, z)
+    light.castShadow = !lowSpecMode && lightingPreset !== 'day'
+    group.add(light)
+  }
+
+  levels.forEach((level, levelIndex) => {
+    ;[
+      [min.x + xInset, min.z + zInset],
+      [center.x, min.z + zInset],
+      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), min.z + zInset],
+      [min.x + xInset, center.z],
+      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), center.z],
+      [min.x + xInset, Math.max(min.z + zInset, min.z + size.z - zInset)],
+      [center.x, Math.max(min.z + zInset, min.z + size.z - zInset)],
+      [Math.max(min.x + xInset, Math.max(center.x, min.x + size.x - xInset)), Math.max(min.z + zInset, min.z + size.z - zInset)],
+    ].forEach(([x, z], index) => addRecessed(x, level, z, levelIndex * 8 + index))
+
+    // A decorative patterned pendant in the main visual axis.
+    const pendantX = center.x
+    const pendantZ = center.z
+    const stem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.018, 0.018, 0.48, 12),
+      new THREE.MeshStandardMaterial({ color: 0x3a3027, roughness: 0.42, metalness: 0.45 }),
+    )
+    stem.position.set(pendantX, level - 0.24, pendantZ)
+    const shade = new THREE.Mesh(
+      new THREE.ConeGeometry(0.34, 0.16, 32, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xcaa46e, roughness: 0.58, metalness: 0.08, side: THREE.DoubleSide }),
+    )
+    shade.position.set(pendantX, level - 0.51, pendantZ)
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.27, 0.018, 8, 32),
+      new THREE.MeshStandardMaterial({ color: 0x6f5136, roughness: 0.38, metalness: 0.35 }),
+    )
+    ring.position.set(pendantX, level - 0.51, pendantZ)
+    const pendantGlow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.19, 32),
+      new THREE.MeshStandardMaterial({ color: warm, emissive: new THREE.Color(warm), emissiveIntensity: glow, side: THREE.DoubleSide }),
+    )
+    pendantGlow.rotation.x = Math.PI / 2
+    pendantGlow.position.set(pendantX, level - 0.595, pendantZ)
+    group.add(stem, shade, ring, pendantGlow)
+    const pendantLight = new THREE.PointLight(warm, pointIntensity * 1.5, Math.max(4, size.y), 2)
+    pendantLight.position.set(pendantX, level - 0.62, pendantZ)
+    pendantLight.castShadow = !lowSpecMode && lightingPreset !== 'day'
+    group.add(pendantLight)
+  })
+
+  return group
+}
+
+function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.Box3) {
+  const sceneSize = bounds.getSize(new THREE.Vector3())
+  const footprint = Math.max(1, sceneSize.x * sceneSize.z)
+  const levels: number[] = []
+  sourceRoot.traverse((node) => {
+    const mesh = node as THREE.Mesh
+    if (!mesh.isMesh) return
+    const box = new THREE.Box3().setFromObject(mesh)
+    const size = box.getSize(new THREE.Vector3())
+    const horizontalFootprint = size.x * size.z
+    if (size.y <= Math.max(0.22, sceneSize.y * 0.035) && horizontalFootprint >= footprint * 0.08 && box.max.y > bounds.min.y + 1.8) {
+      levels.push(box.max.y - Math.min(0.08, size.y * 0.5))
+    }
+  })
+  const clustered: number[] = []
+  levels.sort((a, b) => a - b).forEach((level) => {
+    const last = clustered[clustered.length - 1]
+    if (last === undefined || Math.abs(level - last) > 0.4) clustered.push(level)
+    else clustered[clustered.length - 1] = Math.max(last, level)
+  })
+  return clustered.slice(-2)
+}
+
 export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
   ({
     project,
@@ -464,6 +575,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       const pickableMeshes: THREE.Object3D[] = []
       const gltfLoader = new GLTFLoader()
       const objectRoots = new Map<string, THREE.Object3D>()
+      let externalLightingLayer: THREE.Group | null = null
       const furnitureGroups = new Map<string, THREE.Group>()
       const canonicalRoot = new THREE.Group()
       canonicalRoot.name = 'ATELIER_CANONICAL_SCENE'
@@ -821,6 +933,17 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
               })
             }
             onExternalSceneObjects?.(grouped)
+            const detectedCeilingLevels = detectExternalCeilingLevels(sourceRoot, sourceBounds)
+            externalLightingLayer = createExternalLightingLayer(sourceBounds, lightingPreset, lowSpecMode, detectedCeilingLevels)
+            scene.add(externalLightingLayer)
+            const viewerStateWithLighting = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
+            viewerStateWithLighting.externalLighting = {
+              enabled: true,
+              recessedCount: (detectedCeilingLevels.length || (sourceSize.y > 5.8 ? 2 : 1)) * 8,
+              decorativePendantCount: detectedCeilingLevels.length || (sourceSize.y > 5.8 ? 2 : 1),
+              sourceSceneHasLights: false,
+              mode: 'application_lighting_layer',
+            }
             externalPlaybackCleanupRef.current = attachConstructionPlayback({
               key: constructionKey(project.project_id, externalScene.sha256),
               projectId: project.project_id, hash: externalScene.sha256,
@@ -1056,6 +1179,15 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         environmentTarget.dispose()
         pmremGenerator.dispose()
         if (composer) composer.dispose()
+        externalLightingLayer?.traverse((node) => {
+          const object = node as THREE.Mesh | THREE.Light
+          if ((object as THREE.Mesh).isMesh) {
+            ;(object as THREE.Mesh).geometry.dispose()
+            const material = (object as THREE.Mesh).material
+            if (Array.isArray(material)) material.forEach((item) => item.dispose())
+            else material?.dispose()
+          }
+        })
         renderer.dispose()
         renderer.domElement.remove()
       }

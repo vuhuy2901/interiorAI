@@ -1768,6 +1768,102 @@ for index, (light_position, energy, area_size) in enumerate(light_specs):
     light.location = light_position
     light.rotation_euler = (camera_target - light.location).to_track_quat("-Z", "Y").to_euler()
 
+# The imported GLB has no source lights. Add a restrained architectural lighting
+# layer so the render shows the same recessed and decorative fixtures as the web
+# viewer, while leaving every source mesh/material untouched.
+def atelier_emission_material(name, color, strength):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    emission = nodes.new("ShaderNodeEmission")
+    emission.inputs["Color"].default_value = (*color, 1.0)
+    emission.inputs["Strength"].default_value = strength
+    material.node_tree.links.new(emission.outputs[0], output.inputs[0])
+    return material
+
+fixture_emission = atelier_emission_material("ATELIER_WARM_FIXTURE", (1.0, 0.72, 0.34), 5.0)
+fixture_metal = bpy.data.materials.new("ATELIER_FIXTURE_BRONZE")
+fixture_metal.diffuse_color = (0.16, 0.09, 0.04, 1.0)
+fixture_metal.metallic = 0.45
+fixture_metal.roughness = 0.34
+
+ceiling_candidates = []
+scene_footprint = max(1.0, float(size.x * size.y))
+for mesh in meshes:
+    mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
+    mesh_min = Vector([min(point[i] for point in mesh_bounds) for i in range(3)])
+    mesh_max = Vector([max(point[i] for point in mesh_bounds) for i in range(3)])
+    mesh_size = mesh_max - mesh_min
+    if (
+        mesh_size.z <= max(0.22, float(size.z) * 0.035)
+        and float(mesh_size.x * mesh_size.y) >= scene_footprint * 0.08
+        and mesh_max.z > mins.z + 1.8
+    ):
+        ceiling_candidates.append(mesh_max.z - min(0.08, float(mesh_size.z) * 0.5))
+clustered_levels = []
+for level in sorted(ceiling_candidates):
+    if not clustered_levels or abs(level - clustered_levels[-1]) > 0.4:
+        clustered_levels.append(level)
+    else:
+        clustered_levels[-1] = max(clustered_levels[-1], level)
+lighting_levels = [round(level, 3) for level in clustered_levels[-2:]]
+if not lighting_levels:
+    lighting_levels = [mins.z + size.z * 0.34, mins.z + size.z * 0.72] if size.z > 5.8 else [mins.z + size.z * 0.82]
+x_inset = max(0.45, size.x * 0.16)
+y_inset = max(0.55, size.y * 0.18)
+recessed_positions = []
+for level_index, level_z in enumerate(lighting_levels):
+    for row, y_value in enumerate((mins.y + y_inset, center.y, max(mins.y + y_inset, maxs.y - y_inset))):
+        for col, x_value in enumerate((mins.x + x_inset, center.x, max(mins.x + x_inset, maxs.x - x_inset))):
+            if row == 1 and col == 1:
+                continue
+            recessed_positions.append((x_value, y_value, level_z, level_index * 8 + row * 3 + col))
+
+for x_value, y_value, z_value, fixture_index in recessed_positions:
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.12, depth=0.035, location=(x_value, y_value, z_value))
+    fixture = bpy.context.object
+    fixture.name = f"ATELIER_RECESSED_{fixture_index:02d}"
+    fixture.data.materials.append(fixture_metal)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.085, depth=0.012, location=(x_value, y_value, z_value - 0.025))
+    emitter = bpy.context.object
+    emitter.name = f"ATELIER_RECESSED_EMITTER_{fixture_index:02d}"
+    emitter.data.materials.append(fixture_emission)
+    light_data = bpy.data.lights.new(f"ATELIER_RECESSED_LIGHT_{fixture_index:02d}", "POINT")
+    light_data.energy = 85.0 if mode == "final" else 55.0
+    light_data.color = (1.0, 0.72, 0.34)
+    light_data.shadow_soft_size = 0.18
+    point = bpy.data.objects.new(light_data.name, light_data)
+    point.location = (x_value, y_value, z_value - 0.08)
+    scene.collection.objects.link(point)
+
+for level_index, level_z in enumerate(lighting_levels):
+    pendant_z = level_z - 0.55
+    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.018, depth=0.48, location=(center.x, center.y, level_z - 0.24))
+    stem = bpy.context.object
+    stem.name = f"ATELIER_PENDANT_STEM_{level_index}"
+    stem.data.materials.append(fixture_metal)
+    bpy.ops.mesh.primitive_cone_add(vertices=32, radius1=0.34, radius2=0.18, depth=0.16, location=(center.x, center.y, pendant_z))
+    shade = bpy.context.object
+    shade.name = f"ATELIER_PENDANT_SHADE_{level_index}"
+    shade.data.materials.append(fixture_metal)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.27, minor_radius=0.018, major_segments=32, location=(center.x, center.y, pendant_z))
+    ring = bpy.context.object
+    ring.name = f"ATELIER_PENDANT_PATTERN_RING_{level_index}"
+    ring.data.materials.append(fixture_metal)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.19, depth=0.012, location=(center.x, center.y, pendant_z - 0.09))
+    pendant_emitter = bpy.context.object
+    pendant_emitter.name = f"ATELIER_PENDANT_EMITTER_{level_index}"
+    pendant_emitter.data.materials.append(fixture_emission)
+    pendant_data = bpy.data.lights.new(f"ATELIER_PENDANT_LIGHT_{level_index}", "POINT")
+    pendant_data.energy = 130.0 if mode == "final" else 85.0
+    pendant_data.color = (1.0, 0.66, 0.28)
+    pendant_data.shadow_soft_size = 0.28
+    pendant = bpy.data.objects.new(pendant_data.name, pendant_data)
+    pendant.location = (center.x, center.y, pendant_z - 0.12)
+    scene.collection.objects.link(pendant)
+
 for obj in meshes:
     obj.select_set(False)
     for slot in obj.material_slots:
