@@ -1789,9 +1789,41 @@ fixture_metal.diffuse_color = (0.16, 0.09, 0.04, 1.0)
 fixture_metal.metallic = 0.45
 fixture_metal.roughness = 0.34
 
-ceiling_regions = []
+def named_ceiling_region(names):
+    selected = []
+    for mesh in meshes:
+        if mesh.name not in names:
+            continue
+        mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
+        mesh_min = Vector([min(point[i] for point in mesh_bounds) for i in range(3)])
+        mesh_max = Vector([max(point[i] for point in mesh_bounds) for i in range(3)])
+        selected.append((mesh_min, mesh_max))
+    if not selected:
+        return None
+    return {
+        # The underside is min.z for Blender's Z-up coordinate system.
+        "z": min(mesh_min.z for mesh_min, _ in selected),
+        "min_x": min(mesh_min.x for mesh_min, _ in selected),
+        "max_x": max(mesh_max.x for _, mesh_max in selected),
+        "min_y": min(mesh_min.y for mesh_min, _ in selected),
+        "max_y": max(mesh_max.y for _, mesh_max in selected),
+    }
+
+ceiling_regions = [
+    region for region in (
+        named_ceiling_region({"Cube_Material002_0", "Cube010_Material004_0"}),
+        named_ceiling_region({"Plane012_Material019_0"}),
+    ) if region is not None
+]
 scene_footprint = max(1.0, float(size.x * size.y))
-for mesh in meshes:
+if not ceiling_regions:
+    ceiling_regions = []
+    # Fallback for user-supplied GLBs without the source scene's stable names.
+    # It is intentionally only used when the explicit ceiling slabs are absent.
+    ceiling_candidates = []
+else:
+    ceiling_candidates = []
+for mesh in (meshes if not ceiling_regions else []):
     mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
     mesh_min = Vector([min(point[i] for point in mesh_bounds) for i in range(3)])
     mesh_max = Vector([max(point[i] for point in mesh_bounds) for i in range(3)])

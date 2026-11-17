@@ -239,6 +239,31 @@ function createExternalLightingLayer(
 function detectExternalCeilingLevels(sourceRoot: THREE.Object3D, bounds: THREE.Box3): ExternalCeilingRegion[] {
   const sceneSize = bounds.getSize(new THREE.Vector3())
   const footprint = Math.max(1, sceneSize.x * sceneSize.z)
+
+  // This source scene has two real ceiling slabs. Use their underside instead
+  // of guessing from every thin horizontal mesh (which also matches floors,
+  // rugs and railings and can put fixtures on the upper floor).
+  const namedRegions: ExternalCeilingRegion[] = [
+    ['Cube_Material002_0', 'Cube010_Material004_0'],
+    ['Plane012_Material019_0'],
+  ].map((names) => {
+    const region: ExternalCeilingRegion | null = names.reduce<ExternalCeilingRegion | null>((current, name) => {
+      const node = sourceRoot.getObjectByName(name)
+      if (!node) return current
+      const box = new THREE.Box3().setFromObject(node)
+      if (box.isEmpty()) return current
+      if (!current) return { y: box.min.y, minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z }
+      current.y = Math.min(current.y, box.min.y)
+      current.minX = Math.min(current.minX, box.min.x)
+      current.maxX = Math.max(current.maxX, box.max.x)
+      current.minZ = Math.min(current.minZ, box.min.z)
+      current.maxZ = Math.max(current.maxZ, box.max.z)
+      return current
+    }, null)
+    return region
+  }).filter((region): region is ExternalCeilingRegion => Boolean(region))
+  if (namedRegions.length) return namedRegions
+
   const candidates: ExternalCeilingRegion[] = []
   sourceRoot.traverse((node) => {
     const mesh = node as THREE.Mesh
