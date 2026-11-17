@@ -1834,8 +1834,9 @@ for level_index, region in enumerate(lighting_regions):
     region_center_y = (region["min_y"] + region["max_y"]) * 0.5
     region_width = max(1.0, region["max_x"] - region["min_x"])
     region_depth = max(1.0, region["max_y"] - region["min_y"])
-    ceiling_offset = min(0.12, max(0.04, float(size.z) * 0.012))
-    fixture_z = region["z"] - ceiling_offset
+    # Mount the fixture against the underside of the detected ceiling. The
+    # emitter/light is then placed slightly lower, avoiding a visible gap.
+    fixture_z = region["z"] - 0.018
     x_inset = min(region_width * 0.22, max(0.45, region_width * 0.16))
     y_inset = min(region_depth * 0.22, max(0.55, region_depth * 0.18))
     for row, y_value in enumerate((region["min_y"] + y_inset, region_center_y, max(region["min_y"] + y_inset, region["max_y"] - y_inset))):
@@ -1866,7 +1867,7 @@ for level_index, region in enumerate(lighting_regions):
     region_center_y = (region["min_y"] + region["max_y"]) * 0.5
     # Recess fixtures below the ceiling plane; otherwise they are visible on
     # the roof when the finished scene is viewed from Orbit/top-down angles.
-    level_z = region["z"] - min(0.12, max(0.04, float(size.z) * 0.012))
+    level_z = region["z"]
     pendant_z = level_z - 0.55
     bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=0.018, depth=0.48, location=(region_center_x, region_center_y, level_z - 0.24))
     stem = bpy.context.object

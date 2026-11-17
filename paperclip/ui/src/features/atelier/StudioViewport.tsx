@@ -181,10 +181,10 @@ function createExternalLightingLayer(
   }
 
   regions.forEach((region, levelIndex) => {
-    // Keep the fixture just below the detected ceiling plane so it is recessed
-    // into the room instead of appearing as a floating dot on the roof in Orbit.
-    const ceilingOffset = Math.min(0.12, Math.max(0.04, size.y * 0.012))
-    const level = region.y - ceilingOffset
+    // Mount the fixture against the underside of the detected ceiling. The
+    // emitter/light is then placed slightly lower, avoiding both a visible gap
+    // and a fixture floating above the ceiling in Orbit.
+    const recessedMountY = region.y - 0.018
     const regionCenterX = (region.minX + region.maxX) / 2
     const regionCenterZ = (region.minZ + region.maxZ) / 2
     const regionWidth = Math.max(1, region.maxX - region.minX)
@@ -200,7 +200,7 @@ function createExternalLightingLayer(
       [region.minX + xInset, region.maxZ - zInset],
       [regionCenterX, region.maxZ - zInset],
       [region.maxX - xInset, region.maxZ - zInset],
-    ].forEach(([x, z], index) => addRecessed(x, level, z, levelIndex * 8 + index))
+    ].forEach(([x, z], index) => addRecessed(x, recessedMountY, z, levelIndex * 8 + index))
 
     // A decorative patterned pendant in the main visual axis.
     const pendantX = regionCenterX
@@ -209,26 +209,26 @@ function createExternalLightingLayer(
       new THREE.CylinderGeometry(0.018, 0.018, 0.48, 12),
       new THREE.MeshStandardMaterial({ color: 0x3a3027, roughness: 0.42, metalness: 0.45 }),
     )
-    stem.position.set(pendantX, level - 0.24, pendantZ)
+    stem.position.set(pendantX, region.y - 0.24, pendantZ)
     const shade = new THREE.Mesh(
       new THREE.ConeGeometry(0.34, 0.16, 32, 1, true),
       new THREE.MeshStandardMaterial({ color: 0xcaa46e, roughness: 0.58, metalness: 0.08, side: THREE.DoubleSide }),
     )
-    shade.position.set(pendantX, level - 0.51, pendantZ)
+    shade.position.set(pendantX, region.y - 0.51, pendantZ)
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.27, 0.018, 8, 32),
       new THREE.MeshStandardMaterial({ color: 0x6f5136, roughness: 0.38, metalness: 0.35 }),
     )
-    ring.position.set(pendantX, level - 0.51, pendantZ)
+    ring.position.set(pendantX, region.y - 0.51, pendantZ)
     const pendantGlow = new THREE.Mesh(
       new THREE.CircleGeometry(0.19, 32),
       new THREE.MeshStandardMaterial({ color: warm, emissive: new THREE.Color(warm), emissiveIntensity: glow, side: THREE.DoubleSide }),
     )
     pendantGlow.rotation.x = Math.PI / 2
-    pendantGlow.position.set(pendantX, level - 0.595, pendantZ)
+    pendantGlow.position.set(pendantX, region.y - 0.595, pendantZ)
     group.add(stem, shade, ring, pendantGlow)
     const pendantLight = new THREE.PointLight(warm, pointIntensity * 1.5, Math.max(4, size.y), 2)
-    pendantLight.position.set(pendantX, level - 0.62, pendantZ)
+    pendantLight.position.set(pendantX, region.y - 0.62, pendantZ)
     pendantLight.castShadow = !lowSpecMode && lightingPreset !== 'day'
     group.add(pendantLight)
   })
