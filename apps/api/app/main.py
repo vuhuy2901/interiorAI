@@ -13,6 +13,7 @@ Exposes REST & SSE endpoints for:
 """
 from __future__ import annotations
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import uuid
@@ -20,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -60,6 +61,12 @@ from app.models.contracts import (
     SceneProposal,
     QuestionChoice,
     QuestionRequest,
+    BOQDecisionPayload,
+)
+from app.services.unified_boq_engine import (
+    build_unified_project_boq,
+    save_boq_material_decision,
+    export_unified_boq_xlsx,
 )
 from app.services.render_engine import render_scene_visual
 from app.services.cad_export import (
@@ -1381,6 +1388,48 @@ def api_export_project_file(project_id: str, fmt: str):
         raise HTTPException(status_code=400, detail=f"Định dạng xuất '{fmt}' không được hỗ trợ")
 
     return FileResponse(path=str(path), filename=path.name, media_type=media)
+
+
+@app.get("/api/v1/projects/{project_id}/unified-boq")
+def api_get_unified_boq(project_id: str):
+    """Returns single unified BOQ & BOM breakdown with 9 groups, AI proposals, and quotes."""
+    try:
+        boq = build_unified_project_boq(project_id)
+        return boq.model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi tạo bảng BOQ hợp nhất: {str(e)}")
+
+
+@app.post("/api/v1/projects/{project_id}/boq-items/{item_id}/decision")
+def api_save_boq_item_decision(project_id: str, item_id: str, payload: BOQDecisionPayload):
+    """Saves user decision on material, finish, quote, and approval status."""
+    try:
+        res = save_boq_material_decision(project_id, item_id, payload)
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi lưu quyết định BOQ: {str(e)}")
+
+
+@app.get("/api/v1/exports/{project_id}/unified-boq/xlsx")
+@app.get("/api/v1/projects/{project_id}/unified-boq/export/xlsx")
+def api_export_unified_boq_xlsx_endpoint(project_id: str):
+    """Exports fully-formatted architectural & financial BOQ to Excel (.xlsx)."""
+    try:
+        data = export_unified_boq_xlsx(project_id)
+        proj = get_project(project_id)
+        name_slug = proj.project_id if proj else project_id
+        filename = f"BOQ_{name_slug}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.xlsx"
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xuất Excel BOQ: {str(e)}")
 
 
 # ==============================================================================

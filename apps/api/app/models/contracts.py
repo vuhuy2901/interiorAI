@@ -311,6 +311,16 @@ class CostEstimateSnapshot(BaseModel):
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."
 
 
+class BOQDecisionPayload(BaseModel):
+    selected_option_id: Optional[str] = None
+    custom_material_spec: Optional[Dict[str, Any]] = None
+    selected_quote_id: Optional[str] = None
+    custom_quote: Optional[Dict[str, Any]] = None
+    approved: bool = True
+    approved_by: str = "Chủ Project"
+    notes: Optional[str] = None
+
+
 class CanonicalProject(BaseModel):
     project_id: str
     name: str
