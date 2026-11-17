@@ -4,6 +4,7 @@ import { useBreadcrumbs } from "@/context/BreadcrumbContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useAtelierStudio } from "./AtelierStudioContext";
 import { SceneCostPanel } from "./SceneCostPanel";
+import { UnifiedBOQPage } from "./UnifiedBOQPage";
 import { AtelierProjectWorkflowMonitor, AtelierWorkflowControlCenter } from "./AtelierWorkflowMonitor";
 import {
   FloorPlanImportPage,
@@ -318,26 +319,42 @@ export function AtelierRenderCompareRoute() {
 }
 
 export function AtelierCostEstimationRoute() {
-  const { setBreadcrumbs } = useBreadcrumbs();
-  const { theme } = useTheme();
-  const { project, estimate, refreshProjectBundle } = useAtelierStudio();
+  const { project, refreshProjectBundle } = useAtelierStudio();
+  const [viewMode, setViewMode] = useState<"unified" | "scene">("unified");
 
-  useEffect(() => {
-    setBreadcrumbs([
-      { label: "Thiết kế Nội thất" },
-      { label: "Bảng Dự toán Khối lượng & Ngân sách (BOQ)" },
-    ]);
-  }, [setBreadcrumbs]);
+  if (project?.external_scene) {
+    return (
+      <div className="atelier-surface-root h-full overflow-y-auto">
+        <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2">
+          <button
+            type="button"
+            className={`btn btn-xs ${viewMode === "unified" ? "btn-primary" : "btn-soft"}`}
+            onClick={() => setViewMode("unified")}
+          >
+            Bảng Dự Toán Toàn Diện (BOQ)
+          </button>
+          <button
+            type="button"
+            className={`btn btn-xs ${viewMode === "scene" ? "btn-primary" : "btn-soft"}`}
+            onClick={() => setViewMode("scene")}
+          >
+            Chi Phí Scene 3D
+          </button>
+        </div>
+        {viewMode === "unified" ? (
+          <UnifiedBOQPage />
+        ) : (
+          <SceneCostPanel
+            key={`${project.project_id}:${project.external_scene.sha256}`}
+            project={project}
+            onRefresh={() => refreshProjectBundle(project.project_id)}
+          />
+        )}
+      </div>
+    );
+  }
 
-  if (!project) return <div className="p-6 text-sm text-muted-foreground">Đang tải bảng dự toán BOQ...</div>;
-
-  return (
-    <div className="atelier-surface-root h-full overflow-y-auto" data-theme={theme}>
-      {project.external_scene ? <SceneCostPanel key={`${project.project_id}:${project.external_scene.sha256}`} project={project} onRefresh={() => refreshProjectBundle(project.project_id)} /> : <CostEstimationPage
-        project={{ ...project, estimate_snapshot: estimate ?? project.estimate_snapshot }}
-      />}
-    </div>
-  );
+  return <UnifiedBOQPage />;
 }
 
 export function AtelierShoppingCatalogRoute() {
