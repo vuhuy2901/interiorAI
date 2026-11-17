@@ -1931,7 +1931,9 @@ for level_index, region in enumerate(lighting_regions):
 stair_slab_names = {"Cube_Material002_0", "Cube010_Material004_0"}
 stair_slab_bounds = []
 for mesh in meshes:
-    if mesh.name not in stair_slab_names:
+    # Blender keeps dots in imported glTF names (Cube.010_Material.004_0),
+    # while Three.js exposes the sanitized form used by the viewport.
+    if mesh.name.replace(".", "") not in stair_slab_names:
         continue
     mesh_bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
     stair_slab_bounds.append((
@@ -1941,7 +1943,7 @@ for mesh in meshes:
 if stair_slab_bounds:
     floor_bounds = []
     for mesh in meshes:
-        if mesh.name != "Plane_Material001_0":
+        if mesh.name.replace(".", "") != "Plane_Material001_0":
             continue
         mesh_points = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
         floor_bounds.append(Vector([max(point[i] for point in mesh_points) for i in range(3)]))
