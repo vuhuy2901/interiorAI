@@ -9,7 +9,7 @@
 | Ngày tạo | 2026-11-19 |
 | Frozen at | 2026-11-19 |
 | Revision bắt đầu | working tree |
-| Revision cuối | working tree (HEAD `707cf5f56398d53386c93de3a1743c7bf1563d18`; uncommitted phase-1 changes) |
+| Revision cuối | `b49d35ef` (phase-1 commit; contract evidence amended below) |
 
 ## 1. Bối cảnh
 
@@ -130,6 +130,7 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Audit renderer và tạo contract đợt 1 | Giữ nguyên identity và scene data |
 | 2026-11-19 | working tree | Thêm quality/style preset panel và localStorage preference | Chỉ tác động renderer settings |
 | 2026-11-19 | working tree | Tạo baseline manifest | Giữ nguyên 8 ảnh baseline hiện có |
+| 2026-11-19 | `b49d35ef` | Commit riêng đợt 1 | Chỉ gồm 3 file trong scope |
 
 ## 13. Verification evidence
 
@@ -140,6 +141,7 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Headless Chrome runtime smoke | PASS | `renderer=true`, `canvas=true`, panel mở; Low đặt `R.shadowMap.enabled=false`; reload giữ `localStorage` quality=`low`; capture PNG 673726 bytes |
 | 2026-11-19 | working tree | Baseline source audit | PASS | `docs/evidence/atelier-visual-baseline-2026-11-19.json` ghi camera, renderer, lights, palette và ảnh tham chiếu |
 | 2026-11-19 | working tree | `git diff --check` | PASS | Không có lỗi whitespace trong các file phase-1 |
+| 2026-11-19 | `b49d35ef` | Kiểm tra commit scope | PASS | Commit `feat(atelier): add visual quality foundation` chứa đúng 3 file phase-1 |
 
 ## 14. Kết quả và đóng chức năng
 
