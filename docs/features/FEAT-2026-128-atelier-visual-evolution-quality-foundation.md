@@ -9,7 +9,7 @@
 | Ngày tạo | 2026-11-19 |
 | Frozen at | 2026-11-19 |
 | Revision bắt đầu | working tree |
-| Revision cuối | `8f34d934` (phase-2 lighting/PBR commit) |
+| Revision cuối | `6f6a2263` (CR-002 contrast/evidence commit) |
 
 ## 1. Bối cảnh
 
@@ -150,8 +150,8 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Tạo baseline manifest | Giữ nguyên 8 ảnh baseline hiện có |
 | 2026-11-19 | `b49d35ef` | Commit riêng đợt 1 | Chỉ gồm 3 file trong scope |
 | 2026-11-19 | `8f34d934` | CR-001 frozen và triển khai lighting/PBR | Premium thêm warm fill/rim/bounce và điều chỉnh response MeshStandardMaterial; không đổi geometry |
-| 2026-11-19 | working tree | CR-002 frozen | Tăng contrast, contact shadow/AO-style và phân loại floor/glass/screen trước khi recapture |
-| 2026-11-19 | working tree | CR-002 runtime recapture | Sáu ảnh cùng project/12:00 ở overview, meeting và floor-cabinet |
+| 2026-11-19 | `6f6a2263` | CR-002 frozen | Tăng contrast, contact shadow/AO-style và phân loại floor/glass/screen trước khi recapture |
+| 2026-11-19 | `6f6a2263` | CR-002 runtime recapture | Sáu ảnh cùng project/12:00 ở overview, meeting và floor-cabinet |
 
 ## 13. Verification evidence
 
@@ -165,11 +165,11 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | `b49d35ef` | Kiểm tra commit scope | PASS | Commit `feat(atelier): add visual quality foundation` chứa đúng 3 file phase-1 |
 | 2026-11-19 | `8f34d934` | Phase-2 BEFORE runtime capture | PASS | `docs/evidence/after/phase2-before-original-atelier.png`; SHA-256 `A753332B1603E5B36A60AE86E20A8DE317065A116096896748516411CD20A350`; camera `0.26/0.86/21.5` |
 | 2026-11-19 | `8f34d934` | Phase-2 AFTER runtime capture | PASS | `docs/evidence/after/phase2-after-premium-realistic.png`; SHA-256 `73DED26ED8884B780F23DCC608FA05C940282F45DCC89B02A0BE924A597F0517`; camera `0.26/0.86/21.5` |
-| 2026-11-19 | working tree | FPS four quality levels after CR-002 | PASS | `docs/evidence/after/phase2-fps.json`; SHA-256 `6283C31BB1FA3ECFA8DAEC316714FA24F4591BC404B8C4DEE7CF1E56A7705B5B`; Low 16.90, Medium 8.89, High 8.90, Ultra 8.89 FPS; sample 60 frames |
-| 2026-11-19 | working tree | CR-002 BEFORE/AFTER recapture | PASS | `docs/evidence/after/phase2-capture-manifest.json`; SHA-256 `511C99DE3EABBE16817F4F314895CC4FE6D6F11F27144EADE7E2A3FD8C0FEC99`; project `Phòng ngủ GLB — Bedroom Interior 6×4m`; hour `12:00`; polling locked |
-| 2026-11-19 | working tree | Overview pair | PASS | BEFORE `phase2-before-original-atelier-overview.png` SHA-256 `B6FD9DD79DB1B83081D18CBE59654B7D4C586466CBCAE98E438F7737C89DEDE4`; AFTER `phase2-after-premium-realistic-overview.png` SHA-256 `C9C913976E6EE825FB7E48ED42A6926D9C06CE9842EEBBD66B7C14007A73BD3C` |
-| 2026-11-19 | working tree | Meeting close pair | PASS | BEFORE `phase2-before-original-atelier-meeting.png` SHA-256 `F870BD256DA34FBC8633486CB5DEB3111B91E34848F68162382E9C43010C88D3`; AFTER `phase2-after-premium-realistic-meeting.png` SHA-256 `22C27A0DB443FE2FB016BDA0FC17E9912BCE8ABE73AC3F9E6671F98E964411BD` |
-| 2026-11-19 | working tree | Floor/cabinet close pair | PASS | BEFORE `phase2-before-original-atelier-floor-cabinet.png` SHA-256 `A429AA3FCE6B2C1424F698267DAE872C6632BBAF4692CE8A21BCFFEC925F78B3`; AFTER `phase2-after-premium-realistic-floor-cabinet.png` SHA-256 `3292881F6E7AD42E75F9426A9BCEA03EEB84C56B53B805D04F3CE1DCA045F03F` |
+| 2026-11-19 | `6f6a2263` | FPS four quality levels after CR-002 | PASS | `docs/evidence/after/phase2-fps.json`; SHA-256 `6283C31BB1FA3ECFA8DAEC316714FA24F4591BC404B8C4DEE7CF1E56A7705B5B`; Low 16.90, Medium 8.89, High 8.90, Ultra 8.89 FPS; sample 60 frames |
+| 2026-11-19 | `6f6a2263` | CR-002 BEFORE/AFTER recapture | PASS | `docs/evidence/after/phase2-capture-manifest.json`; SHA-256 `511C99DE3EABBE16817F4F314895CC4FE6D6F11F27144EADE7E2A3FD8C0FEC99`; project `Phòng ngủ GLB — Bedroom Interior 6×4m`; hour `12:00`; polling locked |
+| 2026-11-19 | `6f6a2263` | Overview pair | PASS | BEFORE `phase2-before-original-atelier-overview.png` SHA-256 `B6FD9DD79DB1B83081D18CBE59654B7D4C586466CBCAE98E438F7737C89DEDE4`; AFTER `phase2-after-premium-realistic-overview.png` SHA-256 `C9C913976E6EE825FB7E48ED42A6926D9C06CE9842EEBBD66B7C14007A73BD3C` |
+| 2026-11-19 | `6f6a2263` | Meeting close pair | PASS | BEFORE `phase2-before-original-atelier-meeting.png` SHA-256 `F870BD256DA34FBC8633486CB5DEB3111B91E34848F68162382E9C43010C88D3`; AFTER `phase2-after-premium-realistic-meeting.png` SHA-256 `22C27A0DB443FE2FB016BDA0FC17E9912BCE8ABE73AC3F9E6671F98E964411BD` |
+| 2026-11-19 | `6f6a2263` | Floor/cabinet close pair | PASS | BEFORE `phase2-before-original-atelier-floor-cabinet.png` SHA-256 `A429AA3FCE6B2C1424F698267DAE872C6632BBAF4692CE8A21BCFFEC925F78B3`; AFTER `phase2-after-premium-realistic-floor-cabinet.png` SHA-256 `3292881F6E7AD42E75F9426A9BCEA03EEB84C56B53B805D04F3CE1DCA045F03F` |
 
 ## 14. Kết quả và đóng chức năng
 
