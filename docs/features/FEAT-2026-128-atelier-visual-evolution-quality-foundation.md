@@ -2,8 +2,8 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | VERIFYING |
-| Phiên bản hợp đồng | 1.0 |
+| Trạng thái | FROZEN |
+| Phiên bản hợp đồng | 1.1 |
 | Owner | Codex |
 | Người chấp thuận | Người dùng theo Master Prompt ATELIER Visual Evolution 2.0 |
 | Ngày tạo | 2026-11-19 |
@@ -39,6 +39,8 @@ so sánh cùng camera và cùng scene.
 - Style preset chỉ điều chỉnh display settings; không ghi đè scene data/material
   source.
 - Lưu lựa chọn hiển thị và baseline manifest.
+- Đợt 2: tinh chỉnh lighting và PBR material trong cùng standalone scene,
+  có ảnh BEFORE/AFTER cùng camera và đo FPS theo bốn quality levels.
 
 ### Out of scope
 
@@ -47,6 +49,7 @@ so sánh cùng camera và cùng scene.
 - Chưa thêm Company Builder chỉnh phòng/sàn/furniture.
 - Chưa tuyên bố hoàn tất E2E GLB Paperclip → Pascal.
 - Không thiết kế lại văn phòng hoặc đổi palette mặc định.
+- Không chạm FurniMesh hoặc Company Builder trong đợt 2.
 
 ## 4. Dependency và tài nguyên cần bảo vệ
 
@@ -73,6 +76,9 @@ so sánh cùng camera và cùng scene.
 | `ai-office-standalone/index.html` | Cập nhật | UI và runtime quality/style presets |
 | `docs/evidence/atelier-visual-baseline-2026-11-19.json` | Thêm | Baseline có thể đối chiếu, không ghi đè preset gốc |
 | `docs/features/FEAT-2026-128-atelier-visual-evolution-quality-foundation.md` | Thêm | Contract và evidence |
+| `docs/evidence/after/phase2-before-original-atelier.png` | Thêm | Runtime BEFORE cùng camera |
+| `docs/evidence/after/phase2-after-premium-realistic.png` | Thêm | Runtime AFTER cùng camera |
+| `docs/evidence/after/phase2-fps.json` | Thêm | FPS đo cho bốn quality levels |
 
 ## 7. Acceptance criteria
 
@@ -87,6 +93,9 @@ so sánh cùng camera và cùng scene.
   palette cùng ảnh tham chiếu.
 - [x] AC-06: Static-server smoke và syntax check pass; mọi giới hạn visual/E2E
   chưa chạy được phải ghi rõ.
+- [x] AC-07: Lighting/PBR phase 2 có BEFORE Original ATELIER và AFTER Premium
+  Realistic cùng camera `theta=0.26`, `phi=0.86`, `radius=21.5`.
+- [x] AC-08: FPS runtime được đo cho Low/Medium/High/Ultra và lưu thành JSON.
 
 ## 8. Verification plan
 
@@ -122,6 +131,7 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
+| CR-001 | 2026-11-19 | Mở rộng contract cho đợt 2: lighting + PBR material, ảnh runtime BEFORE/AFTER cùng camera, FPS 4 quality levels | Người dùng xác nhận đợt 1 đạt và yêu cầu tiếp tục đợt 2 có bằng chứng runtime | Chỉ mở rộng `ai-office-standalone/index.html` và evidence; giữ FurniMesh/Company Builder ngoài phạm vi | Người dùng | 1.1 |
 
 ## 12. Implementation log
 
@@ -131,6 +141,7 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Thêm quality/style preset panel và localStorage preference | Chỉ tác động renderer settings |
 | 2026-11-19 | working tree | Tạo baseline manifest | Giữ nguyên 8 ảnh baseline hiện có |
 | 2026-11-19 | `b49d35ef` | Commit riêng đợt 1 | Chỉ gồm 3 file trong scope |
+| 2026-11-19 | working tree | CR-001 frozen và triển khai lighting/PBR | Premium thêm warm fill/rim/bounce và điều chỉnh response MeshStandardMaterial; không đổi geometry |
 
 ## 13. Verification evidence
 
@@ -142,12 +153,17 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Baseline source audit | PASS | `docs/evidence/atelier-visual-baseline-2026-11-19.json` ghi camera, renderer, lights, palette và ảnh tham chiếu |
 | 2026-11-19 | working tree | `git diff --check` | PASS | Không có lỗi whitespace trong các file phase-1 |
 | 2026-11-19 | `b49d35ef` | Kiểm tra commit scope | PASS | Commit `feat(atelier): add visual quality foundation` chứa đúng 3 file phase-1 |
+| 2026-11-19 | working tree | Phase-2 BEFORE runtime capture | PASS | `docs/evidence/after/phase2-before-original-atelier.png`; SHA-256 `A753332B1603E5B36A60AE86E20A8DE317065A116096896748516411CD20A350`; camera `0.26/0.86/21.5` |
+| 2026-11-19 | working tree | Phase-2 AFTER runtime capture | PASS | `docs/evidence/after/phase2-after-premium-realistic.png`; SHA-256 `73DED26ED8884B780F23DCC608FA05C940282F45DCC89B02A0BE924A597F0517`; camera `0.26/0.86/21.5` |
+| 2026-11-19 | working tree | FPS four quality levels | PASS | `docs/evidence/after/phase2-fps.json`; SHA-256 `DA4729E0D9AF78C12044F2DB106ADE236EAC2B5A18AD87AC352A368320BB4336`; Low 12.63, Medium 6.91, High 6.58, Ultra 6.63 FPS |
 
 ## 14. Kết quả và đóng chức năng
 
 - Kết quả: Đã triển khai và đang xác minh đợt quality foundation.
-- Hạn chế còn lại: Chưa có ảnh AFTER lưu thành artifact; các phần lighting/material/asset/builder/E2E thuộc các đợt sau.
-- Việc chưa hoàn tất: Lưu ảnh AFTER và đối chiếu trực quan BEFORE/AFTER trong browser UI.
+- Hạn chế còn lại: FPS đo bằng headless software renderer thấp; cần đo lại GPU-enabled
+  trên máy mục tiêu trước khi đặt ngưỡng thiết bị production.
+- Việc chưa hoàn tất: FurniMesh/Company Builder/Paperclip → Pascal E2E vẫn ngoài
+  scope đợt 2 và tiếp tục thuộc FEAT-2026-126.
 - Rollback point: `ai-office-standalone/index.html` + baseline manifest.
 - Trạng thái `CLOSED` bởi: Chưa đóng.
 - Thời điểm: Chưa có.

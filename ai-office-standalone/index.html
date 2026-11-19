@@ -860,6 +860,18 @@ const fillLight = new T.DirectionalLight(0x6b8db8, 0.45);
 fillLight.position.set(-18, 24, -14);
 S.add(fillLight);
 
+/* Premium lighting layer: controlled fill/rim/bounce, disabled for Original. */
+const premiumWarmFill = new T.DirectionalLight(0xffd7b0, 0);
+premiumWarmFill.position.set(8, 14, 28);
+premiumWarmFill.target.position.set(15, 0, 10);
+S.add(premiumWarmFill, premiumWarmFill.target);
+const premiumCoolRim = new T.DirectionalLight(0x9fc7ff, 0);
+premiumCoolRim.position.set(-18, 18, -24);
+premiumCoolRim.target.position.set(15, 2, 10);
+S.add(premiumCoolRim, premiumCoolRim.target);
+const premiumBounce = new T.HemisphereLight(0xffead8, 0x172536, 0);
+S.add(premiumBounce);
+
 /* High-Altitude Ambient Soft Diffuser */
 const ledGroup = new T.Group();
 S.add(ledGroup);
@@ -879,9 +891,9 @@ const QUALITY_PRESETS = Object.freeze({
   ultra: { label: 'Ultra', pixelRatio: 2.0, shadowMapSize: 2048, shadows: true },
 });
 const STYLE_PRESETS = Object.freeze({
-  'original-atelier': { label: 'Original ATELIER', toneMappingExposure: 1.22, sun: 1, hemi: 1, fill: 1, diffuser: 1 },
-  'original-enhanced': { label: 'Original Enhanced', toneMappingExposure: 1.26, sun: 1.02, hemi: 1.03, fill: 1.06, diffuser: 1.05 },
-  'premium-realistic': { label: 'Premium Realistic', toneMappingExposure: 1.2, sun: 1.04, hemi: 1.06, fill: 1.12, diffuser: 1.1 },
+  'original-atelier': { label: 'Original ATELIER', toneMappingExposure: 1.22, sun: 1, hemi: 1, fill: 1, diffuser: 1, warmFill: 0, rim: 0, bounce: 0 },
+  'original-enhanced': { label: 'Original Enhanced', toneMappingExposure: 1.26, sun: 1.02, hemi: 1.03, fill: 1.06, diffuser: 1.05, warmFill: 0, rim: 0, bounce: 0 },
+  'premium-realistic': { label: 'Premium Realistic', toneMappingExposure: 1.2, sun: 1.04, hemi: 1.06, fill: 1.12, diffuser: 1.1, warmFill: 0.2, rim: 0.24, bounce: 0.16 },
 });
 const readVisualSettings = () => {
   try {
@@ -904,6 +916,7 @@ const applyVisualSettings = () => {
   sun.castShadow = quality.shadows;
   sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   R.toneMappingExposure = style.toneMappingExposure;
+  applyPbrMaterialProfile(visualSettings.style);
   const qualitySelect = document.getElementById('qualityPreset');
   const styleSelect = document.getElementById('stylePreset');
   const status = document.getElementById('visualQualityStatus');
@@ -931,6 +944,30 @@ const M = (c, opt = {}) => {
   }
   return mats[key];
 };
+
+/* PBR profile keeps source materials intact and only adjusts display response. */
+const pbrBaseValues = new WeakMap();
+function applyPbrMaterialProfile(styleKey) {
+  const premium = styleKey === 'premium-realistic';
+  S.traverse(obj => {
+    const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+    materials.forEach(mat => {
+      if (!mat || !mat.isMeshStandardMaterial) return;
+      if (!pbrBaseValues.has(mat)) {
+        pbrBaseValues.set(mat, {
+          roughness: mat.roughness,
+          metalness: mat.metalness,
+          envMapIntensity: mat.envMapIntensity ?? 1,
+        });
+      }
+      const base = pbrBaseValues.get(mat);
+      mat.roughness = Math.max(0.08, Math.min(1, base.roughness * (premium ? 0.86 : 1)));
+      mat.metalness = Math.max(0, Math.min(1, base.metalness + (premium && base.metalness > 0.04 ? 0.035 : 0)));
+      mat.envMapIntensity = premium ? Math.max(1, base.envMapIntensity) : base.envMapIntensity;
+      mat.needsUpdate = true;
+    });
+  });
+}
 
 function makeCanvasTexture(w, h, drawFn) {
   const c = document.createElement('canvas');
@@ -2700,6 +2737,9 @@ function setTimeOfDay(h) {
   hemi.intensity = hemiInt * style.hemi;
   fillLight.intensity = fillInt * style.fill;
   softCeilingDiffuser.intensity = diffuserInt * style.diffuser;
+  premiumWarmFill.intensity = style.warmFill * (0.72 + Math.min(0.28, sunInt * 0.2));
+  premiumCoolRim.intensity = style.rim * ((h >= 18.5 || h < 6) ? 0.8 : 1);
+  premiumBounce.intensity = style.bounce;
   S.background.copy(_bgCol);
 
   updateTimeUI(h, periodName, periodIcon);
