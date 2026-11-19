@@ -9,7 +9,7 @@
 | Ngày tạo | 2026-11-19 |
 | Frozen at | 2026-11-19 |
 | Revision bắt đầu | working tree |
-| Revision cuối | `b49d35ef` (phase-1 commit; contract evidence amended below) |
+| Revision cuối | `8f34d934` (phase-2 lighting/PBR commit) |
 
 ## 1. Bối cảnh
 
@@ -141,7 +141,7 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Thêm quality/style preset panel và localStorage preference | Chỉ tác động renderer settings |
 | 2026-11-19 | working tree | Tạo baseline manifest | Giữ nguyên 8 ảnh baseline hiện có |
 | 2026-11-19 | `b49d35ef` | Commit riêng đợt 1 | Chỉ gồm 3 file trong scope |
-| 2026-11-19 | working tree | CR-001 frozen và triển khai lighting/PBR | Premium thêm warm fill/rim/bounce và điều chỉnh response MeshStandardMaterial; không đổi geometry |
+| 2026-11-19 | `8f34d934` | CR-001 frozen và triển khai lighting/PBR | Premium thêm warm fill/rim/bounce và điều chỉnh response MeshStandardMaterial; không đổi geometry |
 
 ## 13. Verification evidence
 
@@ -153,9 +153,9 @@ manifest mới; không xóa ảnh baseline cũ hoặc scene data.
 | 2026-11-19 | working tree | Baseline source audit | PASS | `docs/evidence/atelier-visual-baseline-2026-11-19.json` ghi camera, renderer, lights, palette và ảnh tham chiếu |
 | 2026-11-19 | working tree | `git diff --check` | PASS | Không có lỗi whitespace trong các file phase-1 |
 | 2026-11-19 | `b49d35ef` | Kiểm tra commit scope | PASS | Commit `feat(atelier): add visual quality foundation` chứa đúng 3 file phase-1 |
-| 2026-11-19 | working tree | Phase-2 BEFORE runtime capture | PASS | `docs/evidence/after/phase2-before-original-atelier.png`; SHA-256 `A753332B1603E5B36A60AE86E20A8DE317065A116096896748516411CD20A350`; camera `0.26/0.86/21.5` |
-| 2026-11-19 | working tree | Phase-2 AFTER runtime capture | PASS | `docs/evidence/after/phase2-after-premium-realistic.png`; SHA-256 `73DED26ED8884B780F23DCC608FA05C940282F45DCC89B02A0BE924A597F0517`; camera `0.26/0.86/21.5` |
-| 2026-11-19 | working tree | FPS four quality levels | PASS | `docs/evidence/after/phase2-fps.json`; SHA-256 `DA4729E0D9AF78C12044F2DB106ADE236EAC2B5A18AD87AC352A368320BB4336`; Low 12.63, Medium 6.91, High 6.58, Ultra 6.63 FPS |
+| 2026-11-19 | `8f34d934` | Phase-2 BEFORE runtime capture | PASS | `docs/evidence/after/phase2-before-original-atelier.png`; SHA-256 `A753332B1603E5B36A60AE86E20A8DE317065A116096896748516411CD20A350`; camera `0.26/0.86/21.5` |
+| 2026-11-19 | `8f34d934` | Phase-2 AFTER runtime capture | PASS | `docs/evidence/after/phase2-after-premium-realistic.png`; SHA-256 `73DED26ED8884B780F23DCC608FA05C940282F45DCC89B02A0BE924A597F0517`; camera `0.26/0.86/21.5` |
+| 2026-11-19 | `8f34d934` | FPS four quality levels | PASS | `docs/evidence/after/phase2-fps.json`; SHA-256 `DA4729E0D9AF78C12044F2DB106ADE236EAC2B5A18AD87AC352A368320BB4336`; Low 12.63, Medium 6.91, High 6.58, Ultra 6.63 FPS |
 
 ## 14. Kết quả và đóng chức năng
 
