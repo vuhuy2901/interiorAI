@@ -954,7 +954,16 @@ export type {
   InstanceSchedulerHeartbeatAgent,
 } from "./heartbeat.js";
 export type { LiveEvent, LiveDeliveryClientMessage, LiveDeliveryServerMessage } from "./live.js";
-export type { DashboardRunActivityDay, DashboardSummary } from "./dashboard.js";
+export type {
+  DashboardRunActivityDay,
+  DashboardSummary,
+  AgentPerformanceRankingItem,
+  AgentRuntimeMetric,
+  ExecutionDistribution,
+  AgentUsageTrendPoint,
+  LongestRunItem,
+  AgentAnalyticsReport,
+} from "./dashboard.js";
 export type {
   TimelineActorType,
   TimelineEventKind,

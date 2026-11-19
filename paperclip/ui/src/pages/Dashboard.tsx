@@ -41,6 +41,7 @@ import type { Agent, Issue } from "@paperclipai/shared";
 import { PluginSlotOutlet } from "@/plugins/slots";
 import { SmokeLabDashboardCard } from "../components/SmokeLabDashboardCard";
 import { taskStatusIconProps } from "@/lib/task-status-presentation";
+import { AgentPerformanceAnalytics } from "../components/AgentPerformanceAnalytics";
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
@@ -580,6 +581,11 @@ export function Dashboard() {
             </div>
           </div>
 
+          <AgentPerformanceAnalytics
+            companyId={selectedCompanyId!}
+            agents={agents}
+            projects={projects}
+          />
         </>
       )}
     </div>
