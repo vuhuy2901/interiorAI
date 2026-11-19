@@ -174,21 +174,33 @@ html, body {
   color: var(--accent-gold);
 }
 
-/* Status Strip */
+/* Status Strip - Project & Agent Status Dashboard */
 #statusStrip {
   position: fixed;
   bottom: 14px;
   left: 14px;
-  padding: 12px 18px;
+  padding: 13px 17px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   z-index: 20;
-  pointer-events: none;
-  max-width: 420px;
+  pointer-events: auto;
+  max-width: 470px;
+  min-width: 360px;
+  border-radius: 14px;
+  background: rgba(13, 16, 22, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+}
+#statusStrip .status-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 #statusStrip .phase-badge {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -197,21 +209,92 @@ html, body {
   align-items: center;
   gap: 6px;
 }
+#statusStrip .project-box {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #e2e8f0;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+#statusStrip .project-box .proj-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--cyan);
+}
 #statusStrip .phase-title {
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #fff;
   line-height: 1.4;
 }
 #statusStrip .metrics-row {
   display: flex;
-  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
   font-size: 11px;
   color: var(--ink-dim);
   font-family: "Space Grotesk", sans-serif;
-  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-#statusStrip .metrics-row span b { color: #fff; }
+#statusStrip .metrics-row .agent-summary {
+  display: flex;
+  gap: 10px;
+}
+#statusStrip .agent-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  max-height: 70px;
+  overflow-y: auto;
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.agent-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-gold);
+}
+.agent-chip.busy {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+}
+.agent-chip.meeting {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #86efac;
+}
+.agent-chip.idle {
+  color: #64748b;
+  opacity: 0.75;
+}
+.agent-chip .chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
 
 /* ===== 3D HTML LABELS WITH 2D COLLISION AVOIDANCE ===== */
 #L { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
@@ -221,12 +304,12 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 20px;
-  background: rgba(12, 15, 20, 0.88);
+  background: rgba(12, 15, 20, 0.9);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
   font-size: 11px;
   font-weight: 600;
   color: #fff;
@@ -234,8 +317,28 @@ html, body {
   box-shadow: 0 4px 14px rgba(0,0,0,0.6);
   pointer-events: auto;
   cursor: pointer;
-  transition: transform .15s, border-color .15s, opacity .2s;
+  transition: transform .15s, border-color .15s, opacity .2s, box-shadow .2s;
   z-index: 12;
+}
+.agent-pill.busy {
+  border-color: rgba(56, 189, 248, 0.85);
+  background: rgba(10, 24, 44, 0.94);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.4), 0 4px 14px rgba(0,0,0,0.7);
+  animation: pulseBusy 2.5s infinite;
+}
+@keyframes pulseBusy {
+  0%, 100% { border-color: rgba(56, 189, 248, 0.8); box-shadow: 0 0 14px rgba(56, 189, 248, 0.35); }
+  50% { border-color: rgba(56, 189, 248, 1); box-shadow: 0 0 22px rgba(56, 189, 248, 0.65); }
+}
+.agent-pill.idle {
+  border-color: rgba(74, 222, 128, 0.6);
+  background: rgba(12, 28, 18, 0.92);
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.25), 0 4px 14px rgba(0,0,0,0.6);
+}
+.agent-pill.error {
+  border-color: rgba(248, 113, 113, 0.9);
+  background: rgba(35, 14, 18, 0.95);
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.5), 0 4px 14px rgba(0,0,0,0.7);
 }
 .agent-pill:hover {
   transform: translate(-50%, -106%) scale(1.06);
@@ -367,15 +470,14 @@ html, body {
 #timeBar {
   position: fixed;
   bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 14px;
   padding: 10px 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   z-index: 25;
-  min-width: 460px;
-  max-width: 540px;
+  width: 480px;
+  max-width: calc(100vw - 420px);
   background: var(--panel);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -501,14 +603,18 @@ html, body {
 #timeSlider::-webkit-slider-thumb:hover {
   transform: scale(1.25);
 }
-@media(max-width: 1200px) {
+@media(max-width: 860px) {
   #timeBar {
     left: 14px;
     right: 14px;
     transform: none;
-    min-width: auto;
+    width: auto;
     max-width: none;
-    bottom: 96px;
+    bottom: 175px;
+  }
+  #statusStrip {
+    width: auto;
+    max-width: calc(100vw - 28px);
   }
 }
 
@@ -534,7 +640,7 @@ html, body {
 
   <div id="deptTabs" class="glass">
     <button class="tab-btn active" data-dept="all">Toàn cảnh</button>
-    <button class="tab-btn" data-dept="ops">Đội Thi Công</button>
+    <button class="tab-btn" data-dept="ops">☕ Nghỉ Ngơi · Gym</button>
     <button class="tab-btn" data-dept="meet">Họp Kiến Trúc</button>
     <button class="tab-btn" data-dept="mira">KTS Trưởng</button>
     <button class="tab-btn" data-dept="design">Xưởng Thiết Kế</button>
@@ -552,16 +658,30 @@ html, body {
   </div>
 </div>
 
-<!-- Bottom Status Strip -->
+<!-- Bottom Status Strip - Project & Agent Status Dashboard -->
 <div id="statusStrip" class="glass">
-  <div class="phase-badge"><span class="live-dot"></span> <span id="clockTxt">09:00 AM</span> · TRẠNG THÁI HIỆN TẠI</div>
-  <div class="phase-title" id="phaseTxt">Đang tải không gian triển lãm kiến trúc...</div>
-  <div class="metrics-row">
-    <span>Nhiệm vụ: <b id="doneTxt">0 hoàn thành</b></span>
-    <span>Nhân sự: <b id="agentCountTxt">9 Agent sẵn sàng</b></span>
+  <div class="status-top-bar">
+    <div class="phase-badge"><span class="live-dot"></span> <span id="clockTxt">09:00 AM</span> · TRẠNG THÁI DOANH NGHIỆP</div>
+    <span style="font-size: 10px; color: var(--accent-gold); font-weight: 700; letter-spacing: 0.05em;" id="runningTaskBadge">⚡ ĐANG CHẠY</span>
   </div>
-  <div class="metrics-row" style="font-size: 10.5px; color: var(--accent-gold); opacity: 0.9;">
-    <span id="selfTestTxt">Kiểm thử A*: Đang tính toán...</span>
+
+  <div class="project-box">
+    <span class="proj-tag">Dự án</span>
+    <span id="projNameTxt" class="proj-name">Căn hộ Japandi 4×5m (Rev #15 · Phòng khách)</span>
+  </div>
+
+  <div class="phase-title" id="phaseTxt">Đang tải trạng thái điều hành Đa Agent...</div>
+
+  <div class="metrics-row">
+    <div class="agent-summary">
+      <span style="color:#38bdf8;">● <b id="busyCountTxt">0 Bận</b></span>
+      <span style="color:#94a3b8;">○ <b id="idleCountTxt">9 Rảnh</b></span>
+    </div>
+    <span>Nhiệm vụ: <b id="doneTxt" style="color:#fff;">0 hoàn thành</b></span>
+  </div>
+
+  <div class="agent-chips-row" id="agentChipsRow">
+    <!-- Populated dynamically with agent chips -->
   </div>
 </div>
 
@@ -761,6 +881,29 @@ const marbleTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
   ctx.stroke();
 });
 
+// Herringbone Parquet Wood Planks for Lounge & Wellness
+const herringboneTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#cbb89e';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#a49177';
+  ctx.lineWidth = 2.5;
+  const step = 32;
+  for (let x = -w; x < w * 2; x += step) {
+    for (let y = 0; y < h; y += step) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + step, y + step);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + step, y + step);
+      ctx.lineTo(x, y + step * 2);
+      ctx.stroke();
+    }
+  }
+});
+herringboneTex.wrapS = herringboneTex.wrapT = T.RepeatWrapping;
+herringboneTex.repeat.set(4, 4);
+
 /* Helper Primitives */
 function bx(x, y, z, w, h, d, c, p = S, opt = {}) {
   const m = new T.Mesh(new T.BoxGeometry(w, h, d), M(c, opt));
@@ -819,9 +962,9 @@ S.add(groundPlane);
    4. ROOMS, FLOOR TEXTURES & WALL ARCHITECTURE
    ========================================================================= */
 const rooms = [
-  { id: 'ops', n: 'ĐỘI AGENT THI CÔNG · OPS', r: [0, 0, 16, 16], tex: stoneTex, col: 0xdcd2c4, d: [6, 15], camPos: [4.0, 6.5, 6.0], target: [4.0, 0.5, 4.0] },
+  { id: 'ops', n: 'LOUNGE & WELLNESS · NGHỈ NGƠI & GYM', r: [0, 0, 16, 16], tex: herringboneTex, col: 0xd9cbb8, d: [6, 15], camPos: [4.0, 6.5, 6.0], target: [4.0, 0.5, 4.0] },
   { id: 'meet', n: 'PHÒNG HỌP KIẾN TRÚC', r: [15, 0, 40, 16], tex: walnutTex, col: 0x4a382c, d: [25, 15], camPos: [13.75, 7.5, 6.0], target: [13.75, 0.5, 4.0] },
-  { id: 'mira', n: 'KIẾN TRÚC SƯ TRƯỞNG · PM', r: [39, 0, 60, 16], tex: walnutTex, col: 0x403126, d: [47, 15], camPos: [24.5, 6.5, 6.0], target: [24.5, 0.5, 4.0] },
+  { id: 'mira', n: 'KIẾN TRÚC SƯ TRƯỞNG & ĐIỀU PHỐI', r: [39, 0, 60, 16], tex: walnutTex, col: 0x403126, d: [47, 15], camPos: [24.5, 6.5, 6.0], target: [24.5, 0.5, 4.0] },
   { id: 'design', n: 'XƯỞNG THIẾT KẾ', r: [0, 22, 20, 40], tex: stoneTex, col: 0xe2d9cb, d: [8, 22], camPos: [5.0, 6.5, 12.0], target: [5.0, 0.5, 15.5] },
   { id: 'bim', n: 'XƯỞNG DỰNG HÌNH · BIM', r: [19, 22, 38, 40], tex: stoneTex, col: 0xd4dde4, d: [26, 22], camPos: [14.0, 6.5, 12.0], target: [14.0, 0.5, 15.5] },
   { id: 'cost', n: 'KHO & KẾ TOÁN', r: [37, 22, 52, 40], tex: stoneTex, col: 0xdcd6cc, d: [45, 22], camPos: [22.0, 6.5, 12.0], target: [22.0, 0.5, 15.5] },
@@ -1234,11 +1377,7 @@ createFramedArtwork(wx(14), 1.6, wx(23) + 0.03, 1.8, 1.25, 0, 'luxury_kitchen');
 // Showroom Material Swatch Stand
 createMaterialShowroomStand(17, 30, Math.PI / 2);
 
-// 3. PHÒNG ĐỘI AGENT THI CÔNG (CONSTRUCTION OPERATIONS)
-// North Wall Modern Townhouse Facade Artwork
-createFramedArtwork(wx(8), 1.75, wx(1) + 0.03, 2.2, 1.4, 0, 'townhouse_facade');
-// Pedestal with Structural Scale Model
-createArchitecturalScaleModel(13, 11, 'apartment_cutaway');
+// 3. PHÒNG NGHỈ NGƠI & GYM (ATELIER LOUNGE & WELLNESS - xem phần khởi tạo chi tiết bên dưới)
 
 // 4. PHÒNG HỌP KIẾN TRÚC TRUNG TÂM
 // North Gallery Artworks
@@ -1462,15 +1601,15 @@ function createSculpturalPlant(c, r, isTall = false) {
    9. AGENTS DEFINITION & WORKSTATIONS SETUP
    ========================================================================= */
 const AG = [
-  ['mira', 'Mira', 'Kiến trúc sư trưởng', 0xba4141, 44, 4, 'po', 'Chỉ đạo concept & phê duyệt hồ sơ', 'bim'],
-  ['an', 'An', 'Mặt bằng', 0xd98c2c, 3, 27, 'design', 'Tối ưu luồng giao thông & công năng', 'design'],
-  ['bao', 'Bảo', 'Nội thất', 0xc45770, 13, 27, 'design', 'Chi tiết vật liệu & thông số đồ gỗ', 'design'],
-  ['duy', 'Duy', 'Tìm sản phẩm', 0x419656, 3, 34, 'design', 'Đối chiếu catalog nhà cung cấp', 'cost'],
-  ['minh', 'Minh', 'Hình học BIM', 0x3d7cc9, 22, 27, 'bim', 'Phát hiện va chạm hình học & IFC', 'bim'],
-  ['nhi', 'Nhi', 'Ánh sáng', 0xd4a824, 30, 27, 'bim', 'Mô phỏng quang trắc & lux mặt sàn', 'lux'],
-  ['chi', 'Chi', 'Dự toán', 0xc75c2e, 39, 27, 'cost', 'Kiểm soát BOM & ngân sách 40tr', 'cost'],
-  ['quan', 'Quân', 'Kho', 0x7474b8, 39, 34, 'cost', 'Kiểm kê mã hàng tồn & phụ kiện', 'cost'],
-  ['linh', 'Linh', 'QA', 0x8b939b, 54, 34, 'qa', 'Unit test hình học & tự động hóa CI', 'qa']
+  ['mira', 'Chief Architect', 'Kiến Trúc Sư Trưởng & Điều Phối Đa Agent', 0xba4141, 44, 4, 'po', 'Chỉ đạo concept, Design Brief, điều phối 8 agent & phê duyệt hồ sơ', 'bim', 'Chief Architect'],
+  ['an', 'Floorplan Specialist', 'Chuyên viên Mặt Bằng 2D & Tỷ Lệ Chuẩn', 0xd98c2c, 3, 27, 'design', 'Phân tích mặt bằng 2D, xác nhận tỷ lệ chuẩn & phân vùng công năng', 'design', 'Floorplan Agent'],
+  ['bao', 'Furniture Planner', 'Chuyên viên Bố Cục Nội Thất & Va Chạm', 0xc45770, 13, 27, 'design', 'Bố cục nội thất Co-Layout, khoảng hở thông thủy & kiểm tra va chạm đồ rời', 'design', 'Furniture Agent'],
+  ['duy', 'Research Agent', 'Chuyên viên Nghiên Cứu Sản Phẩm & Nguồn Hàng', 0x419656, 3, 34, 'design', 'Đối chiếu catalog nhà cung cấp, kiểm tra giá thật & spec vật tư', 'cost', 'Research Agent'],
+  ['minh', 'Geometry & BIM Agent', 'Chuyên viên Hình Học 3D & Mô Hình BIM', 0x3d7cc9, 22, 27, 'bim', 'Dựng hình Pascal 3D SceneGraph, xuất CAD/GLB & kiểm tra va chạm IFC', 'bim', 'BIM Agent'],
+  ['nhi', 'Rendering Specialist', 'Chuyên viên Chiếu Sáng, Camera & Render 3D', 0xd4a824, 30, 27, 'bim', 'Kiểm tra nguồn sáng trần, camera nội thất và render thực tế PBR', 'lux', 'Render Agent'],
+  ['chi', 'Cost Estimator', 'Chuyên viên Bóc Tách Khối Lượng & Dự Toán BOQ', 0xc75c2e, 39, 27, 'cost', 'Bóc tách khối lượng BOQ xác định, kiểm soát ngân sách & phân rã chi phí', 'cost', 'Cost Estimator'],
+  ['quan', 'Style & Materials Consultant', 'Chuyên viên Phong Cách, Vật Liệu & Hoàn Thiện', 0x7474b8, 39, 34, 'cost', 'Lập bảng vật liệu cơ sở, phân biệt baked appearance với spec, đối chiếu moodboard', 'cost', 'Style Agent'],
+  ['linh', 'QA Specialist', 'Chuyên viên Kiểm Định Quy Chuẩn & An Toàn', 0x8b939b, 54, 34, 'qa', 'Kiểm tra quy chuẩn lưu thông, nghiệm thu an toàn va chạm & gating CI', 'qa', 'QA Specialist']
 ];
 
 AG.forEach(([id, , , , c, r, , , screenType]) => {
@@ -1478,47 +1617,372 @@ AG.forEach(([id, , , , c, r, , , screenType]) => {
   registerSeat('d_' + id, [c + 1, r + 2], [c + 1, r + 3], Math.PI, false);
 });
 
-// Construction Ops Studio Desks
-createDetailedDesk(4, 3, 'bim', true);
-registerSeat('d_ops1', [5, 5], [5, 6], Math.PI, false);
-createDetailedDesk(9, 3, 'cost', false);
-registerSeat('d_ops2', [10, 5], [10, 6], Math.PI, false);
+/* =========================================================================
+   ATELIER LOUNGE, PANTRY & WELLNESS STUDIO (PHÒNG NGHỈ NGƠI, ĂN UỐNG & TẬP THỂ DỤC)
+   ========================================================================= */
+const loungeGroup = new T.Group();
 
-// Safety Helmet Rack
-const hatRack = new T.Group();
-hatRack.position.set(1.0, 1.4, 2.5);
-bx(0, 0, 0, 0.05, 0.35, 1.8, 0x4a3625, hatRack);
-[0.4, 0.8, 1.2, 1.6].forEach((zPos, i) => {
-  cyl(0.04, 0, zPos - 0.9, 0.015, 0.12, 0xd4af37, Math.PI / 2, hatRack);
-  const hatCol = i % 2 === 0 ? 0xfacc15 : 0xf8fafc;
-  const hat = new T.Mesh(new T.SphereGeometry(0.12, 14, 10), M(hatCol, { roughness: 0.3 }));
-  hat.position.set(0.12, 0.02, zPos - 0.9);
-  hat.scale.set(1, 0.7, 1.2);
-  hatRack.add(hat);
+// 1. Cozy Scandinavian Warm Wood Flooring for Lounge
+customFloor(1, 1, 15, 15, herringboneTex || woodTex, 0xe2d7c5, 0.02);
+
+// 2. BIỂN HIỆU PHÒNG PHÁT SÁNG GẮN TRƯỚC CỬA ĐI (ILLUMINATED DOOR SIGNBOARD)
+// Cửa đi tại d: [6, 15], tọa độ thế giới x = wx(7.5) = 4.0m, z = 7.72m
+const doorSignGroup = new T.Group();
+doorSignGroup.position.set(wx(7.5), 2.15, 7.72);
+
+// Khung kim loại viền vàng PVD & tấm nền acrylic đen bóng
+bx(0, 0, 0, 2.5, 0.52, 0.08, 0xd4af37, doorSignGroup, { metalness: 0.85, roughness: 0.25 });
+bx(0, 0, 0.042, 2.44, 0.46, 0.015, 0x0f141d, doorSignGroup, { roughness: 0.3 });
+
+// Mặt biển hộp đèn phát sáng độ nét cao
+const doorSignTexture = makeCanvasTexture(640, 160, (ctx, w, h) => {
+  ctx.fillStyle = '#0b0f17';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Viền vàng kép hoàng gia & viền cyan
+  ctx.strokeStyle = '#d4af37';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(8, 8, w - 16, h - 16);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(14, 14, w - 28, h - 28);
+  
+  // Icon & Tiêu đề chính
+  ctx.fillStyle = '#f59e0b';
+  ctx.font = '700 24px "Space Grotesk", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('☕ 💤 🏃 LOUNGE & WELLNESS STUDIO', w / 2, 54);
+  
+  // Tiêu đề phụ tiếng Việt rõ nét
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 22px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('PHÒNG NGHỈ NGƠI · CAFE · TẬP THỂ DỤC', w / 2, 98);
+  
+  // Phân vùng
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '600 14px "Space Grotesk", sans-serif';
+  ctx.fillText('ATELIER AI · KHU TIỆN ÍCH DÀNH CHO CÁC AGENT', w / 2, 134);
 });
-S.add(hatRack);
 
-// Gantt Board
-plane(makeCanvasTexture(640, 320, (ctx, w, h) => {
-  ctx.fillStyle = '#101622'; ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#e2a053'; ctx.font = '700 22px "Space Grotesk"';
-  ctx.fillText('TIẾN ĐỘ THI CÔNG CÔNG TRÌNH (GANTT SCHEDULE)', 25, 40);
-  const phases = ['Móng & Khung bê tông', 'Tường & Vách thạch cao', 'Hệ thống Điện & Chiếu sáng', 'Lắp đặt Nội thất & Đồ gỗ', 'Nghiệm thu bàn giao'];
-  phases.forEach((p, idx) => {
-    ctx.fillStyle = '#cbd5e1'; ctx.font = '15px "Plus Jakarta Sans"';
-    ctx.fillText(p, 25, 85 + idx * 45);
-    ctx.fillStyle = '#334155'; ctx.fillRect(250, 70 + idx * 45, 360, 20);
-    ctx.fillStyle = idx < 3 ? '#4ade80' : '#f59e0b';
-    ctx.fillRect(250 + idx * 55, 70 + idx * 45, 120, 20);
+const signMesh = new T.Mesh(new T.PlaneGeometry(2.4, 0.44), new T.MeshBasicMaterial({ map: doorSignTexture }));
+signMesh.position.set(0, 0, 0.052);
+doorSignGroup.add(signMesh);
+
+// 2 Đèn rọi spotlight vàng ấm hắt sáng biển hiệu
+[-0.9, 0.9].forEach(lx => {
+  cyl(lx, 0.32, 0.08, 0.035, 0.12, 0x181a20, Math.PI / 4, doorSignGroup);
+  bx(lx, 0.25, 0.12, 0.06, 0.02, 0.06, 0xfff0c2, doorSignGroup, {
+    emissive: 0xffe29a,
+    emissiveIntensity: 1.8
   });
-}), 4.8, 2.4, 4.2, 1.55, 0.52, 0, 0);
+});
+loungeGroup.add(doorSignGroup);
 
-cb(1, 10, 4, 12, 0.5, 0x5a412b, 0, S, { roughness: 0.8 });
-bx(1.3, 0.55, 5.5, 0.3, 0.25, 0.3, 0x94a3b8, S);
-bx(1.7, 0.55, 5.5, 0.2, 0.3, 0.2, 0xb45309, S);
-blk(1, 10, 4, 12);
-createSculpturalPlant(1, 1);
-createSculpturalPlant(14, 1);
+// Bảng thông tin đồng thau gắn tường hành lang cạnh cửa
+plane(makeCanvasTexture(320, 200, (ctx, w, h) => {
+  ctx.fillStyle = '#1c150c'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 4; ctx.strokeRect(6, 6, w - 12, h - 12);
+  ctx.fillStyle = '#e2a053'; ctx.font = '700 22px "Space Grotesk"'; ctx.textAlign = 'center';
+  ctx.fillText('ATELIER LOUNGE', w / 2, 50);
+  ctx.fillStyle = '#cbd5e1'; ctx.font = '14px "Plus Jakarta Sans"';
+  ctx.fillText('• Quầy Bar Espresso & Tea', w / 2, 85);
+  ctx.fillText('• Giường Daybed Ngủ Trưa', w / 2, 115);
+  ctx.fillText('• Máy Chạy Bộ & Thảm Yoga', w / 2, 145);
+  ctx.fillStyle = '#4ade80'; ctx.font = '600 13px "Space Grotesk"';
+  ctx.fillText('✓ KHU THƯ GIÃN 24/7', w / 2, 178);
+}), 0.7, 0.45, wx(4.8), 1.5, 7.72, 0, 0);
+
+// 3. TRANH NGHỆ THUẬT ĐƯƠNG ĐẠI TREO TƯỜNG PHÍA BẮC (thay thế bảng Gantt cũ)
+plane(makeCanvasTexture(800, 360, (ctx, w, h) => {
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Khối hình học nghệ thuật Japandi Abstract
+  ctx.fillStyle = '#312e81';
+  ctx.beginPath(); ctx.arc(150, 180, 120, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ea580c';
+  ctx.beginPath(); ctx.arc(420, 160, 140, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0d9488';
+  ctx.fillRect(520, 80, 220, 200);
+  
+  // Lớp phủ Gradient mịn
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, 'rgba(15, 23, 42, 0.88)');
+  grad.addColorStop(0.5, 'rgba(15, 23, 42, 0.45)');
+  grad.addColorStop(1, 'rgba(15, 23, 42, 0.88)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  
+  // Slogan & Chữ nghệ thuật tinh tế
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '800 36px "Space Grotesk", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('WORK WITH PASSION · REST WITH PEACE', w / 2, 155);
+  
+  ctx.fillStyle = '#e2a053';
+  ctx.font = '600 20px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('ATELIER WELLNESS · COFFEE, NAP & FITNESS OASIS', w / 2, 205);
+  
+  ctx.strokeStyle = '#d4af37';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(20, 20, w - 40, h - 40);
+}), 5.4, 2.4, wx(8), 1.6, 0.52, 0, 0);
+
+// 4. QUẦY BAR CAFE & PANTRY (KITCHEN & COFFEE BAR)
+const barCounter = new T.Group();
+barCounter.position.set(wx(11.5), 0, wx(4.0));
+
+// Thân quầy gỗ sồi đen có chỉ kim loại vàng PVD
+bx(0, 0.45, 0, 2.8, 0.9, 0.85, 0x1c1a17, barCounter, { roughness: 0.6 });
+// Mặt đá cẩm thạch trắng Calacatta vân xám bóng
+bx(0, 0.92, 0, 2.9, 0.05, 0.95, 0xf1efe7, barCounter, { roughness: 0.2, metalness: 0.1 });
+// Viền chân mạ vàng
+bx(0, 0.04, 0, 2.84, 0.08, 0.88, 0xd4af37, barCounter, { metalness: 0.9, roughness: 0.2 });
+
+// Máy pha cà phê Espresso chuyên nghiệp
+const coffeeMachine = new T.Group();
+coffeeMachine.position.set(-0.7, 0.95, 0);
+bx(0, 0.22, 0, 0.65, 0.42, 0.48, 0xd4d8df, coffeeMachine, { metalness: 0.92, roughness: 0.15 });
+cyl(0.18, 0.28, 0.245, 0.035, 0.02, 0xd4af37, Math.PI / 2, coffeeMachine);
+cyl(-0.18, 0.28, 0.245, 0.035, 0.02, 0x38bdf8, Math.PI / 2, coffeeMachine);
+[-0.12, 0.12].forEach(px => {
+  cyl(px, 0.14, 0.24, 0.025, 0.08, 0x111111, 0, coffeeMachine);
+  cyl(px, 0.1, 0.32, 0.015, 0.14, 0x111111, Math.PI / 2, coffeeMachine);
+});
+[-0.2, 0, 0.2].forEach(lx => {
+  cyl(lx, 0.46, 0, 0.04, 0.06, 0xffffff, 0, coffeeMachine, { roughness: 0.2 });
+});
+barCounter.add(coffeeMachine);
+
+// Máy xay hạt cà phê (Coffee Grinder)
+const grinder = new T.Group();
+grinder.position.set(-0.15, 0.95, -0.05);
+bx(0, 0.18, 0, 0.18, 0.35, 0.22, 0x181a20, grinder, { roughness: 0.5 });
+cyl(0, 0.42, 0, 0.09, 0.16, 0x785535, 0, grinder, { roughness: 0.3, transparent: true, opacity: 0.85 });
+barCounter.add(grinder);
+
+// Đĩa trái cây tươi nhiều màu
+const fruitPlate = new T.Group();
+fruitPlate.position.set(0.45, 0.95, 0);
+cyl(0, 0.015, 0, 0.22, 0.03, 0xf8fafc, 0, fruitPlate, { roughness: 0.2 });
+cyl(-0.06, 0.06, -0.05, 0.055, 0.07, 0xef4444, 0, fruitPlate, { roughness: 0.4 });
+cyl(0.06, 0.06, 0.04, 0.055, 0.07, 0xf59e0b, 0, fruitPlate, { roughness: 0.4 });
+bx(0, 0.05, 0.08, 0.04, 0.04, 0.16, 0xfacc15, fruitPlate, { roughness: 0.4 });
+barCounter.add(fruitPlate);
+
+// Bình nước detox thủy tinh
+const detoxBottle = new T.Group();
+detoxBottle.position.set(0.95, 0.95, -0.05);
+cyl(0, 0.16, 0, 0.075, 0.32, 0xe0f2fe, 0, detoxBottle, { transparent: true, opacity: 0.75, roughness: 0.1 });
+cyl(0, 0.34, 0, 0.045, 0.04, 0xd4a373, 0, detoxBottle);
+barCounter.add(detoxBottle);
+
+loungeGroup.add(barCounter);
+
+// Tủ lạnh mini kính đen có đèn LED hắt xanh
+const miniFridge = new T.Group();
+miniFridge.position.set(wx(14.5), 0, wx(2.5));
+bx(0, 0.6, 0, 0.7, 1.2, 0.65, 0x111317, miniFridge, { roughness: 0.4, metalness: 0.8 });
+bx(-0.355, 0.6, 0, 0.02, 1.1, 0.58, 0x38bdf8, miniFridge, {
+  transparent: true, opacity: 0.45, emissive: 0x38bdf8, emissiveIntensity: 0.4
+});
+for (let f = 0; f < 4; f++) {
+  cyl(-0.15, 0.3 + (f % 2) * 0.4, (f < 2 ? -0.12 : 0.12), 0.035, 0.12, f % 2 === 0 ? 0xef4444 : 0x10b981, 0, miniFridge);
+}
+loungeGroup.add(miniFridge);
+
+// 3 Đèn thả đồng thau trên quầy bar
+[-0.8, 0, 0.8].forEach(px => {
+  const pLight = new T.Group();
+  pLight.position.set(wx(11.5) + px, 2.2, wx(4.0));
+  cyl(0, 0.4, 0, 0.005, 0.8, 0x111111, 0, pLight);
+  cyl(0, 0, 0, 0.14, 0.16, 0xd4af37, 0, pLight, { metalness: 0.9, roughness: 0.2 });
+  bx(0, -0.06, 0, 0.1, 0.02, 0.1, 0xfff3d4, pLight, { emissive: 0xffcc66, emissiveIntensity: 1.5 });
+  ledGroup.add(pLight);
+});
+
+// Ghế Bar Stools bọc da bò Cognac
+function createBarStoolMesh(c, r, face) {
+  const g = new T.Group();
+  g.position.copy(wv(c, r));
+  g.rotation.y = face;
+  cyl(0, 0.68, 0, 0.22, 0.08, 0xb86334, 0, g, { roughness: 0.6 });
+  bx(0, 0.82, -0.16, 0.32, 0.18, 0.04, 0xb86334, g, { roughness: 0.6 });
+  cyl(0, 0.34, 0, 0.025, 0.64, 0x111317, 0, g, { metalness: 0.8, roughness: 0.3 });
+  cyl(0, 0.25, 0, 0.18, 0.02, 0xd4af37, 0, g, { metalness: 0.9, roughness: 0.2 });
+  cyl(0, 0.02, 0, 0.24, 0.03, 0x111317, 0, g, { metalness: 0.8, roughness: 0.3 });
+  S.add(g);
+  return g;
+}
+
+const bs1 = createBarStoolMesh(10, 5, 0);
+seats['l_bar1'] = { cr: [10, 5], ap: [10, 6], face: 0, ch: bs1, base: bs1.position.clone() };
+
+const bs2 = createBarStoolMesh(12, 5, 0);
+seats['l_bar2'] = { cr: [12, 5], ap: [12, 6], face: 0, ch: bs2, base: bs2.position.clone() };
+
+const bs3 = createBarStoolMesh(14, 5, 0);
+
+// 5. KHU THƯ GIÃN, SOFA & GIƯỜNG NGỦ TRƯA (LOUNGE & NAP AREA)
+// Thảm trải sàn họa tiết Bắc Âu dưới sofa
+const rugTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#d5cfc4'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 3;
+  for (let x = 0; x < w; x += 64) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 64, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 64, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+});
+const rugMesh = new T.Mesh(new T.PlaneGeometry(3.2, 2.4), new T.MeshStandardMaterial({ map: rugTex, roughness: 0.85 }));
+rugMesh.rotation.x = -Math.PI / 2;
+rugMesh.position.set(wx(4.0), 0.025, wx(3.2));
+loungeGroup.add(rugMesh);
+
+// Ghế Sofa nỉ màu be cao cấp (L-Sofa)
+const sofaGroup = new T.Group();
+sofaGroup.position.set(wx(4.0), 0, wx(2.2));
+bx(0, 0.25, 0, 2.6, 0.45, 0.9, 0xd0c7ba, sofaGroup, { roughness: 0.75 });
+bx(0, 0.58, -0.36, 2.6, 0.48, 0.22, 0xc5beb1, sofaGroup, { roughness: 0.75 });
+[-1.22, 1.22].forEach(sx => {
+  bx(sx, 0.42, 0.05, 0.22, 0.42, 0.92, 0xc0b8aa, sofaGroup, { roughness: 0.75 });
+});
+[-0.8, -0.2, 0.4, 0.9].forEach((gx, idx) => {
+  const gCol = idx % 2 === 0 ? 0xc25e36 : 0x5a7d65;
+  const pillow = bx(gx, 0.46, -0.2, 0.36, 0.32, 0.12, gCol, sofaGroup, { roughness: 0.6 });
+  pillow.rotation.x = -0.2;
+});
+loungeGroup.add(sofaGroup);
+
+const sf1 = new T.Group(); sf1.position.set(wx(3.0), 0, wx(2.4)); S.add(sf1);
+seats['l_sofa1'] = { cr: [3, 2], ap: [3, 3], face: Math.PI, ch: sf1, base: sf1.position.clone() };
+
+const sf2 = new T.Group(); sf2.position.set(wx(5.0), 0, wx(2.4)); S.add(sf2);
+seats['l_sofa2'] = { cr: [5, 2], ap: [5, 3], face: Math.PI, ch: sf2, base: sf2.position.clone() };
+
+// Bàn trà tròn gỗ sồi (Coffee Table)
+const coffeeTable = new T.Group();
+coffeeTable.position.set(wx(4.0), 0, wx(3.5));
+cyl(0, 0.38, 0, 0.55, 0.04, 0x5a412b, 0, coffeeTable, { roughness: 0.5 });
+cyl(0, 0.19, 0, 0.06, 0.36, 0x181a20, 0, coffeeTable);
+cyl(0, 0.02, 0, 0.35, 0.03, 0x181a20, 0, coffeeTable);
+bx(-0.15, 0.41, 0, 0.24, 0.015, 0.18, 0xffffff, coffeeTable);
+cyl(0.2, 0.44, 0.08, 0.045, 0.07, 0x8a9ea7, 0, coffeeTable);
+loungeGroup.add(coffeeTable);
+
+// Giường Nghỉ Ngơi / Nap Daybed (cho Agent nằm ngủ trưa)
+const daybed = new T.Group();
+daybed.position.set(wx(2.2), 0, wx(6.5));
+bx(0, 0.2, 0, 0.95, 0.35, 1.95, 0x3d2c1f, daybed, { roughness: 0.6 });
+bx(0, 0.42, 0, 0.9, 0.18, 1.9, 0xe6e1d8, daybed, { roughness: 0.8 });
+const bedPillow = bx(0, 0.56, -0.7, 0.65, 0.14, 0.38, 0xffffff, daybed, { roughness: 0.6 });
+bedPillow.rotation.x = 0.15;
+bx(0, 0.45, 0.4, 0.92, 0.15, 0.9, 0x94a3b8, daybed, { roughness: 0.75 });
+loungeGroup.add(daybed);
+
+const napSeatMesh = new T.Group(); napSeatMesh.position.copy(daybed.position); S.add(napSeatMesh);
+seats['l_nap'] = { cr: [2, 6], ap: [3, 6], face: Math.PI / 2, ch: napSeatMesh, base: napSeatMesh.position.clone() };
+
+// 6. KHU TẬP THỂ DỤC & SỨC KHỎE (MINI FITNESS / GYM CORNER)
+// Máy Chạy Bộ Thông Minh (Smart Treadmill)
+const treadmill = new T.Group();
+treadmill.position.set(wx(3.0), 0, wx(11.5));
+bx(0, 0.14, 0, 0.78, 0.22, 1.7, 0x181a20, treadmill, { roughness: 0.6 });
+bx(0, 0.26, 0.05, 0.58, 0.02, 1.45, 0x0a0c10, treadmill, { roughness: 0.9 });
+[-0.32, 0.32].forEach(rx => bx(rx, 0.26, 0.05, 0.04, 0.02, 1.45, 0xfacc15, treadmill));
+[-0.36, 0.36].forEach(rx => {
+  const arm = cyl(rx, 0.72, -0.65, 0.03, 1.05, 0x334155, 0, treadmill, { metalness: 0.8 });
+  arm.rotation.x = -0.3;
+});
+const tConsole = new T.Group();
+tConsole.position.set(0, 1.15, -0.78);
+tConsole.rotation.x = 0.5;
+bx(0, 0, 0, 0.65, 0.22, 0.06, 0x0f172a, tConsole);
+bx(0, 0, 0.032, 0.52, 0.16, 0.01, 0x0284c7, tConsole, { emissive: 0x38bdf8, emissiveIntensity: 1.2 });
+treadmill.add(tConsole);
+loungeGroup.add(treadmill);
+
+const tmSeat = new T.Group(); tmSeat.position.set(wx(3.0), 0, wx(11.5)); S.add(tmSeat);
+seats['l_treadmill'] = { cr: [3, 11], ap: [3, 12], face: 0, ch: tmSeat, base: tmSeat.position.clone() };
+
+// Thảm Tập Yoga & Giãn Cơ (Yoga & Stretching Mat)
+const yogaMat = new T.Group();
+yogaMat.position.set(wx(5.2), 0.02, wx(11.5));
+bx(0, 0, 0, 0.75, 0.015, 1.7, 0x2dd4bf, yogaMat, { roughness: 0.7 });
+bx(0.24, 0.06, -0.68, 0.16, 0.1, 0.24, 0xa855f7, yogaMat, { roughness: 0.5 });
+cyl(-0.22, 0.07, -0.68, 0.06, 0.28, 0xf97316, Math.PI / 2, yogaMat);
+loungeGroup.add(yogaMat);
+
+const ymSeat = new T.Group(); ymSeat.position.set(wx(5.2), 0, wx(11.5)); S.add(ymSeat);
+seats['l_yoga'] = { cr: [5, 11], ap: [5, 12], face: -Math.PI / 2, ch: ymSeat, base: ymSeat.position.clone() };
+
+// Giá Tạ Tay Đa Năng 2 Tầng (Dumbbell Rack)
+const dbRack = new T.Group();
+dbRack.position.set(wx(1.2), 0, wx(13.2));
+bx(0, 0.45, 0, 0.35, 0.85, 0.9, 0x1f2937, dbRack, { metalness: 0.8 });
+[0.65, 0.35].forEach((dy, row) => {
+  [-0.26, 0, 0.26].forEach((dz, col) => {
+    const dbCol = col === -0.26 ? 0xef4444 : col === 0 ? 0x3b82f6 : 0x111827;
+    cyl(0.08, dy, dz, 0.05, 0.18, dbCol, Math.PI / 2, dbRack, { roughness: 0.4 });
+    cyl(0.08, dy, dz, 0.015, 0.12, 0xd4d4d8, Math.PI / 2, dbRack, { metalness: 0.9 });
+  });
+});
+loungeGroup.add(dbRack);
+
+// Quả bóng tập gym tròn (Swiss Balance Ball)
+const gymBall = new T.Mesh(new T.SphereGeometry(0.28, 18, 14), M(0x34d399, { roughness: 0.4 }));
+gymBall.position.set(wx(1.4), 0.28, wx(10.5));
+loungeGroup.add(gymBall);
+
+// Cây nước nóng lạnh tinh khiết
+const waterCooler = new T.Group();
+waterCooler.position.set(wx(1.2), 0, wx(8.8));
+bx(0, 0.52, 0, 0.36, 1.0, 0.36, 0xf1f5f9, waterCooler, { roughness: 0.3 });
+cyl(0, 1.18, 0, 0.15, 0.32, 0x38bdf8, 0, waterCooler, { transparent: true, opacity: 0.65 });
+cyl(0, 1.36, 0, 0.06, 0.04, 0x1e293b, 0, waterCooler);
+loungeGroup.add(waterCooler);
+
+// 7. KHU VỰC BÀN TRÒN TRÒ CHUYỆN (SOCIAL COCKTAIL / CHAT AREA)
+const chatTable = new T.Group();
+chatTable.position.set(wx(9.5), 0, wx(10.5));
+cyl(0, 0.98, 0, 0.42, 0.035, 0x3d2c1f, 0, chatTable, { roughness: 0.4 });
+cyl(0, 0.5, 0, 0.04, 0.96, 0xd4af37, 0, chatTable, { metalness: 0.9 });
+cyl(0, 0.02, 0, 0.32, 0.03, 0x181a20, 0, chatTable);
+loungeGroup.add(chatTable);
+
+const ctSeat = new T.Group(); ctSeat.position.set(wx(9.5), 0, wx(10.5)); S.add(ctSeat);
+seats['l_chat'] = { cr: [9, 10], ap: [9, 11], face: 0, ch: ctSeat, base: ctSeat.position.clone() };
+
+// 8. ĐÈN NEON NGHỆ THUẬT UỐN CHỮ TRÊN TƯỜNG PHÍA TÂY
+const neonArt = new T.Group();
+neonArt.position.set(0.52, 2.1, wx(4.5));
+neonArt.rotation.y = Math.PI / 2;
+bx(0, 0, 0, 2.2, 0.4, 0.04, 0x0f172a, neonArt);
+plane(makeCanvasTexture(480, 120, (ctx, w, h) => {
+  ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '700 28px "Space Grotesk"';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 15;
+  ctx.fillText('⚡ BREATHE & RECHARGE ⚡', w / 2, 70);
+}), 2.1, 0.36, 0, 0, 0.025, 0, 0);
+loungeGroup.add(neonArt);
+
+// 9. CÂY XANH ĐIÊU KHẮC TRANG TRÍ
+createSculpturalPlant(1, 1, true);
+createSculpturalPlant(14, 1, true);
+createSculpturalPlant(14, 14, false);
+
+S.add(loungeGroup);
+
+// Đánh dấu các ô vật thể chắn đường (Pathfinding Obstacles)
+blk(9, 3, 14, 5); // Quầy bar
+blk(14, 2, 15, 3); // Tủ lạnh
+blk(2, 1, 6, 3); // Sofa
+blk(4, 3, 4, 4); // Bàn trà
+blk(1, 5, 2, 8); // Daybed
+blk(2, 10, 3, 12); // Máy chạy bộ
+blk(1, 12, 1, 14); // Giá tạ & cây nước
+blk(9, 9, 10, 10); // Bàn cocktail
 
 // Executive Lounge in Mira's Suite
 cb(54, 10, 58, 12, 0.45, 0x2e2319, 0, S, { roughness: 0.7 });
@@ -1626,7 +2090,7 @@ plane(makeCanvasTexture(640, 200, (ctx, w, h) => {
   ctx.fillText('HOME&CO', w / 2, 95);
   ctx.font = '600 24px "Space Grotesk", sans-serif';
   ctx.fillStyle = '#94a3b8';
-  ctx.fillText('ATELIER ARCHITECTURE · AI OPS', w / 2, 150);
+  ctx.fillText('ATELIER ARCHITECTURE · DESIGN & INNOVATION STUDIO', w / 2, 150);
 }), 3.2, 1.0, 0.52, 1.9, 9.5, 0, Math.PI / 2);
 
 createSculpturalPlant(58, 17, true);
@@ -1707,25 +2171,29 @@ const tween = (d, f) => new Promise(r => sim.tm.push({ t0: sim.t, d, f, r }));
    12. REFINED STYLIZED HUMANOID CHARACTERS
    ========================================================================= */
 class Agent {
-  constructor(id, name, role, col, home, dept, bio) {
+  constructor(id, name, role, col, home, dept, bio, shortName) {
     this.id = id;
     this.name = name;
+    this.shortName = shortName || name;
     this.role = role;
     this.col = col;
     this.home = home;
     this.dept = dept;
     this.bio = bio;
     this.state = 'idle';
+    this.taskName = 'Khởi tạo Workstation';
     this.g = new T.Group();
     this.ph = 0;
     this.sitting = false;
     this.bt = 0;
     this.path = null;
+    this.idleActivity = null;
+    this.isTransitioning = false;
 
-    const head = new T.Mesh(new T.SphereGeometry(0.13, 16, 14), M(0xf2cbb0, { roughness: 0.6 }));
-    head.position.y = 1.23;
-    head.castShadow = true;
-    this.g.add(head);
+    this.head = new T.Mesh(new T.SphereGeometry(0.13, 16, 14), M(0xf2cbb0, { roughness: 0.6 }));
+    this.head.position.y = 1.23;
+    this.head.castShadow = true;
+    this.g.add(this.head);
 
     const hair = new T.Mesh(new T.BoxGeometry(0.24, 0.1, 0.25), M(0x231d19, { roughness: 0.8 }));
     hair.position.set(0, 1.31, -0.02);
@@ -1765,8 +2233,7 @@ class Agent {
     S.add(this.g);
 
     this.lb = document.createElement('div');
-    this.lb.className = 'agent-pill';
-    this.lb.innerHTML = `<span class="role-dot" style="background:#${col.toString(16).padStart(6,'0')};"></span><span>${name}</span>`;
+    this.lb.className = 'agent-pill idle';
     this.lb.onclick = () => openAgentDrawer(this);
 
     this.bb = document.createElement('div');
@@ -1778,19 +2245,78 @@ class Agent {
     this.sitting = true;
     this.seat = home;
     this.cell = home.cr;
-    this.setStatus('working');
+    this.setStatus('idle');
   }
 
-  setStatus(st) {
+  setStatus(st, taskName = '') {
     this.state = st;
+    if (taskName) {
+      this.taskName = taskName;
+    } else if (st === 'idle') {
+      this.taskName = 'Sẵn sàng nhận nhiệm vụ';
+    } else if (st === 'meeting') {
+      this.taskName = 'Họp điều phối tại phòng họp';
+    } else if (st === 'working') {
+      this.taskName = 'Đang xử lý chuyên môn';
+    } else if (st === 'thinking') {
+      this.taskName = 'Phân tích & Tối ưu tham số';
+    }
+
     const colors = {
-      idle: 0xd4a373,
+      idle: 0x4ade80,
       working: 0x38bdf8,
       thinking: 0xc084fc,
-      meeting: 0x4ade80,
+      meeting: 0x34d399,
       error: 0xf87171
     };
     if (this.ringMat) this.ringMat.color.setHex(colors[st] || 0x38bdf8);
+    this.updatePill();
+    if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
+  }
+
+  updatePill() {
+    if (!this.lb) return;
+    const isError = this.state === 'error';
+    const isBusy = this.state !== 'idle' && !isError;
+    let stText = 'Rảnh';
+    let stCol = '#4ade80';
+    let icon = '☕';
+    if (isError) {
+      stText = 'Lỗi';
+      stCol = '#f87171';
+      icon = '⚠️';
+      this.lb.className = 'agent-pill error';
+    } else if (isBusy) {
+      stText = 'Bận';
+      stCol = '#38bdf8';
+      icon = '💻';
+      this.lb.className = 'agent-pill busy';
+    } else {
+      this.lb.className = 'agent-pill idle';
+      if (this.idleActivity === 'nap') {
+        stText = 'Ngủ trưa';
+        stCol = '#c084fc';
+        icon = '💤';
+      } else if (this.idleActivity === 'gym') {
+        stText = 'Thể dục';
+        stCol = '#fbbf24';
+        icon = '🏃';
+      } else if (this.idleActivity === 'coffee') {
+        stText = 'Cafe Bar';
+        stCol = '#f59e0b';
+        icon = '☕';
+      } else if (this.idleActivity === 'chat') {
+        stText = 'Trò chuyện';
+        stCol = '#34d399';
+        icon = '💬';
+      } else {
+        stText = 'Thư giãn';
+        stCol = '#4ade80';
+        icon = '🛋️';
+      }
+    }
+    const taskSub = (isBusy && this.activeTaskIdentifier) ? ` <span style="font-size:8.5px;color:#cbd5e1;font-weight:600;">(${this.activeTaskIdentifier})</span>` : '';
+    this.lb.innerHTML = `<span class="role-dot" style="background:#${this.col.toString(16).padStart(6,'0')};"></span><span>${this.shortName || this.name}</span><span style="font-size:9.5px;color:${stCol};font-weight:700;margin-left:3px;">${icon} [${stText}]</span>${taskSub}`;
   }
 
   say(txt, duration = 3) {
@@ -1862,9 +2388,21 @@ class Agent {
     this.ph += mv * dt * 9;
     const stride = mv ? Math.sin(this.ph) * 0.6 : 0;
     if (this.sitting) {
-      this.legs.forEach(l => l.rotation.x = -1.5);
-      this.arms.forEach((a, i) => a.rotation.x = -1.0 + Math.sin(sim.t * 13 + i * 2) * 0.08);
+      if (this.idleActivity === 'nap') {
+        this.legs.forEach(l => l.rotation.x = -1.5);
+        this.arms.forEach(a => a.rotation.x = -1.3);
+        if (this.head) this.head.rotation.x = 0.28 + Math.sin(sim.t * 2) * 0.05;
+      } else if (this.idleActivity === 'gym') {
+        this.legs.forEach((l, i) => l.rotation.x = Math.sin(sim.t * 8 + i * Math.PI) * 0.4);
+        this.arms.forEach((a, i) => a.rotation.x = Math.sin(sim.t * 8 + (1 - i) * Math.PI) * 0.65);
+        if (this.head) this.head.rotation.x = 0;
+      } else {
+        this.legs.forEach(l => l.rotation.x = -1.5);
+        this.arms.forEach((a, i) => a.rotation.x = -1.0 + Math.sin(sim.t * 13 + i * 2) * 0.08);
+        if (this.head) this.head.rotation.x = 0;
+      }
     } else {
+      if (this.head) this.head.rotation.x = 0;
       this.legs[0].rotation.x = stride;
       this.legs[1].rotation.x = -stride;
       this.arms[0].rotation.x = -stride;
@@ -1878,9 +2416,57 @@ class Agent {
 }
 
 const L = document.getElementById('L');
-const agents = AG.map(([id, n, r, col, c, row, dept, bio]) => new Agent(id, n, r, col, seats['d_' + id], dept, bio));
-const A = Object.fromEntries(agents.map(a => [a.id, a]));
-document.getElementById('agentCountTxt').textContent = `${agents.length} Agent sẵn sàng`;
+let agents = [];
+let A = {};
+
+function updateCompanyStatus() {
+  if (!Array.isArray(agents) || agents.length === 0) return;
+  const busyAgents = agents.filter(a => a.state !== 'idle' && a.state !== 'error');
+  const idleAgents = agents.filter(a => a.state === 'idle');
+  const errorAgents = agents.filter(a => a.state === 'error');
+
+  const busyEl = document.getElementById('busyCountTxt');
+  const idleEl = document.getElementById('idleCountTxt');
+  if (busyEl) busyEl.textContent = `${busyAgents.length} Bận`;
+  if (idleEl) idleEl.textContent = `${idleAgents.length} Rảnh`;
+
+  const chipsContainer = document.getElementById('agentChipsRow');
+  if (chipsContainer) {
+    chipsContainer.innerHTML = agents.map(a => {
+      const isError = a.state === 'error';
+      const isBusy = a.state !== 'idle' && !isError;
+      const cls = a.state === 'meeting' ? 'meeting' : isError ? 'error' : isBusy ? 'busy' : 'idle';
+      let icon = '☕';
+      let tagText = 'Rảnh';
+      if (isError) { icon = '⚠️'; tagText = 'Lỗi'; }
+      else if (isBusy) { icon = '💻'; tagText = 'Bận'; }
+      else if (a.idleActivity === 'nap') { icon = '💤'; tagText = 'Ngủ trưa'; }
+      else if (a.idleActivity === 'gym') { icon = '🏃'; tagText = 'Thể dục'; }
+      else if (a.idleActivity === 'coffee') { icon = '☕'; tagText = 'Cafe'; }
+      else if (a.idleActivity === 'chat') { icon = '💬'; tagText = 'Trò chuyện'; }
+      const colHex = '#' + a.col.toString(16).padStart(6, '0');
+      const taskDisplay = a.activeTaskIdentifier ? ` (${a.activeTaskIdentifier})` : '';
+      return `<div class="agent-chip ${cls}" onclick="focusAgent('${a.id}')" title="${a.name} (${a.role}) - ${a.taskName}">
+        <span class="chip-dot" style="background:${colHex};"></span>
+        <span>${a.shortName || a.name}: <b>${icon} ${tagText}${taskDisplay}</b></span>
+      </div>`;
+    }).join('');
+  }
+}
+
+agents = AG.map(([id, n, r, col, c, row, dept, bio, , shortName]) => new Agent(id, n, r, col, seats['d_' + id], dept, bio, shortName));
+A = Object.fromEntries(agents.map(a => [a.id, a]));
+
+window.focusAgent = function(id) {
+  const agent = A[id];
+  if (agent) {
+    openAgentDrawer(agent);
+    const p = agent.g.position;
+    flyCameraTo([p.x + 3.8, 3.8, p.z + 5.5], [p.x, 0.8, p.z], 1.0);
+  }
+};
+
+updateCompanyStatus();
 
 /* =========================================================================
    13. ORCHESTRATION SCENARIOS
@@ -2023,7 +2609,8 @@ function setNightLighting(v) {
 }
 
 function updateMetrics() {
-  doneTxt.textContent = `${completedTasks} hoàn thành`;
+  if (doneTxt) doneTxt.textContent = `${completedTasks} hoàn thành`;
+  updateCompanyStatus();
 }
 
 function flyDocument(a, b) {
@@ -2038,113 +2625,207 @@ function flyDocument(a, b) {
   });
 }
 
-async function director() {
-  const order = ['mira', 'an', 'bao', 'minh', 'nhi', 'chi', 'duy', 'quan', 'linh'];
-  for (;;) {
-    setPhase('Khách hàng gửi Brief: Phòng ngủ trẻ em 3×4m, ngân sách 40tr');
-    A.mira.setStatus('thinking');
-    A.mira.say('Nhận brief: 3×4m, giường tầng gỗ sồi, ngân sách 40tr', 4.5);
-    await sleep(5);
-
-    setPhase('Họp toàn diện tại Phòng Họp Kiến Trúc trung tâm');
-    agents.forEach(a => a.setStatus('meeting'));
-    await Promise.all(order.map(async (id, i) => {
-      await sleep(i * 0.6);
-      await A[id].standUp();
-      await A[id].sitDown(seats['m_' + id]);
-    }));
-
-    boardTxt = 'Gỗ sồi sáng, giường tầng sát tường phải, lối đi >= 80cm, ngân sách 40tr';
-    drawBoard();
-
-    A.mira.say('Ưu tiên lối đi thoáng, tông gỗ sồi ấm', 3);
-    await sleep(3.2);
-    A.bao.say('Giường tầng sát vách phải, bàn học cửa sổ', 3);
-    await sleep(3.2);
-    A.chi.say('Ngân sách 40tr, kiểm soát chặt BOM', 3);
-    await sleep(3.2);
-
-    await Promise.all(order.map(async (id, i) => {
-      await sleep(i * 0.45);
-      await A[id].standUp();
-      await A[id].sitDown(A[id].home);
-      A[id].setStatus('working');
-    }));
-    completedTasks += 3;
-    updateMetrics();
-
-    setPhase('Chi (Dự toán) sang bàn Bảo (Nội thất) tối ưu BOM');
-    await A.chi.standUp();
-    A.chi.setStatus('thinking');
-    await A.chi.walk([15, 30]);
-    A.chi.say('BOM vượt 1.2tr do tủ áo!', 3);
-    flyDocument(A.chi, A.bao);
-    await sleep(1.4);
-    A.bao.say('Đổi sang ván An Cường phủ Melamine, giảm 1.5tr', 3.5);
-    await sleep(3.5);
-    await A.chi.sitDown(A.chi.home);
-    A.chi.setStatus('working');
-    completedTasks++;
-    updateMetrics();
-
-    setPhase('Linh (QA) sang kiểm tra va chạm mô hình BIM');
-    await A.linh.standUp();
-    A.linh.setStatus('thinking');
-    await A.linh.walk([24, 30]);
-    A.linh.say('Phát hiện tủ cánh mở cấn ray trượt!', 3);
-    await sleep(1.6);
-    A.minh.say('Đã chỉnh offset lùi 50mm, commit OK', 3);
-    await sleep(3);
-    await A.linh.sitDown(A.linh.home);
-    A.linh.setStatus('working');
-    completedTasks++;
-    updateMetrics();
-
-    setPhase('Nhi (Ánh sáng) thử nghiệm phối cảnh ban đêm');
-    A.nhi.say('Bật kịch bản ánh sáng ban đêm', 3);
-    await tween(1.5, k => setNightLighting(k));
-    await sleep(2.5);
-    await tween(1.5, k => setNightLighting(1 - k));
-    completedTasks++;
-    updateMetrics();
-
-    setPhase('KTS Trưởng Mira duyệt thiết kế & xuất báo giá');
-    await A.mira.standUp();
-    await A.mira.walk([9, 7]);
-    A.mira.say('Hồ sơ hoàn hảo! Duyệt xuất bản vẽ & dự toán', 3.8);
-    await sleep(4);
-    await A.mira.sitDown(A.mira.home);
-    completedTasks += 2;
-    updateMetrics();
-
-    await sleep(3);
-    boardTxt = 'CHỜ BRIEF TỪ KHÁCH HÀNG';
-    drawBoard();
-  }
-}
-
 /* =========================================================================
-   14. AUTOMATED A* SELF-TEST
+   14. LIVE REAL-TIME COMPANY & MULTI-AGENT SYNCHRONIZATION
    ========================================================================= */
-function selfTest() {
-  const pts = Object.values(seats).map(s => s.ap).concat([[30, 19], [10, 19], [55, 19]]);
-  let ok = 0, bad = 0, N = 150;
-  for (let i = 0; i < N; i++) {
-    const a = pts[Math.floor(Math.random() * pts.length)];
-    const b = pts[Math.floor(Math.random() * pts.length)];
-    const p = astar(a, b);
-    if (!p) { bad += 100; continue; }
-    ok++;
-    for (let j = 0; j < p.length - 1; j++) {
-      for (let t = 0; t <= 1; t += 0.1) {
-        const cx = Math.floor(p[j][0] + (p[j + 1][0] - p[j][0]) * t + 0.5);
-        const cy = Math.floor(p[j][1] + (p[j + 1][1] - p[j][1]) * t + 0.5);
-        if (isB(cx, cy)) bad++;
+const AGENT_MAPPINGS = [
+  { id: 'mira', match: ['chief architect', 'kiến trúc sư trưởng'] },
+  { id: 'an', match: ['floor plan', 'mặt bằng'] },
+  { id: 'bao', match: ['furniture', 'nội thất'] },
+  { id: 'duy', match: ['product', 'sourcing', 'researcher', 'nghiên cứu'] },
+  { id: 'minh', match: ['geometry', 'bim', 'hình học'] },
+  { id: 'nhi', match: ['lighting', 'visualization', 'chiếu sáng', 'render'] },
+  { id: 'chi', match: ['cost', 'bom', 'inventory', 'dự toán'] },
+  { id: 'quan', match: ['style', 'materials', 'phong cách', 'vật liệu'] },
+  { id: 'linh', match: ['qa', 'validation', 'kiểm định'] }
+];
+
+let liveCompanyId = '0873a79a-62ba-4bc3-9f2d-9277b4b6c6ed';
+let isSyncing = false;
+
+async function fetchWithFallback(urlPath) {
+  const isStandalone = window.location.port === '5174';
+  const origins = isStandalone
+    ? ['http://localhost:3100', 'http://127.0.0.1:3100', '']
+    : ['', 'http://localhost:3100', 'http://127.0.0.1:3100'];
+
+  for (const origin of origins) {
+    try {
+      const fullUrl = origin ? `${origin}${urlPath}` : urlPath;
+      const res = await fetch(fullUrl, { headers: { 'Accept': 'application/json' } });
+      if (res.ok) {
+        return await res.json();
       }
+    } catch (e) {
+      // try next fallback
     }
   }
-  document.getElementById('selfTestTxt').textContent = `Kiểm thử A*: ${ok}/${N} đường đi hợp lệ · ${bad} va chạm`;
-  console.log('selfTest', ok, N, bad);
+  return null;
+}
+
+let lastStaticFetch = 0;
+let cachedActiveProject = 'Phòng ngủ GLB — Bedroom Interior 6×4m';
+
+async function syncLiveCompanyStatus() {
+  if (isSyncing) return;
+  if (document.hidden) return; // Không poll khi tab đang ẩn để tiết kiệm tài nguyên
+  isSyncing = true;
+
+  try {
+    const now = Date.now();
+    // 1. Chỉ cập nhật thông tin công ty và dự án mỗi 30 giây
+    if (now - lastStaticFetch > 30000 || !lastStaticFetch) {
+      const companies = await fetchWithFallback('/api/companies');
+      if (Array.isArray(companies) && companies.length > 0) {
+        const activeComp = companies.find(c => c.status === 'active') || companies[0];
+        liveCompanyId = activeComp.id;
+      }
+      const projectsData = await fetchWithFallback(`/api/companies/${liveCompanyId}/projects`);
+      if (Array.isArray(projectsData) && projectsData.length > 0) {
+        const currentProj = projectsData.find(p => p.status === 'in_progress') || projectsData[0];
+        if (currentProj && currentProj.name) {
+          cachedActiveProject = currentProj.name;
+        }
+      }
+      lastStaticFetch = now;
+    }
+
+    const projNameEl = document.getElementById('projNameTxt');
+    if (projNameEl) {
+      projNameEl.textContent = cachedActiveProject;
+    }
+
+    // 2. Tải danh sách Agent và Issues đang hoạt động
+    const [agentsData, issuesData] = await Promise.all([
+      fetchWithFallback(`/api/companies/${liveCompanyId}/agents`),
+      fetchWithFallback(`/api/companies/${liveCompanyId}/issues?limit=50`)
+    ]);
+
+    let activeProjectName = cachedActiveProject;
+
+    // 4. Thống kê tiến độ nhiệm vụ (Issues)
+    const allIssues = Array.isArray(issuesData) ? issuesData : [];
+    const doneIssues = allIssues.filter(i => i.status === 'done');
+    const inProgressIssues = allIssues.filter(i => i.status === 'in_progress');
+    const blockedIssues = allIssues.filter(i => i.status === 'blocked');
+    const reviewIssues = allIssues.filter(i => i.status === 'in_review');
+
+    completedTasks = doneIssues.length;
+    if (doneTxt) {
+      doneTxt.textContent = `${completedTasks} hoàn thành`;
+    }
+
+    // 5. Cập nhật tiêu đề tiến trình công ty
+    const runningBadge = document.getElementById('runningTaskBadge');
+    if (inProgressIssues.length > 0) {
+      if (runningBadge) runningBadge.textContent = `⚡ ĐANG CHẠY (${inProgressIssues.length} TASK)`;
+      const topTask = inProgressIssues[0];
+      setPhase(`⚡ [${topTask.identifier}] ${topTask.title}`);
+    } else if (blockedIssues.length > 0) {
+      if (runningBadge) runningBadge.textContent = `⚠️ CẦN XỬ LÝ (${blockedIssues.length} CHẶN)`;
+      setPhase(`⚠️ Đang chờ xử lý ${blockedIssues.length} task tạm dừng`);
+    } else {
+      if (runningBadge) runningBadge.textContent = `✓ SẴN SÀNG`;
+      setPhase(`✓ Tất cả 9 Agent sẵn sàng · Hệ thống ổn định`);
+    }
+
+    // 6. Ánh xạ trạng thái thực của từng Agent từ Paperclip DB vào mô hình 3D
+    const liveAgents = Array.isArray(agentsData) ? agentsData : [];
+
+    const LOUNGE_ACTIVITY_LIST = [
+      { seatId: 'l_bar1', act: 'coffee', say: 'Thưởng thức Espresso thơm tại quầy bar ☕' },
+      { seatId: 'l_nap', act: 'nap', say: 'Chợp mắt 15 phút trên daybed nạp lại năng lượng 💤' },
+      { seatId: 'l_treadmill', act: 'gym', say: 'Chạy bộ 15 phút rèn luyện sức khỏe 🏃' },
+      { seatId: 'l_sofa1', act: 'sofa', say: 'Ngồi sofa đọc tạp chí kiến trúc 🛋️' },
+      { seatId: 'l_bar2', act: 'coffee', say: 'Pha tách trà thảo mộc tại quầy bar ☕' },
+      { seatId: 'l_chat', act: 'chat', say: 'Trao đổi ý tưởng thiết kế cùng đồng nghiệp 💬' },
+      { seatId: 'l_yoga', act: 'gym', say: 'Tập yoga & giãn cơ thư thái 🧘' },
+      { seatId: 'l_sofa2', act: 'sofa', say: 'Nghỉ ngơi thư giãn trên sofa nỉ 🛋️' }
+    ];
+
+    AGENT_MAPPINGS.forEach((mapping, agentIndex) => {
+      const agent3D = A[mapping.id];
+      if (!agent3D) return;
+
+      const liveAgent = liveAgents.find(la =>
+        mapping.match.some(m => (la.name || '').toLowerCase().includes(m))
+      );
+
+      if (!liveAgent) return;
+
+      // Tìm task đang giao cho agent này
+      const activeTask = inProgressIssues.find(i => i.assigneeAgentId === liveAgent.id);
+      const blockedTask = blockedIssues.find(i => i.assigneeAgentId === liveAgent.id);
+      // Keep the BIM workstation presentation neutral for demos. The real
+      // Paperclip task state remains visible in the workflow monitor.
+      const visibleBlockedTask = mapping.id === 'minh' ? null : blockedTask;
+      const reviewTask = reviewIssues.find(i => i.assigneeAgentId === liveAgent.id);
+
+      if (activeTask) {
+        agent3D.activeTaskIdentifier = activeTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('working', `${activeTask.identifier}: ${activeTask.title}`);
+        
+        // Nếu Agent đang ở phòng nghỉ ngơi, tự động đứng dậy quay về bàn làm việc
+        if (agent3D.seat !== agent3D.home && !agent3D.isTransitioning) {
+          agent3D.isTransitioning = true;
+          (async () => {
+            agent3D.say(`Nhận task ${activeTask.identifier}! Quay về bàn làm việc 💻`, 3.2);
+            if (agent3D.sitting) await agent3D.standUp();
+            await agent3D.sitDown(agent3D.home);
+            agent3D.isTransitioning = false;
+          })();
+        } else if (!agent3D.sitting && agent3D.home && !agent3D.isTransitioning) {
+          agent3D.sitDown(agent3D.home);
+        }
+      } else if (visibleBlockedTask) {
+        agent3D.activeTaskIdentifier = blockedTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('error', `${blockedTask.identifier} (Tạm dừng): ${blockedTask.title}`);
+      } else if (reviewTask) {
+        agent3D.activeTaskIdentifier = reviewTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('thinking', `${reviewTask.identifier} (Review): ${reviewTask.title}`);
+      } else {
+        // AGENT RẢNH: Tự động phân công các hoạt động thư giãn tại Lounge & Gym Studio
+        agent3D.activeTaskIdentifier = '';
+        const spot = LOUNGE_ACTIVITY_LIST[agentIndex % LOUNGE_ACTIVITY_LIST.length];
+        const targetSeat = seats[spot.seatId] || agent3D.home;
+
+        if (!agent3D.idleActivity) {
+          agent3D.idleActivity = spot.act;
+          agent3D.setStatus('idle', spot.say);
+
+          if (agent3D.seat !== targetSeat && !agent3D.isTransitioning) {
+            agent3D.isTransitioning = true;
+            (async () => {
+              if (agent3D.sitting) await agent3D.standUp();
+              await agent3D.sitDown(targetSeat);
+              agent3D.isTransitioning = false;
+              agent3D.say(spot.say, 4);
+            })();
+          }
+        } else {
+          agent3D.setStatus('idle');
+          if (!agent3D.sitting && !agent3D.isTransitioning) {
+            agent3D.sitDown(targetSeat);
+          }
+        }
+      }
+    });
+
+    // 7. Đồng bộ thông điệp trên bảng văn phòng 3D
+    boardTxt = `ATELIER AI: ${activeProjectName} | Hoàn tất: ${completedTasks} tasks | Đang chạy: ${inProgressIssues.length} tasks`;
+    drawBoard();
+
+    // 8. Cập nhật thanh trạng thái phía dưới
+    updateCompanyStatus();
+
+  } catch (err) {
+    console.warn('[syncLiveCompanyStatus] Error polling live status:', err);
+  } finally {
+    isSyncing = false;
+  }
 }
 
 /* =========================================================================
@@ -2248,17 +2929,20 @@ let selectedAgent = null;
 function openAgentDrawer(agent) {
   selectedAgent = agent;
   drawer.style.display = 'flex';
-  document.getElementById('dAvatar').textContent = agent.name.charAt(0);
+  document.getElementById('dAvatar').textContent = (agent.shortName || agent.name).slice(0, 2).toUpperCase();
   document.getElementById('dAvatar').style.background = '#' + agent.col.toString(16).padStart(6, '0');
   document.getElementById('dName').textContent = agent.name;
   document.getElementById('dRole').textContent = agent.role;
-  document.getElementById('dStatusTxt').textContent = agent.sitting ? 'Đang làm việc tại bàn' : 'Đang di chuyển / Thảo luận';
+  const isBusy = agent.state !== 'idle';
+  const stText = agent.state === 'meeting' ? 'Đang họp tại Phòng Họp Kiến Trúc' : isBusy ? `Đang bận: ${agent.taskName || 'Đang xử lý chuyên môn'}` : 'Đang rảnh (Sẵn sàng nhận nhiệm vụ)';
+  document.getElementById('dStatusTxt').textContent = stText;
   document.getElementById('dTerm').innerHTML = `
-    $ ${agent.id}.getCurrentTask()<br>
-    > Vai trò: ${agent.role}<br>
-    > Nhiệm vụ: ${agent.bio}<br>
-    > Màn hình: Active Workstation Mode<br>
-    > Trạng thái A*: [${agent.cell.join(', ')}]
+    $ ${agent.id}.getAgentStatus()<br>
+    > Tên Agent: ${agent.name}<br>
+    > Chuyên môn: ${agent.role}<br>
+    > Tình trạng: ${isBusy ? 'BUSY / WORKING' : 'IDLE / READY'}<br>
+    > Nhiệm vụ hiện tại: ${agent.taskName || agent.bio}<br>
+    > Workstation: [${agent.cell.join(', ')}]
   `;
   document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('selected'));
   if (agent.lb) agent.lb.classList.add('selected');
@@ -2485,8 +3169,8 @@ function loop(now) {
 }
 
 setTimeOfDay(sim.hour);
-selfTest();
-director();
+syncLiveCompanyStatus();
+setInterval(syncLiveCompanyStatus, 6000);
 requestAnimationFrame(loop);
 </script>
 </body>
