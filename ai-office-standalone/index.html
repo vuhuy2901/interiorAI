@@ -893,7 +893,7 @@ const QUALITY_PRESETS = Object.freeze({
 const STYLE_PRESETS = Object.freeze({
   'original-atelier': { label: 'Original ATELIER', toneMappingExposure: 1.22, sun: 1, hemi: 1, fill: 1, diffuser: 1, warmFill: 0, rim: 0, bounce: 0 },
   'original-enhanced': { label: 'Original Enhanced', toneMappingExposure: 1.26, sun: 1.02, hemi: 1.03, fill: 1.06, diffuser: 1.05, warmFill: 0, rim: 0, bounce: 0 },
-  'premium-realistic': { label: 'Premium Realistic', toneMappingExposure: 1.2, sun: 1.04, hemi: 1.06, fill: 1.12, diffuser: 1.1, warmFill: 0.2, rim: 0.24, bounce: 0.16 },
+  'premium-realistic': { label: 'Premium Realistic', toneMappingExposure: 1.06, sun: 1.22, hemi: 0.78, fill: 0.18, diffuser: 0.72, warmFill: 0.42, rim: 0.44, bounce: 0.08 },
 });
 const readVisualSettings = () => {
   try {
@@ -957,16 +957,32 @@ function applyPbrMaterialProfile(styleKey) {
         pbrBaseValues.set(mat, {
           roughness: mat.roughness,
           metalness: mat.metalness,
+          color: mat.color?.clone?.(),
+          opacity: mat.opacity,
+          transparent: mat.transparent,
+          emissiveIntensity: mat.emissiveIntensity,
           envMapIntensity: mat.envMapIntensity ?? 1,
         });
       }
       const base = pbrBaseValues.get(mat);
-      mat.roughness = Math.max(0.08, Math.min(1, base.roughness * (premium ? 0.86 : 1)));
-      mat.metalness = Math.max(0, Math.min(1, base.metalness + (premium && base.metalness > 0.04 ? 0.035 : 0)));
-      mat.envMapIntensity = premium ? Math.max(1, base.envMapIntensity) : base.envMapIntensity;
+      const kind = mat.name || '';
+      mat.roughness = Math.max(0.08, Math.min(1, base.roughness * (premium ? (kind === 'floor' ? 0.62 : 0.78) : 1)));
+      mat.metalness = Math.max(0, Math.min(1, base.metalness + (premium && base.metalness > 0.04 ? (kind === 'glass' ? 0.16 : 0.06) : 0)));
+      mat.envMapIntensity = premium ? Math.max(1.35, base.envMapIntensity) : base.envMapIntensity;
+      if (base.color) mat.color.copy(base.color);
+      if (kind === 'floor' && premium) mat.color.offsetHSL(0.02, 0.08, -0.08);
+      if (kind === 'glass') mat.opacity = premium ? Math.min(0.52, base.opacity + 0.1) : base.opacity;
+      if (kind === 'screen') {
+        mat.emissiveIntensity = premium ? 0.7 : base.emissiveIntensity;
+        mat.emissive?.setHex(premium ? 0x16324a : 0x08101a);
+      }
       mat.needsUpdate = true;
     });
   });
+  if (typeof contactShadowGroup !== 'undefined') {
+    contactShadowGroup.visible = premium;
+    contactShadowMaterial.opacity = premium ? 0.34 : 0;
+  }
 }
 
 function makeCanvasTexture(w, h, drawFn) {
@@ -1102,6 +1118,37 @@ groundPlane.position.set(W / 2 * CS, -plinthH, H / 2 * CS);
 groundPlane.receiveShadow = true;
 S.add(groundPlane);
 
+/* AO-style contact layer: soft baked ellipses under the hero furniture. */
+const contactShadowTexture = makeCanvasTexture(192, 128, (ctx, w, h) => {
+  const g = ctx.createRadialGradient(w / 2, h / 2, 3, w / 2, h / 2, w / 2);
+  g.addColorStop(0, 'rgba(12, 8, 5, 0.9)');
+  g.addColorStop(0.55, 'rgba(12, 8, 5, 0.38)');
+  g.addColorStop(1, 'rgba(12, 8, 5, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+});
+const contactShadowMaterial = new T.MeshBasicMaterial({
+  map: contactShadowTexture,
+  color: 0x20130c,
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  blending: T.MultiplyBlending,
+});
+const contactShadowGroup = new T.Group();
+const addContactShadow = (x, z, w, d) => {
+  const shadow = new T.Mesh(new T.PlaneGeometry(w, d), contactShadowMaterial);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.set(x, 0.028, z);
+  contactShadowGroup.add(shadow);
+};
+addContactShadow(wx(27.5), wx(7.5), 5.7, 1.8); // conference table
+addContactShadow(wx(13.8), wx(3.5), 2.5, 1.4); // bar/counter furniture
+addContactShadow(wx(4.0), wx(2.8), 2.6, 1.5); // lounge sofa and table
+addContactShadow(wx(14.5), wx(2.5), 0.95, 0.85); // glass-front cabinet
+addContactShadow(wx(8.5), wx(5.5), 2.4, 1.2); // floor and storage zone
+S.add(contactShadowGroup);
+
 /* =========================================================================
    4. ROOMS, FLOOR TEXTURES & WALL ARCHITECTURE
    ========================================================================= */
@@ -1122,6 +1169,7 @@ function customFloor(c0, r0, c1, r1, texMap, col = 0xffffff, y = 0.015) {
     roughness: 0.65,
     metalness: 0.08
   });
+  mat.name = 'floor';
   const m = new T.Mesh(new T.PlaneGeometry((c1 - c0) * CS, (r1 - r0) * CS), mat);
   m.rotation.x = -Math.PI / 2;
   m.position.set((c0 + c1) / 2 * CS, y, (r0 + r1) / 2 * CS);
@@ -1205,6 +1253,7 @@ const glassMat = new T.MeshStandardMaterial({
   roughness: 0.1,
   metalness: 0.4
 });
+glassMat.name = 'glass';
 const glassM = new T.InstancedMesh(new T.BoxGeometry(CS, 0.75, 0.035), glassMat, wk.length);
 wk.forEach((k, i) => {
   const [c, r] = k.split(',').map(Number);
@@ -1353,13 +1402,15 @@ function createFramedArtwork(x, y, z, w, h, ry = 0, artKey = 'villa_living', has
   g.add(canvasMesh);
 
   // Subtle Protective Glass Glazing
-  const glassGlaze = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshStandardMaterial({
+  const glassGlazeMat = new T.MeshStandardMaterial({
     color: 0xffffff,
     transparent: true,
     opacity: 0.15,
     roughness: 0.05,
     metalness: 0.9
-  }));
+  });
+  glassGlazeMat.name = 'glass';
+  const glassGlaze = new T.Mesh(new T.PlaneGeometry(w, h), glassGlazeMat);
   glassGlaze.position.z = 0.02;
   g.add(glassGlaze);
 
@@ -1445,6 +1496,7 @@ function createArchitecturalScaleModel(c, r, modelType = 'villa2') {
     roughness: 0.05,
     metalness: 0.9
   });
+  clocheMat.name = 'glass';
   const cloche = new T.Mesh(new T.BoxGeometry(pedW - 0.08, 0.55, pedD - 0.08), clocheMat);
   cloche.position.set(0, pedH + 0.28, 0);
   g.add(cloche);
@@ -1695,7 +1747,15 @@ function createDetailedDesk(c, r, screenType = 'design', dualMon = false) {
     cyl(0, 0.15, 0, 0.015, 0.3, 0x666666, 0, mg, { metalness: 0.85 });
     bx(0, 0.01, 0, 0.18, 0.01, 0.14, 0x222222, mg);
     bx(0, 0.22, 0, 0.68, 0.38, 0.02, 0x111317, mg);
-    const scrMat = new T.MeshBasicMaterial({ map: monTex });
+    const scrMat = new T.MeshStandardMaterial({
+      map: monTex,
+      color: 0xffffff,
+      roughness: 0.24,
+      metalness: 0.12,
+      emissive: 0x08101a,
+      emissiveIntensity: 0.18,
+    });
+    scrMat.name = 'screen';
     const scr = new T.Mesh(new T.PlaneGeometry(0.64, 0.34), scrMat);
     scr.position.set(0, 0.22, 0.012);
     mg.add(scr);
