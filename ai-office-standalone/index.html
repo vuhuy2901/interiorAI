@@ -173,6 +173,38 @@ html, body {
   border-color: var(--accent-gold);
   color: var(--accent-gold);
 }
+#visualQualityPanel {
+  position: fixed;
+  top: 72px;
+  right: 14px;
+  width: min(330px, calc(100vw - 28px));
+  padding: 14px;
+  z-index: 25;
+  display: none;
+}
+#visualQualityPanel.open { display: block; }
+.visual-quality-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.visual-quality-heading strong { font-size: 12px; letter-spacing: .04em; }
+.visual-quality-heading span { color: var(--accent-gold); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.visual-quality-field { display: grid; gap: 5px; margin-top: 10px; }
+.visual-quality-field label { color: var(--ink-dim); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.visual-quality-field select {
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+}
+.visual-quality-note { margin: 10px 0 0; color: var(--ink-dim); font-size: 10px; line-height: 1.45; }
 
 /* Status Strip - Project & Agent Status Dashboard */
 #statusStrip {
@@ -654,9 +686,35 @@ html, body {
     <button class="ctrl-btn active" id="btnLed" title="Bật/Tắt hệ thống Warm LED Strip">💡 LED Strip</button>
     <button class="ctrl-btn" id="btnNight" title="Bật/Tắt ánh sáng ban đêm">🌙 Đêm</button>
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
+    <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
+
+<section id="visualQualityPanel" class="glass" aria-label="Cấu hình chất lượng hiển thị">
+  <div class="visual-quality-heading">
+    <strong>Visual Quality</strong>
+    <span id="visualQualityStatus">Original Enhanced</span>
+  </div>
+  <div class="visual-quality-field">
+    <label for="qualityPreset">Graphics Quality</label>
+    <select id="qualityPreset">
+      <option value="low">Low · ưu tiên FPS</option>
+      <option value="medium">Medium · cân bằng</option>
+      <option value="high">High · chi tiết</option>
+      <option value="ultra">Ultra · tối đa</option>
+    </select>
+  </div>
+  <div class="visual-quality-field">
+    <label for="stylePreset">Style Preset</label>
+    <select id="stylePreset">
+      <option value="original-atelier">Original ATELIER</option>
+      <option value="original-enhanced">Original Enhanced</option>
+      <option value="premium-realistic">Premium Realistic</option>
+    </select>
+  </div>
+  <p class="visual-quality-note">Preset chỉ điều chỉnh cách render. Scene, agent, bố cục và vật liệu gốc vẫn được giữ nguyên.</p>
+</section>
 
 <!-- Bottom Status Strip - Project & Agent Status Dashboard -->
 <div id="statusStrip" class="glass">
@@ -809,6 +867,55 @@ S.add(ledGroup);
 const softCeilingDiffuser = new T.PointLight(0xffbe5c, 0.75, 45, 0.8);
 softCeilingDiffuser.position.set(15, 6.5, 10);
 ledGroup.add(softCeilingDiffuser);
+
+/* =========================================================================
+   3. DISPLAY QUALITY CONTRACT — RENDER SETTINGS ONLY
+   ========================================================================= */
+const VISUAL_SETTINGS_KEY = 'atelier.visual-settings.v1';
+const QUALITY_PRESETS = Object.freeze({
+  low: { label: 'Low', pixelRatio: 0.85, shadowMapSize: 512, shadows: false },
+  medium: { label: 'Medium', pixelRatio: 1.0, shadowMapSize: 1024, shadows: true },
+  high: { label: 'High', pixelRatio: 1.5, shadowMapSize: 2048, shadows: true },
+  ultra: { label: 'Ultra', pixelRatio: 2.0, shadowMapSize: 2048, shadows: true },
+});
+const STYLE_PRESETS = Object.freeze({
+  'original-atelier': { label: 'Original ATELIER', toneMappingExposure: 1.22, sun: 1, hemi: 1, fill: 1, diffuser: 1 },
+  'original-enhanced': { label: 'Original Enhanced', toneMappingExposure: 1.26, sun: 1.02, hemi: 1.03, fill: 1.06, diffuser: 1.05 },
+  'premium-realistic': { label: 'Premium Realistic', toneMappingExposure: 1.2, sun: 1.04, hemi: 1.06, fill: 1.12, diffuser: 1.1 },
+});
+const readVisualSettings = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VISUAL_SETTINGS_KEY) || '{}');
+    return {
+      quality: QUALITY_PRESETS[stored.quality] ? stored.quality : 'high',
+      style: STYLE_PRESETS[stored.style] ? stored.style : 'original-enhanced',
+    };
+  } catch {
+    return { quality: 'high', style: 'original-enhanced' };
+  }
+};
+const visualSettings = readVisualSettings();
+const applyVisualSettings = () => {
+  const quality = QUALITY_PRESETS[visualSettings.quality];
+  const style = STYLE_PRESETS[visualSettings.style];
+  R.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.pixelRatio));
+  R.shadowMap.enabled = quality.shadows;
+  R.shadowMap.type = T.PCFSoftShadowMap;
+  sun.castShadow = quality.shadows;
+  sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
+  R.toneMappingExposure = style.toneMappingExposure;
+  const qualitySelect = document.getElementById('qualityPreset');
+  const styleSelect = document.getElementById('stylePreset');
+  const status = document.getElementById('visualQualityStatus');
+  if (qualitySelect) qualitySelect.value = visualSettings.quality;
+  if (styleSelect) styleSelect.value = visualSettings.style;
+  if (status) status.textContent = `${style.label} · ${quality.label}`;
+  try {
+    localStorage.setItem(VISUAL_SETTINGS_KEY, JSON.stringify(visualSettings));
+  } catch {
+    // Display preferences are optional; rendering remains functional if storage is unavailable.
+  }
+};
 
 /* Material Caching System */
 const mats = {};
@@ -2585,13 +2692,14 @@ function setTimeOfDay(h) {
     _bgCol.setHex(0x07090f);
   }
 
+  const style = STYLE_PRESETS[visualSettings.style] || STYLE_PRESETS['original-enhanced'];
   sun.color.copy(_sunCol);
-  sun.intensity = sunInt;
+  sun.intensity = sunInt * style.sun;
   hemi.color.copy(_hemiSky);
   hemi.groundColor.copy(_hemiGnd);
-  hemi.intensity = hemiInt;
-  fillLight.intensity = fillInt;
-  softCeilingDiffuser.intensity = diffuserInt;
+  hemi.intensity = hemiInt * style.hemi;
+  fillLight.intensity = fillInt * style.fill;
+  softCeilingDiffuser.intensity = diffuserInt * style.diffuser;
   S.background.copy(_bgCol);
 
   updateTimeUI(h, periodName, periodIcon);
@@ -3054,6 +3162,25 @@ document.getElementById('btnGrid').onclick = e => {
   gm.visible = !gm.visible;
   e.target.classList.toggle('active', gm.visible);
 };
+
+const visualPanel = document.getElementById('visualQualityPanel');
+const btnVisualQuality = document.getElementById('btnVisualQuality');
+const qualityPreset = document.getElementById('qualityPreset');
+const stylePreset = document.getElementById('stylePreset');
+btnVisualQuality.onclick = () => {
+  const open = visualPanel.classList.toggle('open');
+  btnVisualQuality.classList.toggle('active', open);
+};
+qualityPreset.onchange = e => {
+  visualSettings.quality = e.target.value;
+  applyVisualSettings();
+};
+stylePreset.onchange = e => {
+  visualSettings.style = e.target.value;
+  applyVisualSettings();
+  setTimeOfDay(sim.hour);
+};
+applyVisualSettings();
 
 document.getElementById('btnReset').onclick = () => resetView();
 
