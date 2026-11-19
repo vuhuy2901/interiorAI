@@ -52,3 +52,64 @@ export interface DashboardSummary {
   };
   runActivity: DashboardRunActivityDay[];
 }
+
+export interface AgentPerformanceRankingItem {
+  agentId: string;
+  agentName: string;
+  agentAppearance?: Record<string, unknown> | null;
+  adapterType?: string;
+  totalRuns: number;
+  totalRuntimeSeconds: number;
+  avgRuntimeSeconds: number;
+  successRate: number; // 0 to 100
+  failedRuns: number;
+  completedTasks: number;
+}
+
+export interface AgentRuntimeMetric {
+  agentId: string;
+  agentName: string;
+  totalRuntimeSeconds: number;
+  avgRuntimeSeconds: number;
+  maxRuntimeSeconds: number;
+  runCount: number;
+}
+
+export interface ExecutionDistribution {
+  successful: number;
+  failed: number;
+  recovered: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface AgentUsageTrendPoint {
+  date: string;
+  total: number;
+  byAgent: Record<string, number>;
+}
+
+export interface LongestRunItem {
+  runId: string;
+  agentId: string;
+  agentName: string;
+  taskTitle: string;
+  taskIdentifier?: string | null;
+  taskId?: string | null;
+  projectName?: string | null;
+  runtimeSeconds: number;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface AgentAnalyticsReport {
+  companyId: string;
+  timeRange: string;
+  ranking: AgentPerformanceRankingItem[];
+  runtimeStats: AgentRuntimeMetric[];
+  executionDistribution: ExecutionDistribution;
+  usageTrends: AgentUsageTrendPoint[];
+  longestRuns: LongestRunItem[];
+}
+
