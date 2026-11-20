@@ -718,6 +718,25 @@ html, body {
 .fp2-item-name { font-size:10px; color:#94a3b8; margin-top:2px; }
 .fp2-status { font-size:11px; min-height:32px; border-radius:6px; padding:5px 7px; background:rgba(0,0,0,0.3); margin-top:6px; }
 .cta-full-msg { color: #64748b; font-size: 12px; text-align: center; padding: 6px 0; }
+/* Build Mode UI */
+#buildToolbar { display:none; position:fixed; top:44px; left:0; right:0; height:40px; background:rgba(15,15,20,0.92); backdrop-filter:blur(8px); border-bottom:1px solid rgba(255,255,255,0.08); z-index:300; display:flex; align-items:center; padding:0 10px; gap:4px; }
+#buildToolbar.hidden { display:none!important; }
+.btool { display:flex; align-items:center; gap:4px; padding:4px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#94a3b8; font-size:11px; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+.btool:hover { border-color:rgba(212,175,55,0.5); color:#f8fafc; }
+.btool.active { border-color:#d4af37; background:rgba(212,175,55,0.12); color:#f8fafc; }
+.btool-sep { width:1px; height:22px; background:rgba(255,255,255,0.1); margin:0 2px; }
+#buildStatus { display:none; position:fixed; bottom:0; left:0; right:0; height:26px; background:rgba(10,10,14,0.88); backdrop-filter:blur(6px); border-top:1px solid rgba(255,255,255,0.07); z-index:300; padding:0 14px; font-size:10px; color:#64748b; display:flex; align-items:center; gap:14px; }
+#buildStatus.hidden { display:none!important; }
+#fpInspector { display:none; position:fixed; right:14px; top:94px; width:220px; max-height:calc(100vh - 110px); overflow-y:auto; border-radius:12px; padding:14px; z-index:250; }
+#fpInspector.hidden { display:none!important; }
+.insp-title { font-weight:700; font-size:13px; color:#f8fafc; margin-bottom:10px; }
+.insp-row { display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+.insp-row span:last-child { color:#cbd5e1; }
+.insp-actions { display:flex; gap:6px; margin-top:10px; }
+.insp-btn { flex:1; padding:5px; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:#cbd5e1; font-size:11px; cursor:pointer; transition:all 0.15s; }
+.insp-btn:hover { background:rgba(212,175,55,0.15); border-color:#d4af37; color:#f8fafc; }
+.insp-btn.danger:hover { background:rgba(239,68,68,0.15); border-color:#ef4444; color:#fca5a5; }
+.insp-room-name { width:100%; padding:5px 7px; border-radius:5px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.3); color:#f8fafc; font-size:11px; margin-top:6px; }
 .cta-label { font-size: 11px; color: #94a3b8; margin-top: 4px; margin-bottom: 2px; }
 .cta-empty { color: #475569; font-size: 12px; padding: 4px 0 10px; }
 .cta-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #f8fafc; font-size: 12px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
@@ -760,7 +779,7 @@ html, body {
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
     <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
     <button class="ctrl-btn" id="btnCustomTeam" title="Tuỳ chỉnh team của bạn">✏️ Team</button>
-    <button class="ctrl-btn" id="btnFp2" title="Vẽ mặt bằng văn phòng">🏗️</button>
+    <button class="ctrl-btn" id="btnBuildToggle" title="Chuyển Build Mode / Simulate Mode">🏗 Build</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
@@ -811,6 +830,29 @@ html, body {
   </div>
   <div class="fp2-status" id="fp2Status">Chọn chế độ bên trên để bắt đầu</div>
   <div style="font-size:9px;color:#475569;margin-top:5px;">Kéo vẽ sàn · Click cạnh để mở tường · Đặt đồ đạc</div>
+</div>
+
+<!-- Build Toolbar -->
+<div id="buildToolbar" class="hidden">
+  <button class="btool active" data-btool="select">↖ Chọn</button>
+  <button class="btool" data-btool="wall">🧱 Tường</button>
+  <button class="btool" data-btool="paint">🖌 Sàn</button>
+  <button class="btool" data-btool="furniture">🪑 Đồ đạc</button>
+  <button class="btool" data-btool="erase">🗑 Xoá</button>
+  <div class="btool-sep"></div>
+  <button class="btool" id="btUndo">↶ Undo</button>
+  <button class="btool" id="btRedo">↷ Redo</button>
+  <button class="btool" id="btSave">💾 Lưu</button>
+</div>
+<!-- Inspector Panel -->
+<div id="fpInspector" class="glass hidden"></div>
+<!-- Build Status Bar -->
+<div id="buildStatus" class="hidden">
+  <span id="bsToolLabel">Tool: Chọn</span>
+  <span>|</span>
+  <span id="bsAreaLabel">Sàn: 0 ô</span>
+  <span>|</span>
+  <span id="bsSelLabel">Chưa chọn gì</span>
 </div>
 
 <!-- Bottom Status Strip - Project & Agent Status Dashboard -->
@@ -2670,11 +2712,11 @@ function fp2BuildFurniture(){
   }
 }
 
-function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:2,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));}catch{} }
+function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:2,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{}}));}catch{} }
 function fp2Load(){
   try{
     const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
-    if(raw&&raw.v===2){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; }
+    if(raw&&raw.v===2){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; }
   }catch{}
 }
 function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
@@ -2690,6 +2732,56 @@ function fp2Redo(){
   const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture;
   fp2Apply(); fp2Save();
 }
+
+/* --- Build Mode extras --- */
+FP2.rooms = {};
+FP2._selFurnId = null;
+FP2._wireHelper = null;
+FP2._handleGroup = new T.Group(); S.add(FP2._handleGroup);
+FP2._wireGroup = new T.Group(); S.add(FP2._wireGroup);
+FP2._roomLabelGroup = new T.Group(); S.add(FP2._roomLabelGroup);
+
+function fp2DetectRooms() {
+  if(!FP2._roomLabelGroup) return;
+  /* BFS flood-fill on FP2.floor to find connected components */
+  while(FP2._roomLabelGroup.children.length){ const c=FP2._roomLabelGroup.children[0]; if(c.material){if(c.material.map)c.material.map.dispose();c.material.dispose();} if(c.geometry)c.geometry.dispose(); FP2._roomLabelGroup.remove(c); }
+  const visited = new Set();
+  let gid = 0;
+  for(const key of FP2.floor){
+    if(visited.has(key)) continue;
+    /* BFS */
+    const queue=[key]; const cells=[]; visited.add(key);
+    while(queue.length){
+      const k=queue.shift(); cells.push(k);
+      const [cs,rs]=k.split(',').map(Number);
+      for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nk=`${cs+dc},${rs+dr}`;
+        if(FP2.floor.has(nk)&&!visited.has(nk)){ visited.add(nk); queue.push(nk); }
+      }
+    }
+    if(cells.length<4) continue;
+    const roomId = `r${gid++}`;
+    /* centroid */
+    let cx=0,cz=0; for(const k of cells){const[cc,cr]=k.split(',').map(Number); cx+=cc; cz+=cr;} cx/=cells.length; cz/=cells.length;
+    const name = FP2.rooms[roomId] || `Phòng ${gid}`;
+    /* CanvasTexture label */
+    const cv=document.createElement('canvas'); cv.width=128; cv.height=64;
+    const ctx2=cv.getContext('2d');
+    ctx2.fillStyle='rgba(0,0,0,0.6)'; ctx2.roundRect(2,2,124,60,8); ctx2.fill();
+    ctx2.fillStyle='#f8fafc'; ctx2.font='bold 13px sans-serif'; ctx2.textAlign='center';
+    ctx2.fillText(name,64,26);
+    ctx2.fillStyle='#94a3b8'; ctx2.font='10px sans-serif';
+    ctx2.fillText(`${cells.length} ô · ${(cells.length*CS*CS).toFixed(1)}m²`,64,44);
+    const tex=new T.CanvasTexture(cv);
+    const spr=new T.Sprite(new T.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+    spr.scale.set(1.6,0.8,1); spr.position.set(cx*CS,0.6,cz*CS);
+    spr.userData={roomId,cells};
+    FP2._roomLabelGroup.add(spr);
+  }
+}
+
+const _fp2ApplyOrig = fp2Apply;
+fp2Apply = function(){ _fp2ApplyOrig(); fp2DetectRooms(); };
 
 fp2Load();
 if(FP2.floor.size) fp2Apply();
@@ -3875,6 +3967,234 @@ FP2._exit = fp2Exit;
 
   /* ---- Ghost pulse in loop ---- */
   FP2._ghostMeshRef2 = ()=>ghostMesh;
+
+  /* ---- Override btnFp2 ref to use new toggle ---- */
+  const _origBtnFp2 = document.getElementById('btnFp2');
+  if(_origBtnFp2){ _origBtnFp2.style.display='none'; }
+})();
+
+/* =========================================================================
+   BUILD MODE UI
+   ========================================================================= */
+(function setupBuildUI(){
+  const toolbar = document.getElementById('buildToolbar');
+  const inspector = document.getElementById('fpInspector');
+  const statusBar = document.getElementById('buildStatus');
+  const toggleBtn = document.getElementById('btnBuildToggle');
+  let buildActive = false;
+
+  function updateStatus(){
+    const toolNames = {select:'Chọn',wall:'Tường',paint:'Sàn',furniture:'Đồ đạc',erase:'Xoá'};
+    document.getElementById('bsToolLabel').textContent = 'Tool: '+(toolNames[FP2.mode]||FP2.mode);
+    document.getElementById('bsAreaLabel').textContent = 'Sàn: '+FP2.floor.size+' ô';
+    const sel = FP2._selFurnId ? FP2.furniture.find(f=>f.id===FP2._selFurnId) : null;
+    document.getElementById('bsSelLabel').textContent = sel ? `Chọn: ${sel.type} (${sel.c},${sel.r})` : 'Chưa chọn gì';
+  }
+
+  function enterBuildMode(){
+    buildActive=true;
+    toolbar.classList.remove('hidden');
+    statusBar.classList.remove('hidden');
+    toggleBtn.textContent='▶ Simulate'; toggleBtn.classList.add('active');
+    /* enter FP2 if not already */
+    if(!FP2.active){ const fp2Btn=document.getElementById('btnFp2'); if(fp2Btn)fp2Btn.click(); else if(typeof fp2Enter==='function')fp2Enter(); }
+    updateStatus();
+  }
+
+  function exitBuildMode(){
+    buildActive=false;
+    toolbar.classList.add('hidden');
+    statusBar.classList.add('hidden');
+    inspector.classList.add('hidden');
+    toggleBtn.textContent='🏗 Build'; toggleBtn.classList.remove('active');
+    clearInspector();
+    if(FP2.active && typeof fp2Exit==='function') fp2Exit();
+  }
+
+  toggleBtn.onclick=()=>{ if(buildActive) exitBuildMode(); else enterBuildMode(); };
+
+  /* Tool buttons */
+  toolbar.querySelectorAll('.btool[data-btool]').forEach(btn=>{
+    btn.onclick=()=>{
+      const tool=btn.dataset.btool;
+      FP2.mode=tool;
+      toolbar.querySelectorAll('.btool[data-btool]').forEach(b=>b.classList.toggle('active',b===btn));
+      /* sync fp2Panel tabs */
+      document.querySelectorAll('.fp2-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===tool));
+      if(typeof fp2RenderPalette==='function') fp2RenderPalette();
+      clearInspector();
+      updateStatus();
+    };
+  });
+
+  document.getElementById('btUndo').onclick=()=>{ fp2Undo(); updateStatus(); };
+  document.getElementById('btRedo').onclick=()=>{ fp2Redo(); updateStatus(); };
+  document.getElementById('btSave').onclick=()=>{ fp2Save(); updateStatus(); };
+
+  /* ---- Inspector ---- */
+  function clearInspector(){
+    FP2._selFurnId=null;
+    inspector.innerHTML='';
+    inspector.classList.add('hidden');
+    clearWireframe();
+    updateStatus();
+  }
+
+  function clearWireframe(){
+    while(FP2._wireGroup.children.length){ const c=FP2._wireGroup.children[0]; if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); FP2._wireGroup.remove(c); }
+    FP2._wireHelper=null;
+  }
+
+  function showInspector(furnId){
+    const f=FP2.furniture.find(x=>x.id===furnId); if(!f) return;
+    FP2._selFurnId=furnId;
+    clearWireframe();
+    /* wireframe box around furniture */
+    const cat=FP2_FURN.find(x=>x.type===f.type);
+    if(cat){
+      const rr=(f.rot||0)%2; const fw=rr?cat.h:cat.w,fh=rr?cat.w:cat.h;
+      const geo=new T.BoxGeometry(fw*CS,0.5,fh*CS);
+      const edges=new T.EdgesGeometry(geo);
+      geo.dispose();
+      const wire=new T.LineSegments(edges,new T.LineBasicMaterial({color:0xd4af37,linewidth:2,depthTest:false}));
+      wire.position.set((f.c+fw/2)*CS,0.25,(f.r+fh/2)*CS);
+      FP2._wireGroup.add(wire);
+      FP2._wireHelper=wire;
+    }
+    const rotDeg=(f.rot||0)*90;
+    inspector.innerHTML=`<div class="insp-title">${f.type}</div>
+      <div class="insp-row"><span>Vị trí</span><span>c=${f.c}, r=${f.r}</span></div>
+      <div class="insp-row"><span>Xoay</span><span>${rotDeg}°</span></div>
+      <div class="insp-actions">
+        <button class="insp-btn" id="inspRot">⟳ Xoay</button>
+        <button class="insp-btn danger" id="inspDel">🗑 Xoá</button>
+      </div>`;
+    inspector.classList.remove('hidden');
+    document.getElementById('inspRot').onclick=()=>{
+      f.rot=((f.rot||0)+1)%4;
+      fp2Apply(); fp2Save(); showInspector(furnId); updateStatus();
+    };
+    document.getElementById('inspDel').onclick=()=>{
+      FP2.furniture=FP2.furniture.filter(x=>x.id!==furnId);
+      fp2Apply(); fp2Save(); clearInspector();
+    };
+    updateStatus();
+  }
+
+  /* ---- Room label inspector ---- */
+  function showRoomInspector(roomId, cells){
+    FP2._selFurnId=null; clearWireframe();
+    const name=FP2.rooms[roomId]||`Phòng`;
+    inspector.innerHTML=`<div class="insp-title">Phòng</div>
+      <div class="insp-row"><span>Diện tích</span><span>${cells.length} ô · ${(cells.length*CS*CS).toFixed(1)}m²</span></div>
+      <input class="insp-room-name" id="inspRoomName" value="${name}" placeholder="Tên phòng...">
+      <div class="insp-actions"><button class="insp-btn" id="inspRoomSave">💾 Lưu tên</button></div>`;
+    inspector.classList.remove('hidden');
+    document.getElementById('inspRoomSave').onclick=()=>{
+      FP2.rooms[roomId]=document.getElementById('inspRoomName').value||name;
+      fp2Apply(); fp2Save();
+    };
+  }
+
+  /* ---- Override FP2 click to handle select mode ---- */
+  const _origOnClick = FP2._onClick;
+  FP2._onClick = function(e){
+    if(!buildActive){ if(_origOnClick) _origOnClick(e); return; }
+    if(FP2.mode==='select'){
+      /* raycasting for furniture */
+      const rect=e.target.getBoundingClientRect();
+      const mx=((e.clientX-rect.left)/rect.width)*2-1;
+      const my=-((e.clientY-rect.top)/rect.height)*2+1;
+      const ray=new T.Raycaster(); ray.setFromCamera({x:mx,y:my},cam);
+      const hits=ray.intersectObjects(FP2.decorGroup.children,true);
+      if(hits.length){
+        let obj=hits[0].object; while(obj.parent&&obj.parent!==FP2.decorGroup) obj=obj.parent;
+        if(obj.userData&&obj.userData.furnId){ showInspector(obj.userData.furnId); return; }
+        /* try find by position */
+        const p=hits[0].point;
+        const fc=Math.floor(p.x/CS), fr=Math.floor(p.z/CS);
+        const fnd=FP2.furniture.find(f=>f.c===fc&&f.r===fr)||FP2.furniture.find(f=>Math.abs(f.c-fc)<=1&&Math.abs(f.r-fr)<=1);
+        if(fnd){ showInspector(fnd.id); return; }
+      }
+      /* check room label sprites */
+      const lhits=ray.intersectObjects(FP2._roomLabelGroup.children,false);
+      if(lhits.length){ const spr=lhits[0].object; if(spr.userData.roomId){ showRoomInspector(spr.userData.roomId,spr.userData.cells); return; } }
+      clearInspector();
+    } else {
+      if(_origOnClick) _origOnClick(e);
+      updateStatus();
+    }
+  };
+
+  /* ---- Override pointer move for wall handles ---- */
+  const _origOnPointerMove = FP2._onPointerMove;
+  FP2._onPointerMove = function(e){
+    if(!buildActive||FP2.mode!=='wall'){ if(_origOnPointerMove) _origOnPointerMove(e); return; }
+    if(_origOnPointerMove) _origOnPointerMove(e);
+    /* wall handle detection */
+    buildUpdateHandles(e);
+  };
+
+  /* ---- Wall handles ---- */
+  function buildClearHandles(){
+    while(FP2._handleGroup.children.length){ const c=FP2._handleGroup.children[0]; if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); FP2._handleGroup.remove(c); }
+  }
+
+  function buildUpdateHandles(e){
+    buildClearHandles();
+    if(!FP2.active||FP2.mode!=='wall') return;
+    const rect=e.target.getBoundingClientRect();
+    const mx=((e.clientX-rect.left)/rect.width)*2-1;
+    const my=-((e.clientY-rect.top)/rect.height)*2+1;
+    const ray=new T.Raycaster(); ray.setFromCamera({x:mx,y:my},cam);
+    const plane=new T.Plane(new T.Vector3(0,1,0),0);
+    const pt=new T.Vector3(); ray.ray.intersectPlane(plane,pt);
+    if(!pt) return;
+    const pc=pt.x/CS, pr=pt.z/CS;
+    /* find nearest edge within 1.5 cells */
+    const walls=fp2GetAutoWalls(); let best=null, bestDist=99;
+    for(const key of walls){
+      const parts=key.split(','); const type=parts[0],ec=+parts[1],er=+parts[2];
+      let midC,midR;
+      if(type==='h'){ midC=ec+0.5; midR=er+1; } else { midC=ec+1; midR=er+0.5; }
+      const d=Math.hypot(pc-midC,pr-midR);
+      if(d<bestDist){ bestDist=d; best={key,type,ec,er,midC,midR}; }
+    }
+    if(!best||bestDist>1.5) return;
+    const geo=new T.SphereGeometry(0.08,8,8);
+    const mat=new T.MeshBasicMaterial({color:0xf97316});
+    if(best.type==='h'){
+      [[best.ec,best.er+1],[best.ec+1,best.er+1]].forEach(([c,r])=>{
+        const sp=new T.Mesh(geo.clone(),mat.clone()); sp.position.set(c*CS,0.3,r*CS); FP2._handleGroup.add(sp);
+      });
+    } else {
+      [[best.ec+1,best.er],[best.ec+1,best.er+1]].forEach(([c,r])=>{
+        const sp=new T.Mesh(geo.clone(),mat.clone()); sp.position.set(c*CS,0.3,r*CS); FP2._handleGroup.add(sp);
+      });
+    }
+    geo.dispose(); mat.dispose();
+  }
+
+  /* ---- Keyboard shortcuts ---- */
+  document.addEventListener('keydown',e=>{
+    if(!buildActive) return;
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+    const map={s:'select',w:'wall',f:'paint',u:'furniture',e:'erase'};
+    if(map[e.key.toLowerCase()]){
+      FP2.mode=map[e.key.toLowerCase()];
+      toolbar.querySelectorAll('.btool[data-btool]').forEach(b=>b.classList.toggle('active',b.dataset.btool===FP2.mode));
+      if(typeof fp2RenderPalette==='function') fp2RenderPalette();
+      clearInspector(); updateStatus();
+    }
+    if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); updateStatus(); }
+    if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); updateStatus(); }
+    if(e.key==='Escape'){ clearInspector(); }
+  });
+
+  /* expose for loop() */
+  FP2._buildActive=()=>buildActive;
+  FP2._updateStatus=updateStatus;
+  FP2._wireHelper=null;
 })();
 
 /* =========================================================================
@@ -3990,6 +4310,11 @@ function loop(now) {
       const ft = performance.now() * 0.001;
       gm2.traverse(o => { if (o.material && o.material.opacity !== undefined) o.material.opacity = 0.3 + 0.15 * Math.sin(ft * 5); });
     }
+  }
+  /* wireframe selection pulse */
+  if (FP2._wireGroup.children.length) {
+    const ft = performance.now() * 0.001;
+    FP2._wireGroup.children.forEach(c => { if (c.material) c.material.opacity = 0.6 + 0.4 * Math.abs(Math.sin(ft * 3)); });
   }
 
   R.render(S, cam);
