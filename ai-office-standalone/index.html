@@ -708,6 +708,14 @@ html, body {
 }
 .cta-add-btn:hover { background: rgba(212,163,115,0.3); }
 .cta-full-msg { color: #64748b; font-size: 12px; text-align: center; padding: 6px 0; }
+.cta-label { font-size: 11px; color: #94a3b8; margin-top: 4px; margin-bottom: 2px; }
+.cta-empty { color: #475569; font-size: 12px; padding: 4px 0 10px; }
+.cta-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #f8fafc; font-size: 12px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
+.cta-input:focus { border-color: rgba(212,163,115,0.5); outline: none; }
+.cta-minimap-wrap { margin: 4px 0 6px; border-radius: 6px; overflow: hidden; }
+.cta-desk-hint { font-size: 10px; color: #64748b; margin-top: 2px; }
+#customTeamDrawer { width: 340px; }
+@media (max-width: 600px) { #customTeamDrawer { width: calc(100vw - 28px); } }
 </style>
 </head>
 <body>
@@ -863,7 +871,7 @@ html, body {
     <h4>✏️ Tuỳ Chỉnh Team</h4>
     <button onclick="document.getElementById('customTeamDrawer').style.display='none'" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
   </div>
-  <div style="color:#64748b;font-size:11px;margin-bottom:14px;">Thêm agent của riêng bạn vào văn phòng (tối đa 4)</div>
+  <div style="color:#64748b;font-size:11px;margin-bottom:14px;">Thêm agent của riêng bạn vào văn phòng (tối đa 16 vị trí)</div>
 
   <div id="ctaAgentList"></div>
 
@@ -1903,17 +1911,29 @@ AG.forEach(([id, , , , c, r, , , screenType]) => {
   registerSeat('d_' + id, [c + 1, r + 2], [c + 1, r + 3], Math.PI, false);
 });
 
-/* Pre-allocate 4 reserved desk/seat slots for custom agents */
-const CUSTOM_SLOTS = [
-  { id: 'custom_0', c: 8,  r: 34, screenType: 'design', dept: 'design' },
-  { id: 'custom_1', c: 26, r: 34, screenType: 'bim',    dept: 'bim'    },
-  { id: 'custom_2', c: 45, r: 27, screenType: 'po',     dept: 'cost'   },
-  { id: 'custom_3', c: 54, r: 27, screenType: 'design', dept: 'qa'     },
+/* 16-position desk pool — desks created on demand when agent assigned */
+const DESK_POOL = [
+  // Design room (3 spots)
+  { id: 'dp_0',  c: 8,  r: 27, screenType: 'design', dept: 'design', label: 'Thiết Kế A' },
+  { id: 'dp_1',  c: 8,  r: 34, screenType: 'design', dept: 'design', label: 'Thiết Kế B' },
+  { id: 'dp_2',  c: 13, r: 34, screenType: 'design', dept: 'design', label: 'Thiết Kế C' },
+  // BIM room (6 spots)
+  { id: 'dp_3',  c: 26, r: 27, screenType: 'bim',    dept: 'bim',    label: 'BIM A' },
+  { id: 'dp_4',  c: 22, r: 34, screenType: 'bim',    dept: 'bim',    label: 'BIM B' },
+  { id: 'dp_5',  c: 26, r: 34, screenType: 'bim',    dept: 'bim',    label: 'BIM C' },
+  { id: 'dp_6',  c: 30, r: 34, screenType: 'bim',    dept: 'bim',    label: 'BIM D' },
+  { id: 'dp_7',  c: 34, r: 27, screenType: 'bim',    dept: 'bim',    label: 'BIM E' },
+  { id: 'dp_8',  c: 34, r: 34, screenType: 'bim',    dept: 'bim',    label: 'BIM F' },
+  // Cost room (4 spots)
+  { id: 'dp_9',  c: 45, r: 27, screenType: 'po',     dept: 'cost',   label: 'Kế Toán A' },
+  { id: 'dp_10', c: 45, r: 34, screenType: 'po',     dept: 'cost',   label: 'Kế Toán B' },
+  { id: 'dp_11', c: 48, r: 27, screenType: 'po',     dept: 'cost',   label: 'Kế Toán C' },
+  { id: 'dp_12', c: 48, r: 34, screenType: 'po',     dept: 'cost',   label: 'Kế Toán D' },
+  // QA room (3 spots)
+  { id: 'dp_13', c: 54, r: 27, screenType: 'design', dept: 'qa',     label: 'QA A' },
+  { id: 'dp_14', c: 57, r: 27, screenType: 'design', dept: 'qa',     label: 'QA B' },
+  { id: 'dp_15', c: 57, r: 34, screenType: 'design', dept: 'qa',     label: 'QA C' },
 ];
-CUSTOM_SLOTS.forEach(sl => {
-  createDetailedDesk(sl.c, sl.r, sl.screenType, false);
-  registerSeat('d_' + sl.id, [sl.c + 1, sl.r + 2], [sl.c + 1, sl.r + 3], Math.PI, false);
-});
 
 /* =========================================================================
    ATELIER LOUNGE, PANTRY & WELLNESS STUDIO (PHÒNG NGHỈ NGƠI, ĂN UỐNG & TẬP THỂ DỤC)
@@ -2756,29 +2776,38 @@ agents = AG.map(([id, n, r, col, c, row, dept, bio, , shortName]) => new Agent(i
 A = Object.fromEntries(agents.map(a => [a.id, a]));
 
 /* ===== CUSTOM TEAM: load/save/spawn ===== */
-const _CUSTOM_COLORS = [0x7c3aed, 0xdb2777, 0x0891b2, 0x16a34a];
 
 function getCustomAgentConfigs() {
-  try { return JSON.parse(localStorage.getItem('atelier_custom_agents') || '[]'); } catch { return []; }
+  try {
+    const raw = JSON.parse(localStorage.getItem('atelier_custom_agents') || '[]');
+    // Migrate old format (no poolIdx) to new
+    return raw.map((cfg, i) => typeof cfg.poolIdx === 'number' ? cfg : { ...cfg, poolIdx: i });
+  } catch { return []; }
 }
 function saveCustomAgentConfigs(arr) {
   try { localStorage.setItem('atelier_custom_agents', JSON.stringify(arr)); } catch {}
 }
 
-function spawnCustomAgent(cfg, slotIdx) {
-  const slot = CUSTOM_SLOTS[slotIdx];
-  if (!slot || A[slot.id]) return;
+function spawnCustomAgent(cfg) {
+  const pidx = typeof cfg.poolIdx === 'number' ? cfg.poolIdx : 0;
+  const slot = DESK_POOL[pidx];
+  if (!slot || A[slot.id]) return false;
+  if (!seats['d_' + slot.id]) {
+    createDetailedDesk(slot.c, slot.r, slot.screenType, false);
+    registerSeat('d_' + slot.id, [slot.c + 1, slot.r + 2], [slot.c + 1, slot.r + 3], Math.PI, false);
+  }
   const seat = seats['d_' + slot.id];
-  if (!seat) return;
-  const col = typeof cfg.color === 'number' ? cfg.color : (_CUSTOM_COLORS[slotIdx] || 0x7c3aed);
+  if (!seat) return false;
+  const col = typeof cfg.color === 'number' ? cfg.color : 0x7c3aed;
   const ag = new Agent(slot.id, cfg.name, cfg.role || 'Custom Agent', col, seat, slot.dept, cfg.bio || '', cfg.shortName || cfg.name.split(' ')[0]);
   agents.push(ag);
   A[slot.id] = ag;
   if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
+  return true;
 }
 
-function despawnCustomAgent(slotIdx) {
-  const slot = CUSTOM_SLOTS[slotIdx];
+function despawnCustomAgent(poolIdx) {
+  const slot = DESK_POOL[poolIdx];
   if (!slot) return;
   const ag = A[slot.id];
   if (!ag) return;
@@ -2791,7 +2820,7 @@ function despawnCustomAgent(slotIdx) {
 }
 
 // Restore saved custom agents on startup
-getCustomAgentConfigs().forEach((cfg, i) => spawnCustomAgent(cfg, i));
+getCustomAgentConfigs().forEach(cfg => spawnCustomAgent(cfg));
 
 window.focusAgent = function(id) {
   const agent = A[id];
@@ -3569,71 +3598,155 @@ setInterval(syncLiveCompanyStatus, 6000);
   });
 })();
 
-/* ===== CUSTOM TEAM PANEL UI ===== */
-function renderCustomTeamPanel() {
-  const configs = getCustomAgentConfigs();
+/* ===== CUSTOM TEAM PANEL UI v2 ===== */
+let _ctaSelPoolIdx = null;
+let _ctaPcAgents = null; // null = not fetched yet
+
+function _ctaBuildMinimap(occupied, selIdx) {
+  const SC = 3.1;
+  const rooms = [
+    { x: 0,  z: 23, w: 19, h: 17, fill: 'rgba(56,189,248,0.1)',   lbl: 'Thiết Kế' },
+    { x: 19, z: 22, w: 19, h: 18, fill: 'rgba(52,211,153,0.1)',   lbl: 'BIM' },
+    { x: 38, z: 22, w: 14, h: 18, fill: 'rgba(251,191,36,0.1)',   lbl: 'Kế Toán' },
+    { x: 52, z: 22, w:  8, h: 18, fill: 'rgba(192,132,252,0.1)',  lbl: 'QA' },
+  ];
+  const fixedAg = [[44,4],[3,27],[13,27],[3,34],[22,27],[30,27],[39,27],[39,34],[54,34]];
+  let s = `<svg id="ctaMapSvg" xmlns="http://www.w3.org/2000/svg" width="${60*SC}" height="${40*SC}" style="display:block;border-radius:6px;">`;
+  s += `<rect width="${60*SC}" height="${40*SC}" fill="rgba(0,0,0,0.45)" rx="4"/>`;
+  rooms.forEach(rm => {
+    s += `<rect x="${rm.x*SC}" y="${rm.z*SC}" width="${rm.w*SC}" height="${rm.h*SC}" fill="${rm.fill}" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>`;
+    s += `<text x="${(rm.x+rm.w/2)*SC}" y="${(rm.z+2.4)*SC}" text-anchor="middle" fill="rgba(255,255,255,0.3)" font-size="4.5" font-family="sans-serif">${rm.lbl}</text>`;
+  });
+  fixedAg.forEach(([c,r]) => {
+    s += `<circle cx="${(c+0.5)*SC}" cy="${(r+0.5)*SC}" r="2" fill="rgba(248,113,113,0.8)"/>`;
+  });
+  DESK_POOL.forEach((sl, i) => {
+    const isOcc = occupied.has(i), isSel = selIdx === i;
+    const fill = isSel ? '#f59e0b' : (isOcc ? 'rgba(100,116,139,0.55)' : 'rgba(74,222,128,0.75)');
+    const cur = isOcc ? 'default' : 'pointer';
+    s += `<rect class="cta-dc" data-pidx="${i}" x="${sl.c*SC+0.4}" y="${sl.r*SC+0.4}" width="${SC*1.7}" height="${SC*1.7}" fill="${fill}" rx="1.2" style="cursor:${cur}"/>`;
+  });
+  s += '</svg>';
+  return s;
+}
+
+async function renderCustomTeamPanel() {
   const list = document.getElementById('ctaAgentList');
   const formArea = document.getElementById('ctaFormArea');
   if (!list || !formArea) return;
+  const configs = getCustomAgentConfigs();
 
   list.innerHTML = configs.length === 0
-    ? '<div style="color:#475569;font-size:12px;padding:4px 0 10px;">Chưa có agent tuỳ chỉnh nào.</div>'
+    ? '<div class="cta-empty">Chưa có agent tuỳ chỉnh nào.</div>'
     : configs.map((cfg, i) => {
-        const bgCol = cfg.colorHex || '#7c3aed';
-        const initials = (cfg.name || '?')[0].toUpperCase();
+        const bg = cfg.colorHex || '#7c3aed';
+        const slotLbl = DESK_POOL[cfg.poolIdx]?.label || '';
         return `<div class="cta-agent-row">
-          <div class="cta-avatar" style="background:${bgCol};">${initials}</div>
+          <div class="cta-avatar" style="background:${bg};">${(cfg.name[0]||'?').toUpperCase()}</div>
           <div class="cta-info">
             <div class="cta-name">${cfg.name}</div>
-            <div class="cta-role">${cfg.role || 'Custom Agent'}</div>
+            <div class="cta-role">${cfg.role||'Custom Agent'}${slotLbl ? ' · '+slotLbl : ''}</div>
           </div>
-          <button class="cta-del" onclick="removeCustomAgent(${i})" title="Xoá agent này">×</button>
+          <button class="cta-del" onclick="removeCustomAgent(${i})" title="Xoá">×</button>
         </div>`;
       }).join('');
 
-  if (configs.length >= CUSTOM_SLOTS.length) {
-    formArea.innerHTML = `<p class="cta-full-msg">Đã đạt tối đa ${CUSTOM_SLOTS.length} custom agents.</p>`;
-  } else {
-    formArea.innerHTML = `<hr class="cta-sep">
-    <form id="ctaForm" class="cta-form-row">
-      <input id="ctaName" placeholder="Tên agent *" required maxlength="32">
-      <input id="ctaShortName" placeholder="Tên ngắn (tùy chọn)" maxlength="16">
-      <input id="ctaRole" placeholder="Chức danh / Vai trò" maxlength="48">
-      <textarea id="ctaBio" placeholder="Mô tả công việc" rows="2" maxlength="120"></textarea>
-      <div class="cta-color-row">
-        <input type="color" id="ctaColor" value="#7c3aed">
-        <label>Màu nhận diện</label>
-      </div>
-      <button type="submit" class="cta-add-btn">+ Thêm vào văn phòng</button>
-    </form>`;
-    document.getElementById('ctaForm').addEventListener('submit', e => {
-      e.preventDefault();
-      const name = document.getElementById('ctaName').value.trim();
-      if (!name) return;
-      const colorHex = document.getElementById('ctaColor').value;
-      const cfgs = getCustomAgentConfigs();
-      const newCfg = {
-        name,
-        shortName: document.getElementById('ctaShortName').value.trim() || name.split(' ')[0],
-        role: document.getElementById('ctaRole').value.trim() || 'Custom Agent',
-        bio: document.getElementById('ctaBio').value.trim() || 'Thành viên tuỳ chỉnh của team',
-        colorHex,
-        color: parseInt(colorHex.replace('#', ''), 16)
-      };
-      cfgs.push(newCfg);
-      saveCustomAgentConfigs(cfgs);
-      spawnCustomAgent(newCfg, cfgs.length - 1);
-      renderCustomTeamPanel();
+  if (configs.length >= DESK_POOL.length) {
+    formArea.innerHTML = `<p class="cta-full-msg">Đã đạt tối đa ${DESK_POOL.length} agent.</p>`;
+    return;
+  }
+
+  if (_ctaPcAgents === null) {
+    _ctaPcAgents = [];
+    try {
+      const r = await fetch('http://localhost:3100/api/atelier/office-agents', { signal: AbortSignal.timeout(2000) });
+      if (r.ok) { const d = await r.json(); _ctaPcAgents = d.agents || []; }
+    } catch { /* Paperclip offline — fallback to manual */ }
+  }
+
+  const occupied = new Set(configs.map(c => c.poolIdx));
+  const pcSel = _ctaPcAgents.length > 0
+    ? `<div class="cta-label">Chọn từ Paperclip</div>
+       <select id="ctaPcSel" class="cta-input">
+         <option value="">── Nhập tay ──</option>
+         ${_ctaPcAgents.map(a => `<option value="${a.id}" data-name="${a.name}" data-role="${a.role||a.title||''}">${a.name}${a.role ? ' — '+a.role : ''}</option>`).join('')}
+       </select>`
+    : '<div class="cta-label" style="color:#475569;">Paperclip offline — nhập tay</div>';
+
+  formArea.innerHTML = `<hr class="cta-sep">
+${pcSel}
+<form id="ctaForm" class="cta-form-row" style="margin-top:4px;">
+  <input id="ctaName" placeholder="Tên agent *" required maxlength="32">
+  <input id="ctaShortName" placeholder="Tên ngắn (tùy chọn)" maxlength="16">
+  <input id="ctaRole" placeholder="Chức danh / Vai trò" maxlength="48">
+  <textarea id="ctaBio" placeholder="Mô tả công việc" rows="2" maxlength="120"></textarea>
+  <div class="cta-color-row"><input type="color" id="ctaColor" value="#7c3aed"><label>Màu nhận diện</label></div>
+  <div class="cta-label" style="margin-top:6px;">Chọn vị trí bàn <span id="ctaDeskLbl" style="color:#f59e0b;font-weight:600;"></span></div>
+  <div class="cta-minimap-wrap">${_ctaBuildMinimap(occupied, _ctaSelPoolIdx)}</div>
+  <div class="cta-desk-hint">🟢 Trống &nbsp;⬛ Đã có agent &nbsp;🟡 Đang chọn</div>
+  <button type="submit" class="cta-add-btn" id="ctaSubmitBtn" ${_ctaSelPoolIdx === null ? 'disabled style="opacity:0.4"' : ''}>
+    ${_ctaSelPoolIdx === null ? 'Chọn vị trí trên sơ đồ ↑' : '+ Thêm vào văn phòng (' + (DESK_POOL[_ctaSelPoolIdx]?.label||'') + ')'}
+  </button>
+</form>`;
+
+  if (_ctaPcAgents.length > 0) {
+    document.getElementById('ctaPcSel').addEventListener('change', e => {
+      const opt = e.target.selectedOptions[0];
+      if (opt.value) {
+        document.getElementById('ctaName').value = opt.dataset.name || '';
+        document.getElementById('ctaRole').value = opt.dataset.role || '';
+      }
     });
   }
+
+  document.getElementById('ctaMapSvg').addEventListener('click', e => {
+    const pidx = e.target.dataset?.pidx;
+    if (pidx === undefined) return;
+    const idx = parseInt(pidx);
+    if (occupied.has(idx)) return;
+    _ctaSelPoolIdx = idx;
+    const lbl = DESK_POOL[idx]?.label || '';
+    const deskLbl = document.getElementById('ctaDeskLbl');
+    if (deskLbl) deskLbl.textContent = '— ' + lbl;
+    const btn = document.getElementById('ctaSubmitBtn');
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '+ Thêm vào văn phòng (' + lbl + ')'; }
+    document.querySelectorAll('.cta-dc').forEach(el => {
+      const i = parseInt(el.dataset.pidx);
+      const occ = occupied.has(i);
+      el.setAttribute('fill', i === idx ? '#f59e0b' : (occ ? 'rgba(100,116,139,0.55)' : 'rgba(74,222,128,0.75)'));
+      el.style.cursor = occ ? 'default' : 'pointer';
+    });
+  });
+
+  document.getElementById('ctaForm').addEventListener('submit', e => {
+    e.preventDefault();
+    if (_ctaSelPoolIdx === null) return;
+    const name = document.getElementById('ctaName').value.trim();
+    if (!name) return;
+    const colorHex = document.getElementById('ctaColor').value;
+    const cfg = {
+      name,
+      shortName: document.getElementById('ctaShortName').value.trim() || name.split(' ')[0],
+      role: document.getElementById('ctaRole').value.trim() || 'Custom Agent',
+      bio: document.getElementById('ctaBio').value.trim() || 'Thành viên tuỳ chỉnh',
+      colorHex,
+      color: parseInt(colorHex.replace('#', ''), 16),
+      poolIdx: _ctaSelPoolIdx,
+    };
+    const cfgs = getCustomAgentConfigs();
+    cfgs.push(cfg);
+    saveCustomAgentConfigs(cfgs);
+    spawnCustomAgent(cfg);
+    _ctaSelPoolIdx = null;
+    renderCustomTeamPanel();
+  });
 }
 
 window.removeCustomAgent = function(idx) {
   const cfgs = getCustomAgentConfigs();
-  cfgs.splice(idx, 1);
-  for (let i = idx; i < CUSTOM_SLOTS.length; i++) despawnCustomAgent(i);
+  const removed = cfgs.splice(idx, 1)[0];
+  if (removed && typeof removed.poolIdx === 'number') despawnCustomAgent(removed.poolIdx);
   saveCustomAgentConfigs(cfgs);
-  cfgs.forEach((cfg, i) => { if (i >= idx) spawnCustomAgent(cfg, i); });
   renderCustomTeamPanel();
 };
 
@@ -3643,7 +3756,7 @@ if (btnCustomTeam) {
     const drawer = document.getElementById('customTeamDrawer');
     const isOpen = drawer.style.display !== 'none' && drawer.style.display !== '';
     drawer.style.display = isOpen ? 'none' : 'block';
-    if (!isOpen) renderCustomTeamPanel();
+    if (!isOpen) { _ctaSelPoolIdx = null; renderCustomTeamPanel(); }
     btnCustomTeam.classList.toggle('active', !isOpen);
   };
 }

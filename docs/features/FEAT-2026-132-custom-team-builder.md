@@ -61,3 +61,36 @@ với tên, chức danh, màu, mô tả; lưu vào `localStorage`; phục hồi 
 - [x] Phạm vi rõ, non-goals rõ.
 - [x] Không cần rollback phức tạp (localStorage-only, không push).
 - Trạng thái: `FROZEN` — 2026-11-20T11:00:00+07:00
+
+---
+
+## CR-001 — Mở rộng phạm vi: 16 vị trí + sơ đồ bàn + Paperclip agent list
+
+| Trường | Giá trị |
+|---|---|
+| Phiên bản hợp đồng mới | 2.0 |
+| Ngày CR | 2026-11-20 |
+| Người yêu cầu | Người dùng (xác nhận trực tiếp) |
+| Lý do | Người dùng muốn: (1) không giới hạn 4 slot, (2) list agent lấy từ Paperclip, (3) chọn/chỉ định vị trí bàn cụ thể |
+
+### Thay đổi phạm vi (v2.0)
+
+**Thêm vào scope:**
+- Thay 4 CUSTOM_SLOTS cứng bằng DESK_POOL gồm 16 vị trí trải đều 4 phòng (Design ×3, BIM ×6, Cost ×4, QA ×3), tạo bàn+ghế on-demand thay vì pre-allocate.
+- Sơ đồ văn phòng SVG mini (top-down, 192×128px) trong panel: ô xanh = còn trống, xám = đã có agent, vàng = đang chọn. User click vào ô để chọn vị trí.
+- Endpoint server `GET /api/atelier/office-agents` trong `atelier-bridge.ts`: trả về danh sách agent của company ATELIER (id, name, role, title) không cần auth, có CORS wildcard để ai-office gọi từ cổng khác. UI fetch khi mở panel, hiển thị dropdown auto-fill tên+chức danh; fallback nhập tay nếu Paperclip offline.
+- LocalStorage schema cập nhật: thêm trường `poolIdx` (số int 0–15) xác định vị trí bàn.
+- Migration backward compat: config cũ không có `poolIdx` → gán theo array index.
+
+**Loại khỏi scope:**
+- Kéo-thả bàn trong 3D (giữ nguyên out-of-scope).
+- Giới hạn 4 agent bị bỏ → tối đa 16 agent.
+- Nút "xoá bàn" (bàn rỗng để lại trong scene sau khi xoá agent).
+
+**File thay đổi thêm:**
+| File | Loại |
+|---|---|
+| `paperclip/server/src/routes/atelier-bridge.ts` | Thêm GET endpoint |
+
+### Approval
+Người dùng xác nhận tại session 2026-11-20: "phương án 3 và có thể thêm bàn mở rộng vị trí thêm bàn chỉ định bàn làm thế được không?"
