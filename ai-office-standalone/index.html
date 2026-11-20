@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
@@ -707,12 +707,16 @@ html, body {
   transition: background 0.15s;
 }
 .cta-add-btn:hover { background: rgba(212,163,115,0.3); }
-.fp-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px; cursor:pointer; transition:border-color 0.15s; }
-.fp-card:hover { border-color: rgba(212,175,55,0.5); }
-.fp-card.selected { border-color: #d4af37; background: rgba(212,175,55,0.1); }
-.fp-card-name { font-size:11px; color:#f8fafc; font-weight:600; margin-top:3px; }
-.fp-card-size { font-size:10px; color:#64748b; }
-.fp-tab.active { background: rgba(255,255,255,0.12) !important; color: #f8fafc !important; border-color: rgba(255,255,255,0.2) !important; }
+/* FP2 editor */
+#fp2Panel { width:260px; max-height:calc(100vh - 70px); overflow-y:auto; border-radius:12px; padding:12px; z-index:200; position:fixed; left:14px; top:60px; }
+.fp2-tab { flex:1; padding:5px 2px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.2); color:#94a3b8; font-size:10px; cursor:pointer; transition:all 0.15s; }
+.fp2-tab.active { background:rgba(255,255,255,0.12); color:#f8fafc; border-color:rgba(255,255,255,0.25); }
+.fp2-item { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); border-radius:7px; padding:7px; cursor:pointer; transition:border-color 0.15s; text-align:center; }
+.fp2-item:hover { border-color:rgba(212,175,55,0.5); }
+.fp2-item.sel { border-color:#d4af37; background:rgba(212,175,55,0.1); }
+.fp2-item-icon { font-size:18px; display:block; }
+.fp2-item-name { font-size:10px; color:#94a3b8; margin-top:2px; }
+.fp2-status { font-size:11px; min-height:32px; border-radius:6px; padding:5px 7px; background:rgba(0,0,0,0.3); margin-top:6px; }
 .cta-full-msg { color: #64748b; font-size: 12px; text-align: center; padding: 6px 0; }
 .cta-label { font-size: 11px; color: #94a3b8; margin-top: 4px; margin-bottom: 2px; }
 .cta-empty { color: #475569; font-size: 12px; padding: 4px 0 10px; }
@@ -756,7 +760,7 @@ html, body {
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
     <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
     <button class="ctrl-btn" id="btnCustomTeam" title="Tuỳ chỉnh team của bạn">✏️ Team</button>
-    <button class="ctrl-btn" id="btnFloorplan" title="Mở rộng mặt bằng — ghép phòng & trang trí">🧩</button>
+    <button class="ctrl-btn" id="btnFp2" title="Vẽ mặt bằng văn phòng">🏗️</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
@@ -786,24 +790,27 @@ html, body {
   <p class="visual-quality-note">Preset chỉ điều chỉnh cách render. Scene, agent, bố cục và vật liệu gốc vẫn được giữ nguyên.</p>
 </section>
 
-<div id="fpPanel" class="glass" style="display:none;position:fixed;left:14px;top:60px;width:272px;max-height:calc(100vh - 80px);overflow-y:auto;border-radius:12px;padding:12px;z-index:200;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-    <span style="font-weight:600;font-size:14px;">🧩 Mở Rộng Văn Phòng</span>
-    <button id="fpClose" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;">×</button>
+<div id="fp2Panel" class="glass" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+    <span style="font-weight:700;font-size:13px;">🏗️ Vẽ Mặt Bằng</span>
+    <button id="fp2Close" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;">×</button>
   </div>
-  <div style="display:flex;gap:4px;margin-bottom:10px;">
-    <button class="fp-tab active" data-tab="room" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.08);color:#f8fafc;font-size:11px;cursor:pointer;">🧱 Phòng</button>
-    <button class="fp-tab" data-tab="decor" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#94a3b8;font-size:11px;cursor:pointer;">🌿 Trang Trí</button>
-    <button class="fp-tab" data-tab="select" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#94a3b8;font-size:11px;cursor:pointer;">🔍 Chọn</button>
+  <div style="display:flex;gap:3px;margin-bottom:10px;" id="fp2Tabs">
+    <button class="fp2-tab active" data-mode="paint">🖌️<br>Sàn</button>
+    <button class="fp2-tab" data-mode="wall">🧱<br>Tường</button>
+    <button class="fp2-tab" data-mode="furniture">🪑<br>Đồ đạc</button>
+    <button class="fp2-tab" data-mode="erase">🗑️<br>Xoá</button>
   </div>
-  <div id="fpPalette" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"></div>
-  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
-    <button id="fpRotate" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Xoay (R)">⟳ Xoay</button>
-    <button id="fpUndo" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Hoàn tác (Ctrl+Z)">↶ Undo</button>
-    <button id="fpDelete" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Xoá (Del)">🗑 Xoá</button>
+  <div id="fp2Palette" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:8px;"></div>
+  <div style="display:flex;gap:5px;margin-bottom:6px;flex-wrap:wrap;">
+    <button class="ctrl-btn" id="fp2Undo" style="font-size:10px;padding:3px 7px;" title="Ctrl+Z">↶</button>
+    <button class="ctrl-btn" id="fp2Redo" style="font-size:10px;padding:3px 7px;" title="Ctrl+Y">↷</button>
+    <button class="ctrl-btn" id="fp2Del" style="font-size:10px;padding:3px 7px;" title="Del">🗑</button>
+    <button class="ctrl-btn" id="fp2Clear" style="font-size:10px;padding:3px 7px;" title="Xoá tất cả">✕ Tất cả</button>
+    <button class="ctrl-btn" id="fp2Rot" style="font-size:10px;padding:3px 7px;" title="R">⟳</button>
   </div>
-  <div id="fpStatus" style="font-size:11px;color:#64748b;min-height:36px;"></div>
-  <div style="font-size:10px;color:#475569;margin-top:4px;">Kéo chuột xoay camera · Click để đặt</div>
+  <div class="fp2-status" id="fp2Status">Chọn chế độ bên trên để bắt đầu</div>
+  <div style="font-size:9px;color:#475569;margin-top:5px;">Kéo vẽ sàn · Click cạnh để mở tường · Đặt đồ đạc</div>
 </div>
 
 <!-- Bottom Status Strip - Project & Agent Status Dashboard -->
@@ -2529,348 +2536,163 @@ function astar(a, b) {
 }
 
 /* =========================================================================
-   10b. FLOOR PLAN EDITOR — core
+   10b. FP2 — Free-Draw Floor Plan Editor (core)
    ========================================================================= */
-const FP_KEY = 'atelier_fp_v1';
-const FP_MAX_MODULES = 16;
-const FP_HISTORY_MAX = 30;
 
-const FP_CATALOG = [
-  { type: 'meet_s',  name: 'Phòng họp',       w: 10, h: 8,  floorCol: 0x2a1f1a, tex: 'walnut',
-    decor(g, x0, z0, w, h) {
-      const cx = x0 + w*CS/2, cz = z0 + h*CS/2;
-      bx(cx, 0.37, cz, 4*CS, 0.74, 2*CS, 0x3d2b1f, g);
-      for (const [dx,dz] of [[-1.3,0],[1.3,0],[0,-0.6],[0,0.6]]) bx(cx+dx,0.22,cz+dz,0.4,0.44,0.4,0x1a1a2e,g);
-      return [];
-    }
-  },
-  { type: 'storage', name: 'Kho',              w: 6,  h: 6,  floorCol: 0x1a1f24, tex: 'stone',
-    decor(g, x0, z0, w, h) {
-      bx(x0+CS+0.45, 0.6, z0+CS+0.1, 0.9, 1.2, 0.25, 0x2d3748, g);
-      bx(x0+CS+0.45, 0.6, z0+CS+0.6, 0.9, 1.2, 0.25, 0x2d3748, g);
-      return [];
-    }
-  },
-  { type: 'studio',  name: 'Studio',           w: 12, h: 10, floorCol: 0x1a2024, tex: 'herring',
-    decor(g, x0, z0, w, h) {
-      bx(x0+2*CS, 0.37, z0+2*CS+0.5, 4*CS, 0.74, CS, 0x1e3a5f, g);
-      bx(x0+2*CS, 0.37, z0+5*CS+0.5, 4*CS, 0.74, CS, 0x1e3a5f, g);
-      bx(x0+(w-2)*CS, 0.6, z0+h*CS/2, 0.1, 1.5, 3*CS, 0x2d2d3d, g);
-      return [];
-    }
-  },
-  { type: 'pantry',  name: 'Pantry',           w: 8,  h: 8,  floorCol: 0x1f2420, tex: 'stone',
-    decor(g, x0, z0, w, h) {
-      bx(x0+CS, 0.45, z0+1.5*CS, (w-2)*CS, 0.9, 0.3, 0x2a3728, g);
-      bx(x0+CS, 0.45, z0+CS+0.3, 0.3, 0.9, (h-3)*CS, 0x2a3728, g);
-      return [];
-    }
-  },
-  { type: 'focus',   name: 'Phòng tập trung',  w: 6,  h: 5,  floorCol: 0x1f1f28, tex: 'walnut',
-    decor(g, x0, z0, w, h) {
-      const cx = x0+w*CS/2, cz = z0+h*CS/2;
-      bx(cx, 0.37, cz, 2*CS, 0.74, CS, 0x1e1e3f, g);
-      bx(cx, 0.22, cz+CS, 0.4, 0.44, 0.4, 0x1a1a2e, g);
-      return [];
-    }
-  },
-  { type: 'corridor',name: 'Hành lang',        w: 4,  h: 10, floorCol: 0x1a1a20, tex: 'stone',
-    openEnds: true,
-    decor(g, x0, z0, w, h) { return []; }
-  },
-];
+const FP2_KEY = 'atelier_fp2_v1';
+const FP2_HIST = 40;
 
-const FP_DECOR_CATALOG = [
-  { type: 'plant_pot',   name: 'Chậu cây nhỏ',
-    build(g, x, z) {
-      const mat1 = new T.MeshStandardMaterial({color:0x2d6a2d,roughness:0.8});
-      const mat2 = new T.MeshStandardMaterial({color:0x7c5c3a,roughness:0.9});
-      const geo1 = new T.CylinderGeometry(0.12,0.1,0.5,8); const m1 = new T.Mesh(geo1,mat1); m1.position.set(x,0.25,z); g.add(m1);
-      const geo2 = new T.CylinderGeometry(0.17,0.14,0.18,8); const m2 = new T.Mesh(geo2,mat2); m2.position.set(x,0.09,z); g.add(m2);
-    }
-  },
-  { type: 'plant_tall',  name: 'Cây cao',
-    build(g, x, z) {
-      const mat = new T.MeshStandardMaterial({color:0x1f5c1f,roughness:0.8});
-      const matP = new T.MeshStandardMaterial({color:0x7c5c3a,roughness:0.9});
-      const geo = new T.CylinderGeometry(0.15,0.12,1.2,8); const m = new T.Mesh(geo,mat); m.position.set(x,0.6,z); g.add(m);
-      const geoP = new T.CylinderGeometry(0.22,0.18,0.25,8); const mp = new T.Mesh(geoP,matP); mp.position.set(x,0.125,z); g.add(mp);
-      for (const [ax,ay,az] of [[0.3,1.1,0],[-0.25,0.9,0.15],[0.1,1.3,-0.2]]) {
-        const lmat = new T.MeshStandardMaterial({color:0x2a7a2a,roughness:0.7,side:T.DoubleSide});
-        const lgeo = new T.BoxGeometry(0.25,0.05,0.4); const lm = new T.Mesh(lgeo,lmat);
-        lm.position.set(x+ax,ay,z+az); lm.rotation.z = ax > 0 ? -0.4 : 0.4; g.add(lm);
-      }
-    }
-  },
-  { type: 'plant_corner', name: 'Cây góc',
-    build(g, x, z) {
-      const mat = new T.MeshStandardMaterial({color:0x1a4a1a,roughness:0.8});
-      const matP = new T.MeshStandardMaterial({color:0x6b4c2a,roughness:0.9});
-      for (const [dx,dz,ht,rv] of [[0,0,1.6,0.08],[-0.2,0.15,1.0,0.07],[0.18,-0.1,0.8,0.06]]) {
-        const geo = new T.CylinderGeometry(rv,rv*0.8,ht,8); const m = new T.Mesh(geo,mat); m.position.set(x+dx,ht/2,z+dz); g.add(m);
-        const geoL = new T.SphereGeometry(rv*3,8,6); const ml = new T.Mesh(geoL,mat); ml.position.set(x+dx,ht,z+dz); g.add(ml);
-      }
-      const geoP = new T.CylinderGeometry(0.28,0.22,0.3,8); const mp = new T.Mesh(geoP,matP); mp.position.set(x,0.15,z); g.add(mp);
-    }
-  },
-  { type: 'shelf',       name: 'Kệ sách',
-    build(g, x, z) {
-      bx(x, 0.6, z, 0.9, 1.2, 0.25, 0x4a3728, g);
-      for (let i = 0; i < 3; i++) {
-        bx(x, 0.08+i*0.4, z, 0.9, 0.04, 0.25, 0x3d2d1e, g);
-        const bookMat = new T.MeshStandardMaterial({color:[0x3a5a8a,0x8a3a3a,0x3a8a4a][i],roughness:0.9});
-        const bgeo = new T.BoxGeometry(0.12,0.3,0.2); const bm = new T.Mesh(bgeo,bookMat); bm.position.set(x-0.3,0.25+i*0.4,z); g.add(bm);
-      }
-    }
-  },
-  { type: 'sculpture',   name: 'Tác phẩm',
-    build(g, x, z) {
-      bx(x, 0.05, z, 0.3, 0.1, 0.3, 0x808080, g);
-      bx(x+0.05, 0.3, z-0.05, 0.12, 0.5, 0.12, 0xc0a060, g);
-      bx(x-0.08, 0.5, z+0.03, 0.18, 0.08, 0.14, 0xd4b070, g);
-      bx(x, 0.65, z, 0.08, 0.3, 0.08, 0xb89050, g);
-    }
-  },
-  { type: 'lamp_arc',    name: 'Đèn vòng',
-    build(g, x, z) {
-      bx(x, 0.9, z, 0.05, 1.8, 0.05, 0x2a2a2a, g);
-      const arcGeo = new T.TorusGeometry(0.3, 0.025, 8, 24, Math.PI);
-      const arcM = new T.Mesh(arcGeo, new T.MeshStandardMaterial({color:0x2a2a2a,roughness:0.5,metalness:0.8}));
-      arcM.rotation.z = Math.PI/2; arcM.position.set(x+0.3, 1.8, z); g.add(arcM);
-      const shadeGeo = new T.CylinderGeometry(0.22, 0.28, 0.2, 12, 1, true);
-      const shadeM = new T.Mesh(shadeGeo, new T.MeshStandardMaterial({color:0xfff5d0,roughness:0.5,emissive:0xfff5d0,emissiveIntensity:0.3}));
-      shadeM.position.set(x+0.6, 1.72, z); g.add(shadeM);
-    }
-  },
-];
-
-window.FP = {
-  state: { v: 1, modules: [], doors: [], decors: [] },
-  occ:   new Int16Array(W * H).fill(-1),
-  ring:  new Uint8Array(W * H),
+window.FP2 = {
+  floor:      new Set(),
+  openings:   new Set(),
+  furniture:  [],
+  _history:   [],
+  _future:    [],
   group:      new T.Group(),
   decorGroup: new T.Group(),
-  lotMesh:    null,
-  ghost:      null,
-  history:    [],
-  openedBase: new Set(),
   active:     false,
-  mode:       'room',
-  selType:    null,
-  selDecorType: null,
-  selModule:  null,
-  rot:        0,
-  anim:       [],
-  _lastCell:  null,
-  _ghostPlacement: null,
-  _hoverFn:   null,
-  _clickFn:   null,
+  mode:       'paint',
+  selFurn:    null,
+  _selFurnId: null,
+  _openedBase: new Set(),
+  _gridReady:  false,
+  _agentsReady: false,
 };
-S.add(FP.group);
-S.add(FP.decorGroup);
+S.add(FP2.group);
+S.add(FP2.decorGroup);
 
-function fpSave() {
-  try { localStorage.setItem(FP_KEY, JSON.stringify(FP.state)); } catch {}
+const FP2_FURN = [
+  { type:'desk',      name:'Bàn làm việc', w:2, h:1, icon:'💻',
+    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.37,z,W2*CS,0.74,D*CS,0x1e3a5f,g); bx(x,0.04,z,W2*CS*0.9,0.08,D*CS*0.9,0x2d4a6f,g); }},
+  { type:'chair',     name:'Ghế văn phòng', w:1, h:1, icon:'🪑',
+    build(g,x,z,rot){ bx(x,0.22,z,0.4,0.44,0.4,0x1a1a2e,g); bx(x+0.05*(rot===1?-1:1),0.5,z,0.38,0.5,0.06,0x2a2a4e,g); }},
+  { type:'desk_lg',   name:'Bàn hội đồng', w:4, h:2, icon:'🪵',
+    build(g,x,z,rot){ const rr=rot%2,W2=rr?2:4,D=rr?4:2; bx(x,0.4,z,W2*CS,0.8,D*CS,0x3d2b1f,g); }},
+  { type:'sofa',      name:'Sofa', w:3, h:1, icon:'🛋️',
+    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:3,D=rr?3:1; bx(x,0.22,z,W2*CS,0.44,D*CS,0x2d1a3a,g); }},
+  { type:'plant_sm',  name:'Cây nhỏ', w:1, h:1, icon:'🌿',
+    build(g,x,z,rot){ bx(x,0.3,z,0.25,0.6,0.25,0x1f5c1f,g); bx(x,0.1,z,0.3,0.2,0.3,0x7c5c3a,g); }},
+  { type:'plant_lg',  name:'Cây lớn', w:1, h:1, icon:'🌴',
+    build(g,x,z,rot){
+      bx(x,0.6,z,0.15,1.2,0.15,0x1f5c1f,g); bx(x,0.1,z,0.3,0.2,0.3,0x7c5c3a,g);
+      for(const[dx,dz]of[[0.25,0],[-0.25,0],[0,0.25],[0,-0.25]]) bx(x+dx,1.1,z+dz,0.3,0.06,0.5,0x2a7a2a,g);
+    }},
+  { type:'shelf',     name:'Kệ sách', w:2, h:1, icon:'📚',
+    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.6,z,W2*CS*0.9,1.2,D*CS*0.3,0x4a3728,g); for(let i=0;i<3;i++) bx(x,0.07+i*0.4,z,W2*CS*0.9,0.04,D*CS*0.3,0x3d2d1e,g); }},
+  { type:'whiteboard',name:'Bảng trắng', w:2, h:1, icon:'📋',
+    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.8,z,W2*CS*0.9,1.2,D*CS*0.08,0xe8e8e8,g); }},
+  { type:'lamp',      name:'Đèn vòng', w:1, h:1, icon:'💡',
+    build(g,x,z,rot){ bx(x,0.9,z,0.05,1.8,0.05,0x2a2a2a,g); bx(x+0.3,1.72,z,0.6,0.08,0.5,0xfff5d0,g); }},
+  { type:'rug',       name:'Thảm', w:4, h:3, icon:'🟫',
+    build(g,x,z,rot){
+      const rr=rot%2,W2=rr?3:4,D=rr?4:3;
+      const mat=new T.MeshStandardMaterial({color:0x4a2d6a,roughness:1});
+      const geo=new T.PlaneGeometry(W2*CS-0.1,D*CS-0.1);
+      const m=new T.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.set(x,0.003,z); g.add(m);
+    }},
+];
+
+function fp2EdgeKey(type,c,r){ return `${type},${c},${r}`; }
+
+function fp2GetAutoWalls(){
+  const walls=new Set();
+  for(const key of FP2.floor){
+    const[c,r]=key.split(',').map(Number);
+    if(!FP2.floor.has(`${c},${r-1}`)) walls.add(fp2EdgeKey('h',c,r-1));
+    if(!FP2.floor.has(`${c},${r+1}`)) walls.add(fp2EdgeKey('h',c,r));
+    if(!FP2.floor.has(`${c-1},${r}`)) walls.add(fp2EdgeKey('v',c-1,r));
+    if(!FP2.floor.has(`${c+1},${r}`)) walls.add(fp2EdgeKey('v',c,r));
+  }
+  for(const o of FP2.openings) walls.delete(o);
+  return walls;
 }
-function fpLoad() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(FP_KEY) || 'null');
-    if (raw && raw.v === 1) {
-      FP.state = { v:1, modules: raw.modules||[], doors: raw.doors||[], decors: raw.decors||[] };
-    }
-  } catch {}
-}
-function fpGetFootprint(type, rot) {
-  const cat = FP_CATALOG.find(c => c.type === type);
-  if (!cat) return null;
-  const w = (rot % 2 === 0) ? cat.w : cat.h;
-  const h = (rot % 2 === 0) ? cat.h : cat.w;
-  return { w, h, cat };
-}
-function fpValidateModule(type, c, r, rot) {
-  const fp = fpGetFootprint(type, rot);
-  if (!fp) return { ok: false, reason: 'Loại không hợp lệ' };
-  const { w, h, cat } = fp;
-  if (c < 0 || c + w > W || r < H_BASE - 1 || r + h > H)
-    return { ok: false, reason: 'Ngoài lô đất' };
-  const ring = [], interior = [], shared = [];
-  for (let dr = 0; dr < h; dr++) {
-    for (let dc = 0; dc < w; dc++) {
-      const cc = c + dc, rr = r + dr;
-      const isRingCell = dr === 0 || dr === h-1 || dc === 0 || dc === w-1;
-      const isOpenEnd = cat.openEnds && (dc === 0 || dc === w-1) && dr > 0 && dr < h-1;
-      if (isOpenEnd) continue;
-      const key = `${cc},${rr}`;
-      if (isRingCell) {
-        ring.push([cc, rr, key]);
-        if ((rr === H_BASE - 1 && wall && wall.has(key)) ||
-            (rr >= H_BASE && FP.ring[rr * W + cc] === 1)) {
-          shared.push([cc, rr]);
-        } else if (rr >= H_BASE) {
-          const idx = rr * W + cc;
-          if (FP.occ[idx] >= 0) return { ok: false, reason: 'Chồng lên phòng khác' };
-        }
-      } else {
-        if (rr < H_BASE) return { ok: false, reason: 'Phần nội thất nằm trong toà nhà gốc' };
-        const idx = rr * W + cc;
-        if (FP.occ[idx] >= 0) return { ok: false, reason: 'Chồng lên phòng khác' };
-        if (FP.ring[idx] === 1) return { ok: false, reason: 'Chồng lên tường phòng khác' };
-        interior.push([cc, rr]);
-      }
-    }
+
+function fp2Apply(){
+  for(let r=H_BASE;r<H;r++) for(let c=0;c<W;c++) blocked[r*W+c]=1;
+  for(const key of FP2._openedBase){ const[cs,rs]=key.split(',').map(Number); blocked[rs*W+cs]=1; setBaseWallVisible(key,true); }
+  FP2._openedBase=new Set();
+  for(const key of FP2.floor){ const[c,r]=key.split(',').map(Number); if(r>=H_BASE&&r<H&&c>=0&&c<W) blocked[r*W+c]=0; }
+  for(const key of FP2.openings){
+    const parts=key.split(','); const type=parts[0],ec=parseInt(parts[1]),er=parseInt(parts[2]);
+    if(type==='h'&&er===H_BASE-1){ const bk=`${ec},${er}`; if(wall&&wall.has(bk)){ blocked[er*W+ec]=0; setBaseWallVisible(bk,false); FP2._openedBase.add(bk); } }
   }
-  if (shared.length < 2 && r >= H_BASE)
-    return { ok: false, reason: 'Phải ghép sát tường văn phòng hoặc phòng khác' };
-  return { ok: true, reason: '', shared, ring, interior };
-}
-function fpAutoDoorsForModule(type, c, r, rot) {
-  const { ok, shared } = fpValidateModule(type, c, r, rot);
-  if (!ok || !shared || shared.length < 4) return [];
-  const hGroups = {};
-  for (const [sc, sr] of shared) {
-    if (!hGroups[sr]) hGroups[sr] = [];
-    hGroups[sr].push(sc);
-  }
-  const doors = [];
-  for (const [rr, cols] of Object.entries(hGroups)) {
-    cols.sort((a,b)=>a-b);
-    if (cols.length >= 4) {
-      const len = cols.length >= 8 ? 3 : 2;
-      const mid = Math.floor(cols.length / 2);
-      const startC = cols[mid - Math.floor(len/2)];
-      doors.push({ id: 'd_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
-                   c: startC, r: parseInt(rr), dir: 'h', len, auto: true });
-    }
-  }
-  return doors;
-}
-function fpApply() {
-  for (let r = H_BASE; r < H; r++)
-    for (let c = 0; c < W; c++) { blocked[r*W+c]=1; FP.occ[r*W+c]=-1; FP.ring[r*W+c]=0; }
-  for (const key of FP.openedBase) {
-    const [cs2,rs2] = key.split(',').map(Number);
-    blocked[rs2*W+cs2]=1; setBaseWallVisible(key,true);
-  }
-  FP.openedBase.clear();
-  const validModules = [];
-  for (let i = 0; i < FP.state.modules.length; i++) {
-    const m = FP.state.modules[i];
-    const v = fpValidateModule(m.type, m.c, m.r, m.rot||0);
-    if (!v.ok) { console.warn('FP: drop module', m.id, v.reason); continue; }
-    validModules.push(m);
-    const idx2 = validModules.length - 1;
-    for (const [cc,rr] of (v.interior||[])) { blocked[rr*W+cc]=0; FP.occ[rr*W+cc]=idx2; }
-    for (const [cc,rr] of (v.ring||[])) { if(rr>=H_BASE){blocked[rr*W+cc]=1; FP.ring[rr*W+cc]=1;} }
-  }
-  FP.state.modules = validModules;
-  const validDoors = [];
-  for (const d of FP.state.doors) {
-    for (let i = 0; i < d.len; i++) {
-      const cc = d.dir==='h' ? d.c+i : d.c;
-      const rr = d.dir==='v' ? d.r+i : d.r;
-      const key = `${cc},${rr}`;
-      blocked[rr*W+cc]=0;
-      if (wall && wall.has(key)) { setBaseWallVisible(key,false); FP.openedBase.add(key); }
-      FP.ring[rr*W+cc]=0;
-    }
-    validDoors.push(d);
-  }
-  FP.state.doors = validDoors;
   rebuildNear();
-  fpBuildMeshes();
-  fpBuildDecors();
-  try { if (FP._gridReady) refreshGridOverlay(); } catch {}
-  try { if (FP._agentsReady) fpRelocateAgents(); } catch {}
+  fp2BuildMeshes();
+  fp2BuildFurniture();
 }
-function fpBuildMeshes() {
-  FP.group.traverse(o => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material && !o.material._fpShared) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
-  });
-  while (FP.group.children.length) FP.group.remove(FP.group.children[0]);
-  const doorSet = new Set();
-  for (const d of FP.state.doors) for (let i=0;i<d.len;i++) {
-    const cc=d.dir==='h'?d.c+i:d.c, rr=d.dir==='v'?d.r+i:d.r;
-    doorSet.add(`${cc},${rr}`);
+
+function fp2BuildMeshes(){
+  FP2.group.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared){if(o.material.map)o.material.map.dispose();o.material.dispose();}});
+  while(FP2.group.children.length)FP2.group.remove(FP2.group.children[0]);
+  if(!FP2.floor.size) return;
+  const floorMat=new T.MeshStandardMaterial({color:0x1a1f2e,roughness:0.9});
+  if(typeof herringboneTex!=='undefined'&&herringboneTex) floorMat.map=herringboneTex;
+  const floorGeo=new T.PlaneGeometry(CS-0.02,CS-0.02);
+  for(const key of FP2.floor){
+    const[c,r]=key.split(',').map(Number);
+    const m=new T.Mesh(floorGeo,floorMat); m.rotation.x=-Math.PI/2; m.position.set((c+0.5)*CS,0.001,(r+0.5)*CS); m.receiveShadow=true; FP2.group.add(m);
   }
-  const ringArr = [];
-  for (let r=H_BASE;r<H;r++) for (let c=0;c<W;c++) {
-    if (FP.ring[r*W+c]) { const k=`${c},${r}`; if(!doorSet.has(k)&&!(wall&&wall.has(k))) ringArr.push(k); }
-  }
-  if (ringArr.length > 0) {
-    const wallH=0.85, bbH=0.09;
-    const wGeo=new T.BoxGeometry(CS,wallH,CS);
-    const wMeshFP=new T.InstancedMesh(wGeo,walnutWallMat,ringArr.length); wMeshFP.castShadow=true;
-    const bbGeo=new T.BoxGeometry(CS,bbH,CS);
-    const bbMeshFP=new T.InstancedMesh(bbGeo,bbMat,ringArr.length);
-    for (let i=0;i<ringArr.length;i++) {
-      const [cc,rr]=ringArr[i].split(',').map(Number);
-      const x=(cc+0.5)*CS, z=(rr+0.5)*CS;
-      wMeshFP.setMatrixAt(i,new T.Matrix4().setPosition(x,wallH/2,z));
-      bbMeshFP.setMatrixAt(i,new T.Matrix4().setPosition(x,bbH/2,z));
-    }
-    wMeshFP.instanceMatrix.needsUpdate=true; bbMeshFP.instanceMatrix.needsUpdate=true;
-    FP.group.add(wMeshFP); FP.group.add(bbMeshFP);
-  }
-  for (let mi=0;mi<FP.state.modules.length;mi++) {
-    const m=FP.state.modules[mi];
-    const fp=fpGetFootprint(m.type,m.rot||0); if(!fp) continue;
-    const {w,h,cat}=fp;
-    const x0=m.c*CS, z0=m.r*CS;
-    const xMid=x0+w*CS/2, zMid=z0+h*CS/2;
-    bx(xMid,-0.19,zMid,w*CS,plinthH,h*CS,0x111318,FP.group);
-    const texMap={walnut:walnutTex,stone:stoneTex,herring:herringboneTex};
-    const floorMat=new T.MeshStandardMaterial({color:cat.floorCol,roughness:0.9});
-    if(texMap[cat.tex]) floorMat.map=texMap[cat.tex];
-    const floorGeo=new T.PlaneGeometry(w*CS-0.1,h*CS-0.1);
-    const floorM=new T.Mesh(floorGeo,floorMat); floorM.rotation.x=-Math.PI/2;
-    floorM.position.set(xMid,0.001,zMid); floorM.receiveShadow=true; FP.group.add(floorM);
-    const lCanvas=document.createElement('canvas'); lCanvas.width=256; lCanvas.height=64;
-    const lCtx=lCanvas.getContext('2d');
-    lCtx.fillStyle='rgba(0,0,0,0)'; lCtx.fillRect(0,0,256,64);
-    lCtx.fillStyle='#94a3b8'; lCtx.font='bold 20px sans-serif'; lCtx.textAlign='center';
-    lCtx.fillText(m.name||cat.name,128,40);
-    const lTex=new T.CanvasTexture(lCanvas);
-    const lMat=new T.MeshBasicMaterial({map:lTex,transparent:true,depthWrite:false,side:T.DoubleSide});
-    const lGeo=new T.PlaneGeometry(w*CS*0.8,h*CS*0.2);
-    const lM=new T.Mesh(lGeo,lMat); lM.rotation.x=-Math.PI/2; lM.position.set(xMid,0.01,zMid); FP.group.add(lM);
-    if(cat.decor) cat.decor(FP.group,x0,z0,w,h);
-    for (const d of FP.state.doors) {
-      if(!d.auto) continue;
-      if(d.r===m.r||d.r===m.r+h-1) {
-        bx((d.c+d.len/2)*CS,0.004,(d.r+0.5)*CS,d.len*CS,0.008,CS,0xd4af37,FP.group);
-      }
+  let minC=W,maxC=0,minR=H,maxR=H_BASE;
+  for(const key of FP2.floor){const[c,r]=key.split(',').map(Number);minC=Math.min(minC,c);maxC=Math.max(maxC,c);minR=Math.min(minR,r);maxR=Math.max(maxR,r);}
+  bx((minC+maxC+1)/2*CS,-(plinthH||0.38)/2,(minR+maxR+1)/2*CS,(maxC-minC+1)*CS,(plinthH||0.38),(maxR-minR+1)*CS,0x111318,FP2.group);
+  const autoWalls=fp2GetAutoWalls();
+  const wallH=0.85,wallT=0.1;
+  const wMat=typeof walnutWallMat!=='undefined'?walnutWallMat:new T.MeshStandardMaterial({color:0x3d2b1f,roughness:0.7});
+  const bMat=typeof bbMat!=='undefined'?bbMat:new T.MeshStandardMaterial({color:0x2a1f14,roughness:0.8});
+  for(const wk of autoWalls){
+    const parts=wk.split(','); const type=parts[0],wc=parseInt(parts[1]),wr=parseInt(parts[2]);
+    if(type==='h'&&wr<H_BASE) continue;
+    if(type==='v'&&wc<0) continue;
+    if(type==='h'){
+      const x=(wc+0.5)*CS,z=(wr+1)*CS;
+      const wg=new T.BoxGeometry(CS,wallH,wallT); const wm=new T.Mesh(wg,wMat); wm.castShadow=true; wm.position.set(x,wallH/2,z); FP2.group.add(wm);
+      const bg=new T.BoxGeometry(CS,0.09,wallT+0.02); const bm=new T.Mesh(bg,bMat); bm.position.set(x,0.045,z); FP2.group.add(bm);
+    } else {
+      const x=(wc+1)*CS,z=(wr+0.5)*CS;
+      const wg=new T.BoxGeometry(wallT,wallH,CS); const wm=new T.Mesh(wg,wMat); wm.castShadow=true; wm.position.set(x,wallH/2,z); FP2.group.add(wm);
+      const bg=new T.BoxGeometry(wallT+0.02,0.09,CS); const bm=new T.Mesh(bg,bMat); bm.position.set(x,0.045,z); FP2.group.add(bm);
     }
   }
-}
-function fpBuildDecors() {
-  FP.decorGroup.traverse(o => { if(o.geometry) o.geometry.dispose(); });
-  while(FP.decorGroup.children.length) FP.decorGroup.remove(FP.decorGroup.children[0]);
-  for (const d of FP.state.decors) {
-    const cat=FP_DECOR_CATALOG.find(c=>c.type===d.type); if(!cat) continue;
-    cat.build(FP.decorGroup,(d.c+0.5)*CS,(d.r+0.5)*CS);
+  for(const ok of FP2.openings){
+    const parts=ok.split(','); const type=parts[0],oc=parseInt(parts[1]),or2=parseInt(parts[2]);
+    if(type==='h'){bx((oc+0.5)*CS,0.004,(or2+1)*CS,CS,0.008,0.12,0xd4af37,FP2.group);}
+    else {bx((oc+1)*CS,0.004,(or2+0.5)*CS,0.12,0.008,CS,0xd4af37,FP2.group);}
   }
 }
-function fpRelocateAgents() {
-  if (typeof agents==='undefined') return;
-  for (const ag of agents) {
-    const c=Math.floor(ag.mesh.position.x/CS), r=Math.floor(ag.mesh.position.z/CS);
-    if(c<0||c>=W||r<0||r>=H||!blocked[r*W+c]) continue;
-    const q=[[c,r]], seen=new Set([`${c},${r}`]); let found=null;
-    while(q.length&&!found) {
-      const [cc,rr]=q.shift();
-      for (const [dc,dr] of [[0,1],[0,-1],[1,0],[-1,0]]) {
-        const nc=cc+dc,nr=rr+dr; if(nc<0||nc>=W||nr<0||nr>=H) continue;
-        const k=`${nc},${nr}`; if(seen.has(k)) continue; seen.add(k);
-        if(!blocked[nr*W+nc]){found=[nc,nr];break;}
-        if(seen.size<64) q.push([nc,nr]);
-      }
-    }
-    if(found){ag.mesh.position.x=(found[0]+0.5)*CS;ag.mesh.position.z=(found[1]+0.5)*CS;}
+
+function fp2BuildFurniture(){
+  FP2.decorGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});
+  while(FP2.decorGroup.children.length)FP2.decorGroup.remove(FP2.decorGroup.children[0]);
+  for(const f of FP2.furniture){
+    const cat=FP2_FURN.find(x=>x.type===f.type); if(!cat) continue;
+    const rr=(f.rot||0)%2; const w=rr?cat.h:cat.w,h2=rr?cat.w:cat.h;
+    cat.build(FP2.decorGroup,(f.c+w/2)*CS,(f.r+h2/2)*CS,f.rot||0);
   }
 }
-fpLoad();
-fpApply();
+
+function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:2,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));}catch{} }
+function fp2Load(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
+    if(raw&&raw.v===2){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; }
+  }catch{}
+}
+function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
+function fp2Undo(){
+  if(!FP2._history.length) return;
+  FP2._future.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));
+  const s=JSON.parse(FP2._history.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture;
+  fp2Apply(); fp2Save();
+}
+function fp2Redo(){
+  if(!FP2._future.length) return;
+  FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));
+  const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture;
+  fp2Apply(); fp2Save();
+}
+
+fp2Load();
+if(FP2.floor.size) fp2Apply();
 
 /* =========================================================================
    11. SIMULATION CLOCK & TWEENING
@@ -3168,7 +2990,7 @@ function updateCompanyStatus() {
 
 agents = AG.map(([id, n, r, col, c, row, dept, bio, , shortName]) => new Agent(id, n, r, col, seats['d_' + id], dept, bio, shortName));
 A = Object.fromEntries(agents.map(a => [a.id, a]));
-FP._agentsReady = true;
+FP2._agentsReady = true;
 
 /* ===== CUSTOM TEAM: load/save/spawn ===== */
 
@@ -3650,20 +3472,21 @@ onResize();
 
 let drag = null;
 cv.addEventListener('pointerdown', e => {
+  if (FP2.active && FP2._onPointerDown) { FP2._onPointerDown(e); return; }
   if (e.button === 0) {
     drag = [e.clientX, e.clientY];
     cv.setPointerCapture(e.pointerId);
   }
 });
 cv.addEventListener('pointermove', e => {
-  if (FP.active && FP._hoverFn && !drag) { FP._hoverFn(e); }
+  if (FP2.active && FP2._onPointerMove) { FP2._onPointerMove(e); if(!drag) return; }
   if (!drag) return;
   camOrbit.th -= (e.clientX - drag[0]) * 0.005;
   camOrbit.ph = Math.min(1.3, Math.max(0.25, camOrbit.ph - (e.clientY - drag[1]) * 0.004));
   drag = [e.clientX, e.clientY];
   updateCamera();
 });
-cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('pointerup', e => { if (FP2.active && FP2._onPointerUp) { FP2._onPointerUp(e); } drag = null; });
 cv.addEventListener('wheel', e => {
   e.preventDefault();
   camOrbit.r = Math.min(camOrbit.r0 * 1.8, Math.max(7, camOrbit.r * (1 + e.deltaY * 0.001)));
@@ -3678,10 +3501,7 @@ const mouse = new T.Vector2();
 const hitboxes = agents.map(a => a.hitbox);
 
 cv.addEventListener('click', e => {
-  if (FP.active) {
-    if (FP._clickFn) FP._clickFn(e);
-    return;
-  }
+  if (FP2.active && FP2._onClick) { FP2._onClick(e); return; }
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, cam);
@@ -3818,25 +3638,7 @@ for (let c = 0; c < W; c++) {
 }
 gm.visible = false;
 S.add(gm);
-FP._gridReady = true;
-
-function refreshGridOverlay() {
-  if (!gm) return;
-  for (let r = H_BASE; r < H; r++) {
-    for (let c = 0; c < W; c++) {
-      const idx = r * W + c;
-      const dummy2 = new T.Object3D();
-      dummy2.position.set(wx(c), 0.04, wx(r));
-      dummy2.rotation.set(-Math.PI/2, 0, 0);
-      if (blocked[idx]) dummy2.scale.set(0,0,0); else dummy2.scale.set(1,1,1);
-      dummy2.updateMatrix();
-      gm.setMatrixAt(idx, dummy2.matrix);
-      if (!blocked[idx]) gm.setColorAt(idx, new T.Color(0x34d399));
-    }
-  }
-  gm.instanceMatrix.needsUpdate = true;
-  if (gm.instanceColor) gm.instanceColor.needsUpdate = true;
-}
+FP2._gridReady = true;
 
 document.getElementById('btnGrid').onclick = e => {
   gm.visible = !gm.visible;
@@ -3865,212 +3667,214 @@ applyVisualSettings();
 document.getElementById('btnReset').onclick = () => resetView();
 
 /* =========================================================================
-   16b. FLOOR PLAN EDITOR — UI
+   16b. FP2 — Free-Draw Floor Plan Editor (UI)
    ========================================================================= */
-(function setupFpUI() {
-  const panel = document.getElementById('fpPanel');
-  const palette = document.getElementById('fpPalette');
-  const status = document.getElementById('fpStatus');
-  if (!panel || !palette || !status) return;
+(function setupFp2UI() {
+  const panel = document.getElementById('fp2Panel');
+  if (!panel) return;
 
-  let _camSaved = null;
+  const st = document.getElementById('fp2Status');
+  let isPainting = false, paintMode = null;
+  let ghostMesh = null, ghostRot = 0, selFurnType = null;
+  let hoverC = -1, hoverR = -1;
 
-  document.getElementById('btnFloorplan')?.addEventListener('click', () => {
-    if (!FP.active) fpEnter(); else fpExit();
-  });
-  document.getElementById('fpClose')?.addEventListener('click', fpExit);
-
-  document.querySelectorAll('.fp-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.fp-tab').forEach(t => t.classList.remove('active'));
-      btn.classList.add('active');
-      FP.mode = btn.dataset.tab;
-      FP.selType = null; FP.selDecorType = null; FP.selModule = null;
-      fpRenderPalette();
-      fpDestroyGhost();
-    });
-  });
-
-  document.getElementById('fpRotate')?.addEventListener('click', () => { FP.rot=(FP.rot+1)%4; fpUpdateGhost(); });
-  document.getElementById('fpUndo')?.addEventListener('click', fpUndo);
-  document.getElementById('fpDelete')?.addEventListener('click', fpDeleteSelected);
-
-  function fpEnter() {
-    FP.active = true;
+  /* ---- Camera helpers ---- */
+  function fp2Enter(){
+    FP2.active = true;
     panel.style.display = 'block';
-    fpRenderPalette();
-    fpShowLot(true);
-    _camSaved = { target: camTarget.clone(), r: camOrbit.r, ph: camOrbit.ph, th: camOrbit.th };
-    camTarget.copy(new T.Vector3(W*CS/2, 0.5, (H_BASE+WING_ROWS/2)*CS));
-    camOrbit.r = Math.min(_camSaved.r * 1.6, 34);
-    camOrbit.ph = 0.6;
+    FP2._camSaved = { th: camOrbit.th, ph: camOrbit.ph, r: camOrbit.r, tx: camOrbit.tx, ty: camOrbit.ty, tz: camOrbit.tz };
+    camOrbit.th = 0; camOrbit.ph = 0.6; camOrbit.r = camOrbit.r * 1.4;
+    camOrbit.tx = 15; camOrbit.ty = 0; camOrbit.tz = (H_BASE + 12) * CS;
     updateCamera();
+    fp2RenderPalette();
   }
-  function fpExit() {
-    FP.active = false; FP.selType = null; FP.selDecorType = null; FP.selModule = null;
+  function fp2Exit(){
+    FP2.active = false;
     panel.style.display = 'none';
-    fpDestroyGhost(); fpShowLot(false); fpSave();
-    if (_camSaved) { camTarget.copy(_camSaved.target); camOrbit.r=_camSaved.r; camOrbit.ph=_camSaved.ph; updateCamera(); }
+    destroyGhost();
+    if (FP2._camSaved){ Object.assign(camOrbit, FP2._camSaved); updateCamera(); FP2._camSaved = null; }
   }
-  function fpShowLot(vis) {
-    if (!FP.lotMesh) {
-      const geo = new T.PlaneGeometry(W*CS, WING_ROWS*CS);
-      const lc = document.createElement('canvas'); lc.width=64; lc.height=64;
-      const lctx = lc.getContext('2d');
-      lctx.strokeStyle='rgba(224,160,83,0.3)'; lctx.lineWidth=1; lctx.strokeRect(1,1,62,62);
-      const ltex = new T.CanvasTexture(lc);
-      ltex.wrapS = ltex.wrapT = T.RepeatWrapping; ltex.repeat.set(W, WING_ROWS);
-      const lmat = new T.MeshBasicMaterial({map:ltex,transparent:true,opacity:0.4,depthWrite:false});
-      FP.lotMesh = new T.Mesh(geo, lmat);
-      FP.lotMesh.rotation.x = -Math.PI/2;
-      FP.lotMesh.position.set(W*CS/2, 0.002, (H_BASE+WING_ROWS/2)*CS);
-      FP.lotMesh.renderOrder = 1;
-      S.add(FP.lotMesh);
-    }
-    FP.lotMesh.visible = vis;
+  FP2._exit = fp2Exit;
+
+  /* ---- Ghost ---- */
+  function destroyGhost(){
+    if (!ghostMesh) return;
+    FP2.decorGroup.remove(ghostMesh);
+    ghostMesh.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});
+    ghostMesh = null;
   }
-  function fpRenderPalette() {
-    palette.innerHTML = '';
-    if (FP.mode === 'select') {
-      palette.innerHTML = `<div style="color:#94a3b8;font-size:12px;grid-column:1/-1;">Click một phòng trong scene để chọn.<br><br>Phòng đã đặt: ${FP.state.modules.length}/${FP_MAX_MODULES}</div>`;
-      return;
-    }
-    const items = FP.mode === 'room' ? FP_CATALOG : FP_DECOR_CATALOG;
-    for (const cat of items) {
-      const card = document.createElement('div');
-      card.className = 'fp-card';
-      const selType = FP.mode === 'room' ? FP.selType : FP.selDecorType;
-      if (cat.type === selType) card.classList.add('selected');
-      const swatch = document.createElement('div');
-      swatch.style.cssText = `width:100%;height:28px;border-radius:4px;background:#${((cat.floorCol||0x2a2a3a)>>>0).toString(16).padStart(6,'0')};`;
-      const name = document.createElement('div'); name.className='fp-card-name'; name.textContent=cat.name;
-      card.appendChild(swatch); card.appendChild(name);
-      if (cat.w && cat.h) {
-        const fp = fpGetFootprint(cat.type, FP.rot);
-        const size = document.createElement('div'); size.className='fp-card-size';
-        size.textContent = fp ? `${fp.w*CS}×${fp.h*CS}m` : '';
-        card.appendChild(size);
+  function buildGhost(type){
+    destroyGhost();
+    const cat = FP2_FURN.find(x=>x.type===type); if(!cat) return;
+    ghostMesh = new T.Group(); ghostMesh.name='fp2ghost';
+    const rr = ghostRot%2, w=rr?cat.h:cat.w, h=rr?cat.w:cat.h;
+    cat.build(ghostMesh, (w/2)*CS, (h/2)*CS, ghostRot);
+    ghostMesh.traverse(o=>{
+      if(o.material){
+        if(Array.isArray(o.material)) o.material.forEach(m=>{m=m.clone();m.transparent=true;m.opacity=0.45;m.color.setHex(0x38bdf8);});
+        else { const m=o.material.clone(); m.transparent=true; m.opacity=0.45; m.color.setHex(0x38bdf8); o.material=m; }
       }
-      card.addEventListener('click', () => {
-        if (FP.mode==='room') FP.selType=cat.type; else FP.selDecorType=cat.type;
-        fpRenderPalette();
-        fpUpdateStatus('Hover lên sàn để xem preview · Click để đặt', true);
+    });
+    FP2.decorGroup.add(ghostMesh);
+  }
+  FP2._ghostMesh = null;
+  Object.defineProperty(FP2,'_ghostMeshRef',{get:()=>ghostMesh});
+
+  /* ---- Ray-to-cell ---- */
+  function cellFromEvent(e){
+    const rect = cv.getBoundingClientRect();
+    const mx = ((e.clientX-rect.left)/rect.width)*2-1;
+    const my = -((e.clientY-rect.top)/rect.height)*2+1;
+    const ray = new T.Raycaster(); ray.setFromCamera({x:mx,y:my},cam);
+    const plane = new T.Plane(new T.Vector3(0,1,0),0);
+    const hit = new T.Vector3();
+    if(!ray.ray.intersectPlane(plane,hit)) return null;
+    return [Math.floor(hit.x/CS), Math.floor(hit.z/CS)];
+  }
+
+  /* ---- Status helper ---- */
+  function setStatus(msg,ok){ if(st){ st.textContent=msg; st.style.color=ok?'#34d399':'#f87171'; } }
+
+  /* ---- Palette ---- */
+  function fp2RenderPalette(){
+    const pal = document.getElementById('fp2Palette');
+    if (!pal) return;
+    pal.innerHTML='';
+    if (FP2.mode==='furniture'){
+      FP2_FURN.forEach(f=>{
+        const d=document.createElement('div'); d.className='fp2-item'+(selFurnType===f.type?' sel':'');
+        d.innerHTML=`<span class="fp2-item-icon">${f.icon}</span><div class="fp2-item-name">${f.name}</div>`;
+        d.onclick=()=>{ selFurnType=f.type; fp2RenderPalette(); buildGhost(f.type); setStatus(`Chọn ${f.name} · R=xoay`,''); };
+        pal.appendChild(d);
       });
-      palette.appendChild(card);
+    } else {
+      pal.innerHTML='';
+      const hints={'paint':'Kéo chuột lên sàn để vẽ ô sàn','wall':'Click cạnh tường để mở/đóng','erase':'Kéo chuột để xoá ô sàn'};
+      setStatus(hints[FP2.mode]||'','');
     }
-  }
-  function fpUpdateStatus(msg, ok) {
-    status.innerHTML = `<span style="color:${ok?'#34d399':'#f87171'}">${msg}</span><br><span style="color:#64748b;font-size:10px;">Phòng: ${FP.state.modules.length}/${FP_MAX_MODULES} · Trang trí: ${FP.state.decors.length}</span>`;
-  }
-  function fpDestroyGhost() {
-    if (!FP.ghost) return;
-    FP.ghost.traverse(o => { if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
-    S.remove(FP.ghost); FP.ghost = null;
-  }
-  const fpPlane = new T.Plane(new T.Vector3(0,1,0), 0);
-  const fpHit = new T.Vector3();
-  function fpCellFromEvent(e) {
-    const rect = R.domElement.getBoundingClientRect();
-    const mx=((e.clientX-rect.left)/rect.width)*2-1;
-    const my=-((e.clientY-rect.top)/rect.height)*2+1;
-    raycaster.setFromCamera(new T.Vector2(mx,my), cam);
-    if (!raycaster.ray.intersectPlane(fpPlane, fpHit)) return null;
-    return [Math.floor(fpHit.x/CS), Math.floor(fpHit.z/CS)];
-  }
-  function fpUpdateGhost() {
-    if (!FP._lastCell) return;
-    fpHoverAt(FP._lastCell[0], FP._lastCell[1]);
-  }
-  function fpHoverAt(c, r) {
-    if (!FP.active) return;
-    FP._lastCell = [c, r];
-    if (FP.mode==='room' && FP.selType) {
-      const fp = fpGetFootprint(FP.selType, FP.rot); if(!fp) return;
-      const {w,h} = fp;
-      let bc=c-Math.floor(w/2), br=r-Math.floor(h/2);
-      let best=null, bestDist=999;
-      for (let dc=-2;dc<=2;dc++) for (let dr=-2;dr<=2;dr++) {
-        const v=fpValidateModule(FP.selType,bc+dc,br+dr,FP.rot);
-        if(v.ok){const d=Math.abs(dc)+Math.abs(dr);if(d<bestDist){bestDist=d;best=[bc+dc,br+dr];}}
-      }
-      if(best&&bestDist<=2){bc=best[0];br=best[1];}
-      const v=fpValidateModule(FP.selType,bc,br,FP.rot);
-      fpDrawGhost(bc,br,w,h,v.ok);
-      if(v.ok) fpUpdateStatus('Click để đặt'+(v.shared&&v.shared.length>=4?' · Sẽ tạo cửa':''),true);
-      else fpUpdateStatus(v.reason,false);
-      FP._ghostPlacement={c:bc,r:br};
-    } else if (FP.mode==='decor' && FP.selDecorType) {
-      fpDrawDecorGhost(c,r);
-      FP._ghostPlacement={c,r};
-      fpUpdateStatus('Click để đặt trang trí',true);
-    }
-  }
-  function fpDrawGhost(c, r, w, h, ok) {
-    fpDestroyGhost();
-    FP.ghost = new T.Group(); FP.ghost.renderOrder=999;
-    const col=ok?0x34d399:0xf87171;
-    const mat=new T.MeshBasicMaterial({color:col,transparent:true,opacity:0.35,depthWrite:false});
-    const geo=new T.BoxGeometry(w*CS-0.05,0.02,h*CS-0.05);
-    const m=new T.Mesh(geo,mat); m.position.set((c+w/2)*CS,0.3,(r+h/2)*CS);
-    FP.ghost.add(m); S.add(FP.ghost);
-  }
-  function fpDrawDecorGhost(c, r) {
-    fpDestroyGhost();
-    FP.ghost = new T.Group(); FP.ghost.renderOrder=999;
-    const mat=new T.MeshBasicMaterial({color:0x34d399,transparent:true,opacity:0.4,depthWrite:false});
-    const geo=new T.BoxGeometry(CS*0.8,0.5,CS*0.8);
-    const m=new T.Mesh(geo,mat); m.position.set((c+0.5)*CS,0.25,(r+0.5)*CS);
-    FP.ghost.add(m); S.add(FP.ghost);
-  }
-  function fpClickPlace(c, r) {
-    if (FP.mode==='room' && FP.selType && FP._ghostPlacement) {
-      const {c:pc,r:pr}=FP._ghostPlacement;
-      if(FP.state.modules.length>=FP_MAX_MODULES){fpUpdateStatus('Đã đạt tối đa 16 phòng',false);return;}
-      const v=fpValidateModule(FP.selType,pc,pr,FP.rot);
-      if(!v.ok){fpUpdateStatus(v.reason,false);return;}
-      FP.history.push(JSON.stringify(FP.state));
-      if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
-      const id='m_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4);
-      FP.state.modules.push({id,type:FP.selType,c:pc,r:pr,rot:FP.rot});
-      FP.state.doors.push(...fpAutoDoorsForModule(FP.selType,pc,pr,FP.rot));
-      fpApply(); fpSave(); fpRenderPalette();
-      const catName=FP_CATALOG.find(x=>x.type===FP.selType)?.name||FP.selType;
-      fpUpdateStatus(`Đã đặt "${catName}"`,true);
-    } else if (FP.mode==='decor' && FP.selDecorType) {
-      if(c<0||c>=W||r<0||r>=H) return;
-      FP.history.push(JSON.stringify(FP.state));
-      if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
-      const id='dc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4);
-      FP.state.decors.push({id,type:FP.selDecorType,c,r,rot:FP.rot});
-      fpBuildDecors(); fpSave();
-      const dName=FP_DECOR_CATALOG.find(x=>x.type===FP.selDecorType)?.name||FP.selDecorType;
-      fpUpdateStatus(`Đặt ${dName}`,true);
-    }
-  }
-  function fpUndo() {
-    if(!FP.history.length) return;
-    try { FP.state=JSON.parse(FP.history.pop()); fpApply(); fpSave(); fpRenderPalette(); fpUpdateStatus('Đã hoàn tác',true); } catch {}
-  }
-  function fpDeleteSelected() {
-    if(!FP.selModule) return;
-    FP.history.push(JSON.stringify(FP.state));
-    if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
-    FP.state.modules=FP.state.modules.filter(m=>m.id!==FP.selModule);
-    FP.state.doors=FP.state.doors.filter(d=>!d.auto);
-    FP.selModule=null; fpApply(); fpSave(); fpRenderPalette(); fpUpdateStatus('Đã xoá phòng',true);
   }
 
-  FP._hoverFn = (e) => { const cell=fpCellFromEvent(e); if(cell) fpHoverAt(cell[0],cell[1]); };
-  FP._clickFn = (e) => { const cell=fpCellFromEvent(e); if(cell) fpClickPlace(cell[0],cell[1]); };
-
-  document.addEventListener('keydown', e => {
-    if (!FP.active) return;
-    if (document.activeElement&&document.activeElement.tagName==='INPUT') return;
-    if (e.key==='r'||e.key==='R') { FP.rot=(FP.rot+1)%4; fpUpdateGhost(); }
-    if (e.key==='Escape') { if(FP.selType||FP.selDecorType){FP.selType=null;FP.selDecorType=null;fpDestroyGhost();fpRenderPalette();}else fpExit(); }
-    if ((e.key==='Delete'||e.key==='Backspace')&&FP.selModule) fpDeleteSelected();
-    if (e.ctrlKey&&e.key==='z') { e.preventDefault(); fpUndo(); }
+  /* ---- Tabs ---- */
+  document.getElementById('fp2Tabs').addEventListener('click', e=>{
+    const tab = e.target.closest('[data-mode]'); if(!tab) return;
+    FP2.mode = tab.dataset.mode;
+    document.querySelectorAll('.fp2-tab').forEach(t=>t.classList.toggle('active',t===tab));
+    selFurnType = null; destroyGhost();
+    fp2RenderPalette();
   });
+
+  /* ---- Buttons ---- */
+  document.getElementById('fp2Close').onclick = fp2Exit;
+  document.getElementById('fp2Undo').onclick  = ()=>{ fp2Undo(); };
+  document.getElementById('fp2Redo').onclick  = ()=>{ fp2Redo(); };
+  document.getElementById('fp2Rot').onclick   = ()=>{ ghostRot=(ghostRot+1)%4; if(selFurnType) buildGhost(selFurnType); };
+  document.getElementById('fp2Del').onclick   = ()=>{
+    if(!FP2._selFurnId) return;
+    fp2Snapshot();
+    FP2.furniture = FP2.furniture.filter(f=>f._id!==FP2._selFurnId);
+    FP2._selFurnId=null; fp2Apply(); fp2Save();
+  };
+  document.getElementById('fp2Clear').onclick = ()=>{
+    if(!confirm('Xoá toàn bộ mặt bằng?')) return;
+    fp2Snapshot(); FP2.floor=new Set(); FP2.openings=new Set(); FP2.furniture=[];
+    fp2Apply(); fp2Save(); setStatus('Đã xoá tất cả','');
+  };
+  document.getElementById('btnFp2').onclick = ()=>{ if(FP2.active) fp2Exit(); else fp2Enter(); };
+
+  /* ---- Paint state ---- */
+  let lastPaintedCell = null;
+  function paintCell(c,r){
+    const key=`${c},${r}`;
+    if(FP2.mode==='paint'&&r>=H_BASE&&r<H&&c>=0&&c<W){
+      if(!FP2.floor.has(key)){ FP2.floor.add(key); return true; }
+    }
+    if(FP2.mode==='erase'){
+      if(FP2.floor.has(key)){ FP2.floor.delete(key); FP2.furniture=FP2.furniture.filter(f=>{
+        const rr=(f.rot||0)%2,fw=rr?FP2_FURN.find(x=>x.type===f.type).h:FP2_FURN.find(x=>x.type===f.type).w;
+        const fh=rr?FP2_FURN.find(x=>x.type===f.type).w:FP2_FURN.find(x=>x.type===f.type).h;
+        for(let dc=0;dc<fw;dc++)for(let dr=0;dr<fh;dr++)if(`${f.c+dc},${f.r+dr}`===key)return false; return true;
+      }); return true; }
+    }
+    return false;
+  }
+
+  /* ---- Pointer events ---- */
+  FP2._onPointerDown = function(e){
+    if(e.button!==0) return;
+    const cell=cellFromEvent(e); if(!cell) return;
+    const[c,r]=cell;
+    if(FP2.mode==='wall'){
+      /* handled in _onClick */
+    } else if(FP2.mode==='furniture'){
+      if(selFurnType&&FP2.floor.has(`${c},${r}`)){
+        fp2Snapshot();
+        const id='f_'+Date.now();
+        FP2.furniture.push({type:selFurnType,c,r,rot:ghostRot,_id:id});
+        fp2Apply(); fp2Save(); setStatus('Đã đặt · click để đặt thêm',true);
+      }
+    } else {
+      isPainting=true; cv.setPointerCapture(e.pointerId);
+      fp2Snapshot();
+      if(paintCell(c,r)){ lastPaintedCell=[c,r]; fp2Apply(); fp2Save(); }
+    }
+  };
+  FP2._onPointerMove = function(e){
+    const cell=cellFromEvent(e); if(!cell) return;
+    const[c,r]=cell; hoverC=c; hoverR=r;
+    if(ghostMesh&&selFurnType){
+      const cat=FP2_FURN.find(x=>x.type===selFurnType); if(cat){
+        const rr=ghostRot%2,w=rr?cat.h:cat.w,h=rr?cat.w:cat.h;
+        ghostMesh.position.set(c*CS,0,r*CS);
+      }
+    }
+    if(isPainting&&(FP2.mode==='paint'||FP2.mode==='erase')){
+      if(!lastPaintedCell||lastPaintedCell[0]!==c||lastPaintedCell[1]!==r){
+        if(paintCell(c,r)){ lastPaintedCell=[c,r]; fp2Apply(); fp2Save(); }
+      }
+    }
+  };
+  FP2._onPointerUp = function(e){ isPainting=false; lastPaintedCell=null; };
+  FP2._onClick = function(e){
+    if(FP2.mode!=='wall') return;
+    const cell=cellFromEvent(e); if(!cell) return;
+    const[c,r]=cell;
+    /* Find nearest edge — check h-edge below (c,r-1) and v-edge right (c-1,r) */
+    const rect=cv.getBoundingClientRect();
+    const mx=((e.clientX-rect.left)/rect.width)*2-1,my=-((e.clientY-rect.top)/rect.height)*2+1;
+    const ray=new T.Raycaster(); ray.setFromCamera({x:mx,y:my},cam);
+    const pl=new T.Plane(new T.Vector3(0,1,0),0); const hit=new T.Vector3();
+    if(!ray.ray.intersectPlane(pl,hit)) return;
+    const fx=hit.x/CS, fz=hit.z/CS;
+    const ic=Math.floor(fx), ir=Math.floor(fz);
+    const frac_x=fx-ic, frac_z=fz-ir;
+    let bestKey=null;
+    if(frac_z<0.15||frac_z>0.85) bestKey=fp2EdgeKey('h',ic,frac_z<0.5?ir-1:ir);
+    else if(frac_x<0.15||frac_x>0.85) bestKey=fp2EdgeKey('v',frac_x<0.5?ic-1:ic,ir);
+    if(!bestKey) return;
+    fp2Snapshot();
+    const autoW=fp2GetAutoWalls();
+    if(!autoW.has(bestKey)&&!FP2.openings.has(bestKey)){setStatus('Không có tường tại đây','');return;}
+    if(FP2.openings.has(bestKey)) FP2.openings.delete(bestKey);
+    else FP2.openings.add(bestKey);
+    fp2Apply(); fp2Save(); setStatus(FP2.openings.has(bestKey)?'Đã đóng cạnh':'Đã mở cạnh · đường vàng=cửa thông',true);
+  };
+
+  /* ---- Keyboard ---- */
+  document.addEventListener('keydown', e=>{
+    if(!FP2.active) return;
+    if(document.activeElement&&document.activeElement.tagName==='INPUT') return;
+    if(e.key==='1') { FP2.mode='paint'; document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===0)); fp2RenderPalette(); }
+    if(e.key==='2') { FP2.mode='wall';  document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===1)); fp2RenderPalette(); }
+    if(e.key==='3') { FP2.mode='furniture'; document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===2)); fp2RenderPalette(); }
+    if(e.key==='4') { FP2.mode='erase'; document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===3)); fp2RenderPalette(); }
+    if(e.key==='r'||e.key==='R'){ ghostRot=(ghostRot+1)%4; if(selFurnType) buildGhost(selFurnType); }
+    if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); }
+    if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); }
+    if(e.key==='Escape') fp2Exit();
+  });
+
+  /* ---- Ghost pulse in loop ---- */
+  FP2._ghostMeshRef2 = ()=>ghostMesh;
 })();
 
 /* =========================================================================
@@ -4180,12 +3984,12 @@ function loop(now) {
     setTimeOfDay(sim.hour);
   }
 
-  if (FP.ghost) {
-    const ft = performance.now() * 0.001;
-    FP.ghost.children.forEach(m => {
-      if (m.material && m.material.opacity !== undefined)
-        m.material.opacity = 0.3 + 0.1 * Math.sin(ft * 6);
-    });
+  if (FP2.active && FP2._ghostMeshRef2) {
+    const gm2 = FP2._ghostMeshRef2();
+    if (gm2) {
+      const ft = performance.now() * 0.001;
+      gm2.traverse(o => { if (o.material && o.material.opacity !== undefined) o.material.opacity = 0.3 + 0.15 * Math.sin(ft * 5); });
+    }
   }
 
   R.render(S, cam);
