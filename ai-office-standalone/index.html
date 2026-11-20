@@ -835,7 +835,9 @@ html, body {
 
 <div id="fp2WallProps" style="display:none;position:absolute;top:140px;right:10px;background:rgba(20,15,10,0.92);padding:10px 14px;border-radius:8px;color:#ccc;font-size:12px;z-index:200;min-width:160px;">
   <div style="font-weight:bold;margin-bottom:8px;color:#e8d5a0">Tường</div>
-  <div style="margin-bottom:4px">Dài: <strong id="fp2WallLen">-</strong>m</div>
+  <div style="margin-bottom:6px">Dài: <strong id="fp2WallLen">-</strong>m</div>
+  <div id="fp2WallOpeningsList" style="margin-bottom:6px;font-size:11px;color:#aaa"></div>
+  <button id="fp2WallDelBtn" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:11px;width:100%">🗑 Xoá tường (Del)</button>
   <div style="display:none"><input id="fp2WallTh" type="number"></div>
   <div style="display:none"><input id="fp2WallHt" type="number"></div>
 </div>
@@ -3168,6 +3170,18 @@ function updateWallPanel(){
   const n0=FP2.wallNodes.get(w.startId),n1=FP2.wallNodes.get(w.endId);if(!n0||!n1)return;
   panel.style.display='block';
   const lel=document.getElementById('fp2WallLen');if(lel)lel.textContent=Math.hypot(n1.x-n0.x,n1.z-n0.z).toFixed(2);
+  // Show openings list with delete buttons
+  const oList=document.getElementById('fp2WallOpeningsList');
+  if(oList){
+    const ops=(FP2.wallOpenings||[]).filter(o=>o.wallId===FP2.selectedWallId);
+    if(ops.length){
+      const typeLabel={door:'Cửa gỗ','sliding-glass':'Kính trượt',window:'Cửa sổ'};
+      oList.innerHTML=ops.map(o=>`<span style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">${typeLabel[o.type]||o.type} <button data-oid="${o.id}" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">✕</button></span>`).join('');
+      oList.querySelectorAll('button[data-oid]').forEach(b=>b.onclick=()=>{fp2Snapshot();WG.removeOpening(b.dataset.oid);WG.buildMeshes();fp2Save();updateWallPanel();});
+    } else {
+      oList.innerHTML='';
+    }
+  }
   const tel=document.getElementById('fp2WallTh');if(tel)tel.value=w.thickness;
   const hel=document.getElementById('fp2WallHt');if(hel)hel.value=w.height;
 }
@@ -4466,6 +4480,13 @@ FP2._enter = fp2Enter;
     if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){fp2Snapshot();w.height=+e.target.value;WG.buildMeshes();updateHandles();updateWallPanel();fp2Save();}}
   });
 
+  // Wire wall delete button in panel
+  document.getElementById('fp2WallDelBtn')?.addEventListener('click',()=>{
+    if(!FP2.selectedWallId) return;
+    fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
+    clearHandles();WG.buildMeshes();updateWallPanel();fp2Save();
+  });
+
   /* Tool buttons */
   toolbar.querySelectorAll('.btool[data-btool]').forEach(btn=>{
     btn.onclick=()=>{
@@ -4826,7 +4847,7 @@ FP2._enter = fp2Enter;
     if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); updateStatus(); }
     if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); updateStatus(); }
     if(e.key==='Escape'){ clearInspector(); FP2.selectedWallId=null; clearHandles(); updateWallPanel(); }
-    if(e.key==='Delete'&&FP2.selectedWallId){
+    if((e.key==='Delete'||e.key==='Backspace')&&FP2.selectedWallId&&document.activeElement.tagName!=='INPUT'){
       fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
       clearHandles();WG.buildMeshes();updateWallPanel();fp2Save();e.preventDefault();
     }
