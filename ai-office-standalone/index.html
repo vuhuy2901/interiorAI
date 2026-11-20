@@ -836,8 +836,8 @@ html, body {
 <div id="fp2WallProps" style="display:none;position:absolute;top:140px;right:10px;background:rgba(20,15,10,0.92);padding:10px 14px;border-radius:8px;color:#ccc;font-size:12px;z-index:200;min-width:160px;">
   <div style="font-weight:bold;margin-bottom:8px;color:#e8d5a0">Tường</div>
   <div style="margin-bottom:4px">Dài: <strong id="fp2WallLen">-</strong>m</div>
-  <div style="margin-bottom:4px">Dày: <input id="fp2WallTh" type="number" step="0.05" min="0.05" max="0.5" style="width:55px;background:#333;color:#eee;border:1px solid #555;border-radius:3px;padding:1px 4px"></div>
-  <div>Cao: <input id="fp2WallHt" type="number" step="0.1" min="0.3" max="3.5" style="width:55px;background:#333;color:#eee;border:1px solid #555;border-radius:3px;padding:1px 4px"></div>
+  <div style="display:none"><input id="fp2WallTh" type="number"></div>
+  <div style="display:none"><input id="fp2WallHt" type="number"></div>
 </div>
 
 <!-- Build Toolbar -->
@@ -979,6 +979,14 @@ html, body {
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 "use strict";
+
+/* =========================================================================
+   BUILDING CONSTANTS — single source of truth
+   ========================================================================= */
+const WALL_H = 2.6;      // standard wall height (m)
+const WALL_T = 0.15;     // standard wall thickness (m)
+const WALL_COL = 0x38281d; // standard wall colour
+const DOOR_MAX_H = WALL_H - 0.3; // door max height
 
 /* =========================================================================
    1. GRID, COORDINATES & NAVIGATION (60x40 Cells, 0.5m/cell)
@@ -1389,8 +1397,7 @@ const dm = new T.Object3D();
 wk.forEach((k, i) => {
   const [c, r] = k.split(',').map(Number);
   B(c, r);
-  const isOuterBack = (r === 0 || c === 0 || c === 59);
-  const h = isOuterBack ? 2.6 : 0.85;
+  const h = WALL_H;
   dm.position.set(wx(c), h / 2, wx(r));
   dm.scale.set(1, h, 1);
   dm.updateMatrix();
@@ -1423,29 +1430,7 @@ wk.forEach((k, i) => {
 });
 ledGroup.add(wallLedMesh);
 
-// Upper Glass Partitions
-const glassMat = new T.MeshStandardMaterial({
-  color: 0xebf4ff,
-  transparent: true,
-  opacity: 0.28,
-  roughness: 0.1,
-  metalness: 0.4
-});
-glassMat.name = 'glass';
-const glassM = new T.InstancedMesh(new T.BoxGeometry(CS, 0.75, 0.035), glassMat, wk.length);
-wk.forEach((k, i) => {
-  const [c, r] = k.split(',').map(Number);
-  const isOuterBack = (r === 0 || c === 0 || c === 59);
-  if (!isOuterBack && (r === 15 || r === 22)) {
-    dm.position.set(wx(c), 1.25, wx(r));
-    dm.scale.set(1, 1, 1);
-  } else {
-    dm.scale.set(0, 0, 0);
-  }
-  dm.updateMatrix();
-  glassM.setMatrixAt(i, dm.matrix);
-});
-S.add(glassM);
+// Glass partitions removed — walls now full WALL_H
 
 // Wall index + cache for FP door hiding
 const wallIdx = new Map(wk.map((k, i) => [k, i]));
@@ -1454,7 +1439,7 @@ wk.forEach((_, i) => { const m4 = new T.Matrix4(); wm.getMatrixAt(i, m4); wallMa
 function setBaseWallVisible(key, vis) {
   const i = wallIdx.get(key);
   if (i === undefined) return;
-  for (const mesh of [wm, bbMesh, wallLedMesh, glassM]) {
+  for (const mesh of [wm, bbMesh, wallLedMesh]) {
     const m4 = new T.Matrix4();
     if (vis) m4.copy(wallMatCache[i]);
     else m4.scale(new T.Vector3(0, 0, 0));
@@ -2632,10 +2617,10 @@ FP2.detectedWallRooms=[];
 S.add(FP2.decorGroup);
 
 // FEAT-2026-138: proper 3D furniture matching existing office style
-const WALL_THICKNESS=0.1,WALL_HEIGHT=0.85,WALL_COLOR=0x38281d,WALL_BB_COLOR=0x231d17;
+const WALL_THICKNESS=WALL_T,WALL_HEIGHT=WALL_H,WALL_COLOR=WALL_COL,WALL_BB_COLOR=0x231d17;
 const WG={_nid:0,_wid:0,_oid:0,
 addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},
-addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},
+addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const rTh=th??WALL_THICKNESS,rHt=ht??WALL_HEIGHT;if(Math.abs(rTh-WALL_T)>0.01||Math.abs(rHt-WALL_H)>0.01)console.warn('[Wall] non-standard dims th='+rTh+' h='+rHt+' (expect T='+WALL_T+' H='+WALL_H+')');const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:WALL_T,height:WALL_H,materialId:'walnut'});return id;},
 removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.wallId!==wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},
 addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const op={id,wallId,offset,type:type||'door',width:w||(type==='window'?1.2:0.9),height:h||(type==='window'?1.0:2.1),elevation:elev||(type==='window'?0.8:0)};FP2.wallOpenings.push(op);return id;},
 removeOpening(oid){FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.id!==oid);},
@@ -2941,11 +2926,11 @@ function fp2SeedDefaultRooms(){
   const seg=[[0,0,15,15],[16,0,39,15],[40,0,60,15],[0,16,60,22],[0,23,19,40],[20,23,37,40],[38,23,51,40],[52,23,60,40]];
   seg.forEach(([c0,r0,c1,r1])=>{ for(let c=c0;c<c1;c++) for(let r=r0;r<r1;r++) FP2.floor.add(c+','+r); });
 }
-function fp2SeedDefaultWalls(){const segs=[[0,0,30,0,0.1,2.6],[30,0,30,20,0.1,2.6],[30,20,0,20,0.1,2.6],[0,20,0,0,0.1,2.6],[0,7.5,30,7.5,0.1,0.85],[0,11,30,11,0.1,0.85],[7.5,0,7.5,7.5,0.1,0.85],[19.5,0,19.5,7.5,0.1,0.85],[9.5,11,9.5,20,0.1,0.85],[18.5,11,18.5,20,0.1,0.85],[25.5,11,25.5,20,0.1,0.85]];for(const[x0,z0,x1,z1,th,ht]of segs)WG.addWall(x0,z0,x1,z1,th,ht);if(FP2.wallGroup)WG.buildMeshes();}
+function fp2SeedDefaultWalls(){const T2=WALL_T,H2=WALL_H;const segs=[[0,0,30,0,T2,H2],[30,0,30,20,T2,H2],[30,20,0,20,T2,H2],[0,20,0,0,T2,H2],[0,7.5,30,7.5,T2,H2],[0,11,30,11,T2,H2],[7.5,0,7.5,7.5,T2,H2],[19.5,0,19.5,7.5,T2,H2],[9.5,11,9.5,20,T2,H2],[18.5,11,18.5,20,T2,H2],[25.5,11,25.5,20,T2,H2]];for(const[x0,z0,x1,z1,th,ht]of segs)WG.addWall(x0,z0,x1,z1,th,ht);if(FP2.wallGroup)WG.buildMeshes();}
 function fp2Load(){
   try{
     const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
-    if(raw&&(raw.v===3||raw.v===4)){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; WG.fromJSON(raw.wallGraph); }
+    if(raw&&(raw.v===3||raw.v===4)){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; const wg=raw.wallGraph;if(wg&&wg.walls)wg.walls.forEach(w=>{w.thickness=WALL_T;w.height=WALL_H;});WG.fromJSON(wg); }
     else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
@@ -4402,7 +4387,7 @@ FP2._enter = fp2Enter;
     inspector.classList.add('hidden');
     toggleBtn.textContent='BUILD'; toggleBtn.classList.remove('active');
     clearInspector();
-    if(FP2.active && typeof fp2Exit==='function') fp2Exit();
+    if(FP2.active && typeof FP2._exit==='function') FP2._exit();
   }
 
   toggleBtn.onclick=()=>{ if(buildActive) exitBuildMode(); else enterBuildMode(); };
@@ -4778,14 +4763,6 @@ FP2._enter = fp2Enter;
       fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
       clearHandles();WG.buildMeshes();updateWallPanel();fp2Save();e.preventDefault();
     }
-  });
-
-  // Wire up wall property panel inputs
-  document.getElementById('fp2WallTh')?.addEventListener('change',e2=>{
-    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){w.thickness=+e2.target.value;WG.buildMeshes();fp2Save();}}
-  });
-  document.getElementById('fp2WallHt')?.addEventListener('change',e2=>{
-    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){w.height=+e2.target.value;WG.buildMeshes();fp2Save();}}
   });
 
   /* expose for loop() */
