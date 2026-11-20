@@ -3682,9 +3682,9 @@ document.getElementById('btnReset').onclick = () => resetView();
   function fp2Enter(){
     FP2.active = true;
     panel.style.display = 'block';
-    FP2._camSaved = { th: camOrbit.th, ph: camOrbit.ph, r: camOrbit.r, tx: camOrbit.tx, ty: camOrbit.ty, tz: camOrbit.tz };
-    camOrbit.th = 0; camOrbit.ph = 0.6; camOrbit.r = camOrbit.r * 1.4;
-    camOrbit.tx = 15; camOrbit.ty = 0; camOrbit.tz = (H_BASE + 12) * CS;
+    FP2._camSaved = { th: camOrbit.th, ph: camOrbit.ph, r: camOrbit.r, tx: camTarget.x, ty: camTarget.y, tz: camTarget.z };
+    camTarget.set(W * CS / 2, 0, (H_BASE + 12) * CS);
+    camOrbit.th = Math.PI; camOrbit.ph = 0.7; camOrbit.r = camOrbit.r0 * 1.8;
     updateCamera();
     fp2RenderPalette();
   }
@@ -3692,9 +3692,9 @@ document.getElementById('btnReset').onclick = () => resetView();
     FP2.active = false;
     panel.style.display = 'none';
     destroyGhost();
-    if (FP2._camSaved){ Object.assign(camOrbit, FP2._camSaved); updateCamera(); FP2._camSaved = null; }
+    if (FP2._camSaved){ camOrbit.th=FP2._camSaved.th; camOrbit.ph=FP2._camSaved.ph; camOrbit.r=FP2._camSaved.r; camTarget.set(FP2._camSaved.tx,FP2._camSaved.ty,FP2._camSaved.tz); updateCamera(); FP2._camSaved = null; }
   }
-  FP2._exit = fp2Exit;
+FP2._exit = fp2Exit;
 
   /* ---- Ghost ---- */
   function destroyGhost(){
