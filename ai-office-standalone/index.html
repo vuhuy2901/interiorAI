@@ -2599,38 +2599,85 @@ window.FP2 = {
   _openedBase: new Set(),
   _gridReady:  false,
   _agentsReady: false,
+  wallNodes: new Map(),
+  walls: new Map(),
+  wallGroup: null,
 };
 S.add(FP2.group);
+FP2.wallGroup=new T.Group();
+S.add(FP2.wallGroup);
 S.add(FP2.decorGroup);
 
+// FEAT-2026-138: proper 3D furniture matching existing office style
+const WALL_THICKNESS=0.1,WALL_HEIGHT=0.85,WALL_COLOR=0x38281d,WALL_BB_COLOR=0x231d17;
+const WG={_nid:0,_wid:0,addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},buildMeshes(){if(!FP2.wallGroup)return;FP2.wallGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});while(FP2.wallGroup.children.length)FP2.wallGroup.remove(FP2.wallGroup.children[0]);for(const wall of FP2.walls.values()){const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz),cx=(n0.x+n1.x)/2,cz=(n0.z+n1.z)/2,h=wall.height,t=wall.thickness;const mesh=new T.Mesh(new T.BoxGeometry(t,h,len),M(WALL_COLOR,{roughness:0.55}));mesh.position.set(cx,h/2,cz);mesh.rotation.y=angle;mesh.castShadow=true;mesh.userData.wallId=wall.id;FP2.wallGroup.add(mesh);const bb=new T.Mesh(new T.BoxGeometry(t+0.02,0.08,len+0.02),M(WALL_BB_COLOR,{roughness:0.5,metalness:0.6}));bb.position.set(cx,0.04,cz);bb.rotation.y=angle;FP2.wallGroup.add(bb);}},toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],_nid:this._nid,_wid:this._wid};},fromJSON(d){if(!d)return;FP2.wallNodes=new Map(d.nodes.map(n=>[n.id,n]));FP2.walls=new Map(d.walls.map(w=>[w.id,w]));this._nid=d._nid||0;this._wid=d._wid||0;}};
 const FP2_FURN = [
-  { type:'desk',      name:'Bàn làm việc', w:2, h:1, icon:'💻',
-    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.37,z,W2*CS,0.74,D*CS,0x1e3a5f,g); bx(x,0.04,z,W2*CS*0.9,0.08,D*CS*0.9,0x2d4a6f,g); }},
-  { type:'chair',     name:'Ghế văn phòng', w:1, h:1, icon:'🪑',
-    build(g,x,z,rot){ bx(x,0.22,z,0.4,0.44,0.4,0x1a1a2e,g); bx(x+0.05*(rot===1?-1:1),0.5,z,0.38,0.5,0.06,0x2a2a4e,g); }},
-  { type:'desk_lg',   name:'Bàn hội đồng', w:4, h:2, icon:'🪵',
-    build(g,x,z,rot){ const rr=rot%2,W2=rr?2:4,D=rr?4:2; bx(x,0.4,z,W2*CS,0.8,D*CS,0x3d2b1f,g); }},
-  { type:'sofa',      name:'Sofa', w:3, h:1, icon:'🛋️',
-    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:3,D=rr?3:1; bx(x,0.22,z,W2*CS,0.44,D*CS,0x2d1a3a,g); }},
-  { type:'plant_sm',  name:'Cây nhỏ', w:1, h:1, icon:'🌿',
-    build(g,x,z,rot){ bx(x,0.3,z,0.25,0.6,0.25,0x1f5c1f,g); bx(x,0.1,z,0.3,0.2,0.3,0x7c5c3a,g); }},
-  { type:'plant_lg',  name:'Cây lớn', w:1, h:1, icon:'🌴',
+  { type:'desk', name:'Bàn làm việc', w:2, h:1, icon:'💻',
     build(g,x,z,rot){
-      bx(x,0.6,z,0.15,1.2,0.15,0x1f5c1f,g); bx(x,0.1,z,0.3,0.2,0.3,0x7c5c3a,g);
-      for(const[dx,dz]of[[0.25,0],[-0.25,0],[0,0.25],[0,-0.25]]) bx(x+dx,1.1,z+dz,0.3,0.06,0.5,0x2a7a2a,g);
+      const fg=new T.Group();fg.position.set(x,0,z);fg.rotation.y=(rot||0)*Math.PI/2;
+      bx(0,0.72,0,0.9,0.04,0.44,0x3d2c1f,fg,{roughness:0.45});
+      for(const[lx,lz]of[[-0.42,-0.21],[0.42,-0.21],[-0.42,0.21],[0.42,0.21]])
+        bx(lx,0.36,lz,0.04,0.72,0.04,0x181a1f,fg,{metalness:0.7,roughness:0.3});
+      cyl(0,0.76,-0.16,0.012,0.22,0x888888,0,fg,{metalness:0.8});
+      bx(0,0.87,-0.17,0.4,0.25,0.015,0x111317,fg);
+      bx(0,0.74,0.08,0.28,0.01,0.1,0x1a1d22,fg);
+      bx(0.32,0.74,0.1,0.07,0.012,0.09,0x20242c,fg);
+      cyl(-0.38,0.73,-0.05,0.008,0.26,0xd4af37,0.2,fg,{metalness:0.8});
+      bx(-0.38,0.86,-0.09,0.28,0.06,0.28,0xffe0a0,fg,{emissive:0xffb84d,emissiveIntensity:0.6});
+      g.add(fg);
     }},
-  { type:'shelf',     name:'Kệ sách', w:2, h:1, icon:'📚',
-    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.6,z,W2*CS*0.9,1.2,D*CS*0.3,0x4a3728,g); for(let i=0;i<3;i++) bx(x,0.07+i*0.4,z,W2*CS*0.9,0.04,D*CS*0.3,0x3d2d1e,g); }},
-  { type:'whiteboard',name:'Bảng trắng', w:2, h:1, icon:'📋',
-    build(g,x,z,rot){ const rr=rot%2,W2=rr?1:2,D=rr?2:1; bx(x,0.8,z,W2*CS*0.9,1.2,D*CS*0.08,0xe8e8e8,g); }},
-  { type:'lamp',      name:'Đèn vòng', w:1, h:1, icon:'💡',
-    build(g,x,z,rot){ bx(x,0.9,z,0.05,1.8,0.05,0x2a2a2a,g); bx(x+0.3,1.72,z,0.6,0.08,0.5,0xfff5d0,g); }},
-  { type:'rug',       name:'Thảm', w:4, h:3, icon:'🟫',
+  { type:'chair', name:'Ghế văn phòng', w:1, h:1, icon:'🪑',
+    build(g,x,z,rot){
+      const fg=new T.Group();fg.position.set(x,0,z);fg.rotation.y=(rot||0)*Math.PI/2;
+      bx(0,0.44,0,0.44,0.07,0.44,0x22262d,fg,{roughness:0.75});
+      bx(0,0.76,-0.21,0.42,0.52,0.05,0x1c1f24,fg,{roughness:0.85});
+      cyl(0,0.76,-0.23,0.02,0.45,0x111317,0,fg);
+      bx(-0.21,0.57,-0.04,0.06,0.03,0.26,0x14171c,fg,{roughness:0.7});
+      bx(0.21,0.57,-0.04,0.06,0.03,0.26,0x14171c,fg,{roughness:0.7});
+      cyl(0,0.24,0,0.03,0.36,0x777777,0,fg,{metalness:0.85,roughness:0.2});
+      for(let i=0;i<5;i++){const a=(i*2*Math.PI)/5;bx(Math.sin(a)*0.17,0.05,Math.cos(a)*0.17,0.035,0.03,0.24,0x1b1d22,fg,{metalness:0.5}).rotation.y=-a;}
+      g.add(fg);
+    }},
+  { type:'desk_lg', name:'Bàn hội đồng', w:4, h:2, icon:'🪵',
+    build(g,x,z,rot){const rr=rot%2,W2=rr?2:4,D=rr?4:2;bx(x,0.4,z,W2*CS,0.8,D*CS,0x3d2b1f,g);}},
+  { type:'sofa', name:'Sofa', w:3, h:1, icon:'🛋️',
+    build(g,x,z,rot){
+      const fg=new T.Group();fg.position.set(x,0,z);fg.rotation.y=(rot||0)*Math.PI/2;
+      bx(0,0.22,0,1.4,0.44,0.44,0xd0c7ba,fg,{roughness:0.75});
+      bx(0,0.56,-0.19,1.4,0.44,0.1,0xc5beb1,fg,{roughness:0.75});
+      bx(-0.65,0.42,0.02,0.1,0.44,0.46,0xc0b8aa,fg,{roughness:0.75});
+      bx(0.65,0.42,0.02,0.1,0.44,0.46,0xc0b8aa,fg,{roughness:0.75});
+      g.add(fg);
+    }},
+  { type:'plant_sm', name:'Cây nhỏ', w:1, h:1, icon:'🌿',
+    build(g,x,z,rot){
+      const fg=new T.Group();fg.position.set(x,0,z);
+      cyl(0,0.24,0,0.14,0.48,0x242220,0,fg,{roughness:0.6});
+      cyl(0,0.47,0,0.135,0.02,0x1a1410,0,fg);
+      const lm=M(0x2e6138,{roughness:0.45});
+      for(let i=0;i<6;i++){const ang=(i*Math.PI*2)/6+0.2;const lf=new T.Mesh(new T.CylinderGeometry(0.015,0.1,0.32,8),lm);lf.position.set(Math.sin(ang)*0.1,0.52+i*0.05,Math.cos(ang)*0.1);lf.rotation.set(0.42,ang,0.35);lf.castShadow=true;fg.add(lf);}
+      g.add(fg);
+    }},
+  { type:'plant_lg', name:'Cây lớn', w:1, h:1, icon:'🌴',
+    build(g,x,z,rot){
+      const fg=new T.Group();fg.position.set(x,0,z);
+      cyl(0,0.24,0,0.19,0.48,0x242220,0,fg,{roughness:0.6});
+      cyl(0,0.47,0,0.185,0.02,0x1a1410,0,fg);
+      const lm=M(0x2e6138,{roughness:0.45});
+      for(let i=0;i<8;i++){const ang=(i*Math.PI*2)/8+0.15;const lf=new T.Mesh(new T.CylinderGeometry(0.02,0.16,0.44,8),lm);lf.position.set(Math.sin(ang)*0.14,0.52+i*0.08,Math.cos(ang)*0.14);lf.rotation.set(0.42,ang,0.35);lf.castShadow=true;fg.add(lf);}
+      g.add(fg);
+    }},
+  { type:'shelf', name:'Kệ sách', w:2, h:1, icon:'📚',
+    build(g,x,z,rot){const rr=rot%2,W2=rr?1:2,D=rr?2:1;bx(x,0.6,z,W2*CS*0.9,1.2,D*CS*0.3,0x4a3728,g);for(let i=0;i<3;i++)bx(x,0.07+i*0.4,z,W2*CS*0.9,0.04,D*CS*0.3,0x3d2d1e,g);}},
+  { type:'whiteboard', name:'Bảng trắng', w:2, h:1, icon:'📋',
+    build(g,x,z,rot){const rr=rot%2,W2=rr?1:2,D=rr?2:1;bx(x,0.8,z,W2*CS*0.9,1.2,D*CS*0.08,0xe8e8e8,g);}},
+  { type:'lamp', name:'Đèn vòng', w:1, h:1, icon:'💡',
+    build(g,x,z,rot){bx(x,0.9,z,0.05,1.8,0.05,0x2a2a2a,g);bx(x+0.3,1.72,z,0.6,0.08,0.5,0xfff5d0,g);}},
+  { type:'rug', name:'Thảm', w:4, h:3, icon:'🟫',
     build(g,x,z,rot){
       const rr=rot%2,W2=rr?3:4,D=rr?4:3;
-      const mat=new T.MeshStandardMaterial({color:0x4a2d6a,roughness:1});
-      const geo=new T.PlaneGeometry(W2*CS-0.1,D*CS-0.1);
-      const m=new T.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.set(x,0.003,z); g.add(m);
+      const m=new T.Mesh(new T.PlaneGeometry(W2*CS-0.1,D*CS-0.1),new T.MeshStandardMaterial({color:0x4a2d6a,roughness:1}));
+      m.rotation.x=-Math.PI/2;m.position.set(x,0.003,z);g.add(m);
     }},
 ];
 
@@ -2661,6 +2708,7 @@ function fp2Apply(){
   rebuildNear();
   fp2BuildMeshes();
   fp2BuildFurniture();
+  WG.buildMeshes();
 }
 
 function fp2BuildMeshes(){
@@ -2677,24 +2725,6 @@ function fp2BuildMeshes(){
   let minC=W,maxC=0,minR=H,maxR=H_BASE;
   for(const key of FP2.floor){const[c,r]=key.split(',').map(Number);minC=Math.min(minC,c);maxC=Math.max(maxC,c);minR=Math.min(minR,r);maxR=Math.max(maxR,r);}
   bx((minC+maxC+1)/2*CS,-(plinthH||0.38)/2,(minR+maxR+1)/2*CS,(maxC-minC+1)*CS,(plinthH||0.38),(maxR-minR+1)*CS,0x111318,FP2.group);
-  const autoWalls=fp2GetAutoWalls();
-  const wallH=0.85,wallT=0.1;
-  const wMat=typeof walnutWallMat!=='undefined'?walnutWallMat:new T.MeshStandardMaterial({color:0x3d2b1f,roughness:0.7});
-  const bMat=typeof bbMat!=='undefined'?bbMat:new T.MeshStandardMaterial({color:0x2a1f14,roughness:0.8});
-  for(const wk of autoWalls){
-    const parts=wk.split(','); const type=parts[0],wc=parseInt(parts[1]),wr=parseInt(parts[2]);
-    if(type==='h'&&wr<H_BASE) continue;
-    if(type==='v'&&wc<0) continue;
-    if(type==='h'){
-      const x=(wc+0.5)*CS,z=(wr+1)*CS;
-      const wg=new T.BoxGeometry(CS,wallH,wallT); const wm=new T.Mesh(wg,wMat); wm.castShadow=true; wm.position.set(x,wallH/2,z); FP2.group.add(wm);
-      const bg=new T.BoxGeometry(CS,0.09,wallT+0.02); const bm=new T.Mesh(bg,bMat); bm.position.set(x,0.045,z); FP2.group.add(bm);
-    } else {
-      const x=(wc+1)*CS,z=(wr+0.5)*CS;
-      const wg=new T.BoxGeometry(wallT,wallH,CS); const wm=new T.Mesh(wg,wMat); wm.castShadow=true; wm.position.set(x,wallH/2,z); FP2.group.add(wm);
-      const bg=new T.BoxGeometry(wallT+0.02,0.09,CS); const bm=new T.Mesh(bg,bMat); bm.position.set(x,0.045,z); FP2.group.add(bm);
-    }
-  }
   for(const ok of FP2.openings){
     const parts=ok.split(','); const type=parts[0],oc=parseInt(parts[1]),or2=parseInt(parts[2]);
     if(type==='h'){bx((oc+0.5)*CS,0.004,(or2+1)*CS,CS,0.008,0.12,0xd4af37,FP2.group);}
@@ -2712,11 +2742,19 @@ function fp2BuildFurniture(){
   }
 }
 
-function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:2,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{}}));}catch{} }
+function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:3,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{},wallGraph:WG.toJSON(),}));}catch{} }
+function fp2SeedDefaultRooms(){
+  // 7 rooms + corridor matching original hardcoded layout (FEAT-2026-136)
+  // Interior cells only — shared border gaps become FP2 auto-walls between rooms
+  const seg=[[0,0,15,15],[16,0,39,15],[40,0,60,15],[0,16,60,22],[0,23,19,40],[20,23,37,40],[38,23,51,40],[52,23,60,40]];
+  seg.forEach(([c0,r0,c1,r1])=>{ for(let c=c0;c<c1;c++) for(let r=r0;r<r1;r++) FP2.floor.add(c+','+r); });
+}
+function fp2SeedDefaultWalls(){const segs=[[0,0,30,0,0.1,2.6],[30,0,30,20,0.1,2.6],[30,20,0,20,0.1,2.6],[0,20,0,0,0.1,2.6],[0,7.5,30,7.5,0.1,0.85],[0,11,30,11,0.1,0.85],[7.5,0,7.5,7.5,0.1,0.85],[19.5,0,19.5,7.5,0.1,0.85],[9.5,11,9.5,20,0.1,0.85],[18.5,11,18.5,20,0.1,0.85],[25.5,11,25.5,20,0.1,0.85]];for(const[x0,z0,x1,z1,th,ht]of segs)WG.addWall(x0,z0,x1,z1,th,ht);if(FP2.wallGroup)WG.buildMeshes();}
 function fp2Load(){
   try{
     const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
-    if(raw&&raw.v===2){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; }
+    if(raw&&raw.v===3){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; WG.fromJSON(raw.wallGraph); }
+    else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
 function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
@@ -3787,6 +3825,7 @@ document.getElementById('btnReset').onclick = () => resetView();
     if (FP2._camSaved){ camOrbit.th=FP2._camSaved.th; camOrbit.ph=FP2._camSaved.ph; camOrbit.r=FP2._camSaved.r; camTarget.set(FP2._camSaved.tx,FP2._camSaved.ty,FP2._camSaved.tz); updateCamera(); FP2._camSaved = null; }
   }
 FP2._exit = fp2Exit;
+FP2._enter = fp2Enter;
 
   /* ---- Ghost ---- */
   function destroyGhost(){
@@ -3997,7 +4036,7 @@ FP2._exit = fp2Exit;
     statusBar.classList.remove('hidden');
     toggleBtn.textContent='▶ Simulate'; toggleBtn.classList.add('active');
     /* enter FP2 if not already */
-    if(!FP2.active){ const fp2Btn=document.getElementById('btnFp2'); if(fp2Btn)fp2Btn.click(); else if(typeof fp2Enter==='function')fp2Enter(); }
+    if(!FP2.active){ if(typeof FP2._enter==='function') FP2._enter(); }
     updateStatus();
   }
 
@@ -4127,12 +4166,108 @@ FP2._exit = fp2Exit;
   };
 
   /* ---- Override pointer move for wall handles ---- */
+  const _origOnPointerDown = FP2._onPointerDown;
+  FP2._onPointerDown = function(e){
+    if(buildActive&&FP2.mode==='wall'&&e.button===0){
+      /* Refresh hover state so a drag can start even without a prior move. */
+      buildUpdateHandles(e);
+      const pt=buildPointerPoint(e);
+      if(FP2.mode==='wall'&&!hoveredEdge&&e.button===0){const pt=buildPointerPoint(e);if(!pt){_origOnPointerDown(e);return;}const sx=Math.round(pt.x/(CS/2))*(CS/2),sz=Math.round(pt.z/(CS/2))*(CS/2);wallDraw={startX:sx,startZ:sz,endX:sx,endZ:sz,ghost:null};cv.setPointerCapture(e.pointerId);return;}
+      if(hoveredEdge&&pt){
+        const endpoints=hoveredEdge.type==='h'
+          ? [[hoveredEdge.ec,hoveredEdge.er+1],[hoveredEdge.ec+1,hoveredEdge.er+1]]
+          : [[hoveredEdge.ec+1,hoveredEdge.er],[hoveredEdge.ec+1,hoveredEdge.er+1]];
+        const nearHandle=endpoints.some(([hc,hr])=>Math.hypot(pt.x/CS-hc,pt.z/CS-hr)<=1);
+        if(nearHandle){
+          e.stopPropagation();
+          try{ cv.setPointerCapture(e.pointerId); }catch{}
+          const snap=new Set(FP2.floor);
+          const isH=hoveredEdge.type==='h';
+          const adjacentKey=`${hoveredEdge.ec},${hoveredEdge.er}`;
+          const floorSide=snap.has(adjacentKey)?1:-1;
+          wallDrag={
+            edge:{...hoveredEdge},
+            startFloor:snap,
+            axis:isH?'row':'col',
+            fixedC:hoveredEdge.ec,
+            fixedR:hoveredEdge.er,
+            fixedCoord:isH?hoveredEdge.er:hoveredEdge.ec,
+            startCell:null,
+            dir:floorSide,
+          };
+          return;
+        }
+      }
+    }
+    if(_origOnPointerDown) _origOnPointerDown(e);
+  };
+
   const _origOnPointerMove = FP2._onPointerMove;
   FP2._onPointerMove = function(e){
+    if(wallDraw){const pt=buildPointerPoint(e);if(!pt)return;let ex=Math.round(pt.x/(CS/2))*(CS/2),ez=Math.round(pt.z/(CS/2))*(CS/2);const adx=Math.abs(ex-wallDraw.startX),adz=Math.abs(ez-wallDraw.startZ);if(adx>=adz)ez=wallDraw.startZ;else ex=wallDraw.startX;wallDraw.endX=ex;wallDraw.endZ=ez;if(!wallDraw.ghost&&FP2.wallGroup){wallDraw.ghost=new T.Mesh(new T.BoxGeometry(1,1,1),new T.MeshStandardMaterial({color:0xffaa00,transparent:true,opacity:0.5}));FP2.wallGroup.add(wallDraw.ghost);}if(wallDraw.ghost){const dx=ex-wallDraw.startX,dz=ez-wallDraw.startZ,len=Math.hypot(dx,dz);if(len>=0.2){wallDraw.ghost.scale.set(WALL_THICKNESS,WALL_HEIGHT,len);wallDraw.ghost.position.set((wallDraw.startX+ex)/2,WALL_HEIGHT/2,(wallDraw.startZ+ez)/2);wallDraw.ghost.rotation.y=Math.atan2(dx,dz);wallDraw.ghost.visible=true;}else wallDraw.ghost.visible=false;}return;}
+    /* Wall drag in progress */
+    if(wallDrag){
+      const _dpt=buildPointerPoint(e); if(!_dpt) return;
+      const nc=Math.floor(_dpt.x/CS), nr=Math.floor(_dpt.z/CS);
+      const next=new Set(wallDrag.startFloor);
+      const addRange=(from,to,makeKey)=>{
+        for(let n=Math.min(from,to);n<=Math.max(from,to);n++){
+          const key=makeKey(n);
+          if(wallDrag.axis==='row'?(n>=0&&n<H):(n>=0&&n<W)) next.add(key);
+        }
+      };
+      const removeRange=(from,to,makeKey)=>{
+        for(let n=Math.min(from,to);n<=Math.max(from,to);n++){
+          if(next.size<=1) break;
+          next.delete(makeKey(n));
+        }
+      };
+      if(wallDrag.axis==='row'){
+        const targetR=Math.max(0,Math.min(H-1,nr<=wallDrag.fixedR?nr:nr-1));
+        const makeKey=r=>`${wallDrag.fixedC},${r}`;
+        if(wallDrag.dir>0){
+          if(targetR>wallDrag.fixedR) addRange(wallDrag.fixedR+1,targetR,makeKey);
+          else if(targetR<wallDrag.fixedR) removeRange(targetR+1,wallDrag.fixedR,makeKey);
+        } else {
+          if(targetR<wallDrag.fixedR) addRange(targetR+1,wallDrag.fixedR,makeKey);
+          else if(targetR>wallDrag.fixedR) removeRange(wallDrag.fixedR+1,targetR,makeKey);
+        }
+      } else {
+        const targetC=Math.max(0,Math.min(W-1,nc<=wallDrag.fixedC?nc:nc-1));
+        const makeKey=c=>`${c},${wallDrag.fixedR}`;
+        if(wallDrag.dir>0){
+          if(targetC>wallDrag.fixedC) addRange(wallDrag.fixedC+1,targetC,makeKey);
+          else if(targetC<wallDrag.fixedC) removeRange(targetC+1,wallDrag.fixedC,makeKey);
+        } else {
+          if(targetC<wallDrag.fixedC) addRange(targetC+1,wallDrag.fixedC,makeKey);
+          else if(targetC>wallDrag.fixedC) removeRange(wallDrag.fixedC+1,targetC,makeKey);
+        }
+      }
+      if(next.size){ FP2.floor=next; fp2Apply(); }
+      return;
+    }
     if(!buildActive||FP2.mode!=='wall'){ if(_origOnPointerMove) _origOnPointerMove(e); return; }
     if(_origOnPointerMove) _origOnPointerMove(e);
     /* wall handle detection */
     buildUpdateHandles(e);
+  };
+
+  const _origOnPointerUp = FP2._onPointerUp;
+  FP2._onPointerUp = function(e){
+    if(wallDraw){if(wallDraw.ghost&&FP2.wallGroup){FP2.wallGroup.remove(wallDraw.ghost);wallDraw.ghost.geometry.dispose();}fp2Snapshot();WG.addWall(wallDraw.startX,wallDraw.startZ,wallDraw.endX,wallDraw.endZ);WG.buildMeshes();fp2Save();wallDraw=null;return;}
+    if(wallDrag){
+      /* fp2Snapshot records the current value, so snapshot the pre-drag floor
+         and restore the live result before persisting it. */
+      const finalFloor=new Set(FP2.floor);
+      FP2.floor=new Set(wallDrag.startFloor);
+      fp2Snapshot();
+      FP2.floor=finalFloor;
+      fp2Save();
+      if(cv.hasPointerCapture&&cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
+      wallDrag=null;
+      return;
+    }
+    if(_origOnPointerUp) _origOnPointerUp(e);
   };
 
   /* ---- Wall handles ---- */
@@ -4140,15 +4275,25 @@ FP2._exit = fp2Exit;
     while(FP2._handleGroup.children.length){ const c=FP2._handleGroup.children[0]; if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); FP2._handleGroup.remove(c); }
   }
 
-  function buildUpdateHandles(e){
-    buildClearHandles();
-    if(!FP2.active||FP2.mode!=='wall') return;
-    const rect=e.target.getBoundingClientRect();
+  let hoveredEdge=null;
+  let wallDrag=null;
+  let wallDraw=null;
+
+  function buildPointerPoint(e){
+    const rect=cv.getBoundingClientRect();
     const mx=((e.clientX-rect.left)/rect.width)*2-1;
     const my=-((e.clientY-rect.top)/rect.height)*2+1;
     const ray=new T.Raycaster(); ray.setFromCamera({x:mx,y:my},cam);
     const plane=new T.Plane(new T.Vector3(0,1,0),0);
-    const pt=new T.Vector3(); ray.ray.intersectPlane(plane,pt);
+    const pt=new T.Vector3();
+    return ray.ray.intersectPlane(plane,pt)?pt:null;
+  }
+
+  function buildUpdateHandles(e){
+    buildClearHandles();
+    hoveredEdge=null;
+    if(!FP2.active||FP2.mode!=='wall') return;
+    const pt=buildPointerPoint(e);
     if(!pt) return;
     const pc=pt.x/CS, pr=pt.z/CS;
     /* find nearest edge within 1.5 cells */
@@ -4160,7 +4305,10 @@ FP2._exit = fp2Exit;
       const d=Math.hypot(pc-midC,pr-midR);
       if(d<bestDist){ bestDist=d; best={key,type,ec,er,midC,midR}; }
     }
-    if(!best||bestDist>1.5) return;
+    if(!best||bestDist>2.5) return;
+    best.endpointA=best.type==='h'?[best.ec,best.er+1]:[best.ec+1,best.er];
+    best.endpointB=best.type==='h'?[best.ec+1,best.er+1]:[best.ec+1,best.er+1];
+    hoveredEdge={...best};
     const geo=new T.SphereGeometry(0.08,8,8);
     const mat=new T.MeshBasicMaterial({color:0xf97316});
     if(best.type==='h'){
