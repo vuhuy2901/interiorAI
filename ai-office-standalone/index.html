@@ -779,7 +779,7 @@ html, body {
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
     <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
     <button class="ctrl-btn" id="btnCustomTeam" title="Tuỳ chỉnh team của bạn">✏️ Team</button>
-    <button class="ctrl-btn" id="btnBuildToggle" title="Chuyển Build Mode / Simulate Mode">🏗 Build</button>
+    <button class="ctrl-btn" id="btnBuildToggle" title="Chuyển BUILD / LIVE">BUILD</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
@@ -2616,6 +2616,8 @@ window.FP2 = {
   roomDetectGroup: null,
 };
 S.add(FP2.group);
+FP2.wallOpenings=[];
+FP2.wallSubMode='wall'; // 'wall'|'door'|'window'
 FP2.wallGroup=new T.Group();
 S.add(FP2.wallGroup);
 FP2.handleGroup=new T.Group();
@@ -2630,7 +2632,65 @@ S.add(FP2.decorGroup);
 
 // FEAT-2026-138: proper 3D furniture matching existing office style
 const WALL_THICKNESS=0.1,WALL_HEIGHT=0.85,WALL_COLOR=0x38281d,WALL_BB_COLOR=0x231d17;
-const WG={_nid:0,_wid:0,addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},buildMeshes(){if(!FP2.wallGroup)return;FP2.wallGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});while(FP2.wallGroup.children.length)FP2.wallGroup.remove(FP2.wallGroup.children[0]);for(const wall of FP2.walls.values()){const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz),cx=(n0.x+n1.x)/2,cz=(n0.z+n1.z)/2,h=wall.height,t=wall.thickness;const mesh=new T.Mesh(new T.BoxGeometry(t,h,len),M(WALL_COLOR,{roughness:0.55}));mesh.position.set(cx,h/2,cz);mesh.rotation.y=angle;mesh.castShadow=true;mesh.userData.wallId=wall.id;FP2.wallGroup.add(mesh);const bb=new T.Mesh(new T.BoxGeometry(t+0.02,0.08,len+0.02),M(WALL_BB_COLOR,{roughness:0.5,metalness:0.6}));bb.position.set(cx,0.04,cz);bb.rotation.y=angle;bb.userData.wallId=wall.id;FP2.wallGroup.add(bb);}if(typeof rebuildWallRooms==='function')try{rebuildWallRooms();}catch(e){}if(typeof rebuildRooms==='function')try{rebuildRooms();}catch(e){}},toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],_nid:this._nid,_wid:this._wid};},fromJSON(d){if(!d)return;FP2.wallNodes=new Map((d.nodes||[]).map(n=>[n.id,n]));FP2.walls=new Map((d.walls||[]).map(w=>[w.id,w]));this._nid=d._nid||0;this._wid=d._wid||0;}};
+const WG={_nid:0,_wid:0,_oid:0,
+addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},
+addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},
+removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.wallId!==wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},
+addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const op={id,wallId,offset,type:type||'door',width:w||(type==='window'?1.2:0.9),height:h||(type==='window'?1.0:2.1),elevation:elev||(type==='window'?0.8:0)};FP2.wallOpenings.push(op);return id;},
+removeOpening(oid){FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.id!==oid);},
+buildMeshes(){
+  if(!FP2.wallGroup)return;
+  FP2.wallGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});
+  while(FP2.wallGroup.children.length)FP2.wallGroup.remove(FP2.wallGroup.children[0]);
+  for(const wall of FP2.walls.values()){
+    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
+    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz),h=wall.height,t=wall.thickness;
+    const ux=dx/len,uz=dz/len;
+    function addPanel(from,to,yBot,yTop){
+      const plen=to-from;if(plen<0.04)return;
+      const ph=yTop-yBot,pcen=from+plen/2;
+      const wx=n0.x+ux*pcen,wz=n0.z+uz*pcen;
+      const m=new T.Mesh(new T.BoxGeometry(t,ph,plen),M(WALL_COLOR,{roughness:0.55}));
+      m.position.set(wx,yBot+ph/2,wz);m.rotation.y=angle;m.castShadow=true;m.userData.wallId=wall.id;FP2.wallGroup.add(m);
+    }
+    function addBase(from,to){
+      const plen=to-from;if(plen<0.04)return;
+      const pcen=from+plen/2;const wx=n0.x+ux*pcen,wz=n0.z+uz*pcen;
+      const bb=new T.Mesh(new T.BoxGeometry(t+0.02,0.08,plen+0.02),M(WALL_BB_COLOR,{roughness:0.5,metalness:0.6}));
+      bb.position.set(wx,0.04,wz);bb.rotation.y=angle;bb.userData.wallId=wall.id;FP2.wallGroup.add(bb);
+    }
+    const ops=(FP2.wallOpenings||[]).filter(o=>o.wallId===wall.id).sort((a,b)=>a.offset-b.offset);
+    if(!ops.length){addPanel(0,len,0,h);addBase(0,len);}
+    else{
+      let pos=0;
+      for(const op of ops){
+        const ow=op.width,oh=op.height,oe=op.elevation;
+        const os=Math.max(0,op.offset-ow/2),oe2=Math.min(len,op.offset+ow/2);
+        // Panel before this opening
+        addPanel(pos,os,0,h);addBase(pos,os);
+        // Sill (below window)
+        if(oe>0.02)addPanel(os,oe2,0,oe);
+        // Lintel (above opening)
+        if(oe+oh<h-0.02)addPanel(os,oe2,oe+oh,h);
+        // Frame (doorframe/windowframe)
+        const FT=0.05,fx=n0.x+ux*op.offset,fz=n0.z+uz*op.offset,fh=oh+oe;
+        const fmat=M(0x2a1810,{roughness:0.6,metalness:0.1});
+        // Lintel beam
+        const lnt=new T.Mesh(new T.BoxGeometry(t+0.04,FT,ow+FT*2),fmat);lnt.position.set(fx,oe+oh+FT/2,fz);lnt.rotation.y=angle;FP2.wallGroup.add(lnt);
+        // Left jamb
+        const lo=op.offset-ow/2-FT/2;const lx=n0.x+ux*lo,lz=n0.z+uz*lo;
+        const jl=new T.Mesh(new T.BoxGeometry(t+0.04,fh,FT),fmat);jl.position.set(lx,oe+fh/2,lz);jl.rotation.y=angle;FP2.wallGroup.add(jl);
+        // Right jamb
+        const ro=op.offset+ow/2+FT/2;const rx=n0.x+ux*ro,rz=n0.z+uz*ro;
+        const jr=new T.Mesh(new T.BoxGeometry(t+0.04,fh,FT),fmat);jr.position.set(rx,oe+fh/2,rz);jr.rotation.y=angle;FP2.wallGroup.add(jr);
+        pos=oe2;
+      }
+      addPanel(pos,len,0,h);addBase(pos,len);
+    }
+  }
+  if(typeof rebuildWallRooms==='function')try{rebuildWallRooms();}catch(e){}if(typeof rebuildRooms==='function')try{rebuildRooms();}catch(e){}},
+toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],openings:FP2.wallOpenings||[],_nid:this._nid,_wid:this._wid,_oid:this._oid};},
+fromJSON(d){if(!d)return;FP2.wallNodes=new Map((d.nodes||[]).map(n=>[n.id,n]));FP2.walls=new Map((d.walls||[]).map(w=>[w.id,w]));FP2.wallOpenings=d.openings||[];this._nid=d._nid||0;this._wid=d._wid||0;this._oid=d._oid||0;}};
 
 function clearHandles(){while(FP2.handleGroup.children.length)FP2.handleGroup.remove(FP2.handleGroup.children[0]);}
 function updateHandles(){
@@ -2873,7 +2933,7 @@ function fp2BuildFurniture(){
   }
 }
 
-function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:3,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{},wallGraph:WG.toJSON(),}));}catch{} }
+function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:4,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{},wallGraph:WG.toJSON()}));}catch{} }
 function fp2SeedDefaultRooms(){
   // 7 rooms + corridor matching original hardcoded layout (FEAT-2026-136)
   // Interior cells only — shared border gaps become FP2 auto-walls between rooms
@@ -2884,7 +2944,7 @@ function fp2SeedDefaultWalls(){const segs=[[0,0,30,0,0.1,2.6],[30,0,30,20,0.1,2.
 function fp2Load(){
   try{
     const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
-    if(raw&&raw.v===3){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; WG.fromJSON(raw.wallGraph); }
+    if(raw&&(raw.v===3||raw.v===4)){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; WG.fromJSON(raw.wallGraph); }
     else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
@@ -4002,6 +4062,7 @@ for (let c = 0; c < W; c++) {
 }
 gm.visible = false;
 S.add(gm);
+FP2._gridMesh = gm;
 FP2._gridReady = true;
 
 document.getElementById('btnGrid').onclick = e => {
@@ -4112,9 +4173,20 @@ FP2._enter = fp2Enter;
         d.onclick=()=>{ selFurnType=f.type; fp2RenderPalette(); buildGhost(f.type); setStatus(`Chọn ${f.name} · R=xoay`,''); };
         pal.appendChild(d);
       });
+    } else if(FP2.mode==='wall'){
+      // Wall sub-mode buttons: wall-draw | door | window
+      pal.innerHTML='';
+      const wallSubModes=[{v:'wall',icon:'🧱',lbl:'Vẽ tường'},{v:'door',icon:'🚪',lbl:'Cửa ra vào'},{v:'window',icon:'🪟',lbl:'Cửa sổ'}];
+      wallSubModes.forEach(sm=>{
+        const d=document.createElement('div');d.className='fp2-item'+(FP2.wallSubMode===sm.v?' sel':'');
+        d.innerHTML=`<span class="fp2-item-icon">${sm.icon}</span><div class="fp2-item-name">${sm.lbl}</div>`;
+        d.onclick=()=>{FP2.wallSubMode=sm.v;fp2RenderPalette();setStatus('Wall mode: '+sm.lbl,'');};
+        pal.appendChild(d);
+      });
+      setStatus(FP2.wallSubMode==='door'?'Click tường để đặt cửa':FP2.wallSubMode==='window'?'Click tường để đặt cửa sổ':'Kéo để vẽ tường','');
     } else {
       pal.innerHTML='';
-      const hints={'paint':'Kéo chuột lên sàn để vẽ ô sàn','wall':'Click cạnh tường để mở/đóng','erase':'Kéo chuột để xoá ô sàn'};
+      const hints={'paint':'Kéo chuột lên sàn để vẽ ô sàn','select':'Click tường để chọn · kéo handles','erase':'Kéo chuột để xoá ô sàn'};
       setStatus(hints[FP2.mode]||'','');
     }
   }
@@ -4228,6 +4300,14 @@ FP2._enter = fp2Enter;
   document.addEventListener('keydown', e=>{
     if(!FP2.active) return;
     if(document.activeElement&&document.activeElement.tagName==='INPUT') return;
+    const fp2ModeMap={w:'wall',f:'paint',v:'select',e:'erase'};
+    if(fp2ModeMap[e.key.toLowerCase()]&&!e.ctrlKey&&!e.metaKey){
+      const newMode=fp2ModeMap[e.key.toLowerCase()];
+      FP2.mode=newMode;
+      document.querySelectorAll('.fp2-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===newMode));
+      if(typeof fp2RenderPalette==='function')fp2RenderPalette();
+      e.preventDefault();
+    }
     if(e.key==='1') { FP2.mode='paint'; document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===0)); fp2RenderPalette(); }
     if(e.key==='2') { FP2.mode='wall';  document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===1)); fp2RenderPalette(); }
     if(e.key==='3') { FP2.mode='furniture'; document.querySelectorAll('.fp2-tab').forEach((t,i)=>t.classList.toggle('active',i===2)); fp2RenderPalette(); }
@@ -4235,6 +4315,10 @@ FP2._enter = fp2Enter;
     if(e.key==='r'||e.key==='R'){ ghostRot=(ghostRot+1)%4; if(selFurnType) buildGhost(selFurnType); }
     if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); }
     if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); }
+    if(e.key==='Delete'&&FP2.selectedWallId){
+      fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
+      clearHandles();WG.buildMeshes();fp2Save();e.preventDefault();
+    }
     if(e.key==='Escape') fp2Exit();
   });
 
@@ -4266,6 +4350,7 @@ FP2._enter = fp2Enter;
 
   function enterBuildMode(){
     buildActive=true;
+    if(FP2._gridMesh) FP2._gridMesh.visible=true;
     toolbar.classList.remove('hidden');
     statusBar.classList.remove('hidden');
     toggleBtn.textContent='LIVE'; toggleBtn.classList.add('active');
@@ -4276,6 +4361,7 @@ FP2._enter = fp2Enter;
 
   function exitBuildMode(){
     buildActive=false;
+    if(FP2._gridMesh) FP2._gridMesh.visible=false;
     toolbar.classList.add('hidden');
     statusBar.classList.add('hidden');
     inspector.classList.add('hidden');
@@ -4409,28 +4495,45 @@ FP2._enter = fp2Enter;
   /* ---- Override pointer move for wall handles ---- */
   const _origOnPointerDown = FP2._onPointerDown;
   FP2._onPointerDown = function(e){
-    // Wall segment handle drag (highest priority)
-    if(buildActive&&e.button===0&&FP2.wallSelectGroup&&FP2.wallSelectGroup.children.length){
+    // Handle drag takes priority
+    if(FP2.handleGroup&&FP2.handleGroup.children.length){
+      const r2=new T.Raycaster();
       const rect=cv.getBoundingClientRect();
-      const r2=new T.Raycaster();r2.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
-      const hits2=r2.intersectObjects(FP2.wallSelectGroup.children);
-      const hHandle=hits2.find(h=>h.object.userData.handleType);
-      if(hHandle){const hud=hHandle.object.userData;wHandleDrag={handleType:hud.handleType,wallId:hud.wallId,nodeId:hud.nodeId,_origPt:null,_origN0:null,_origN1:null};cv.setPointerCapture(e.pointerId);return;}
+      const nx=((e.clientX-rect.left)/rect.width)*2-1;
+      const ny=-((e.clientY-rect.top)/rect.height)*2+1;
+      r2.setFromCamera(new T.Vector2(nx,ny),cam);
+      const hits=r2.intersectObjects(FP2.handleGroup.children);
+      if(hits.length){
+        const hud=hits[0].object.userData;
+        handleDrag={handleType:hud.handleType,wallId:hud.wallId,nodeId:hud.nodeId,_origPt:null,_origN0:null,_origN1:null};
+        cv.setPointerCapture(e.pointerId);
+        return;
+      }
     }
-    // Wall selection (select mode click)
-    if(buildActive&&FP2.mode==='select'&&e.button===0){
+    // Door/Window placement
+    if(buildActive&&FP2.mode==='wall'&&(FP2.wallSubMode==='door'||FP2.wallSubMode==='window')&&e.button===0){
       const rect=cv.getBoundingClientRect();
-      const r3=new T.Raycaster();r3.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
-      const hits3=r3.intersectObjects(FP2.wallGroup.children,true);
-      const wallHit=hits3.find(h=>h.object.userData.wallId);
-      if(wallHit){FP2.selectedWallId=wallHit.object.userData.wallId;}else{FP2.selectedWallId=null;}
-      updateWallHandles();updateWallPanel();
+      const rdw=new T.Raycaster();rdw.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
+      const wallHits=rdw.intersectObjects(FP2.wallGroup.children,true);
+      const wh=wallHits.find(h=>h.object.userData.wallId);
+      if(wh){
+        const wid=wh.object.userData.wallId;
+        const wall=FP2.walls.get(wid);
+        const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);
+        if(n0&&n1){
+          const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
+          const pt=wh.point;
+          const offset=Math.max(0.5,Math.min(len-0.5,((pt.x-n0.x)*dx/len+(pt.z-n0.z)*dz/len)));
+          fp2Snapshot();WG.addOpening(wid,offset,FP2.wallSubMode);WG.buildMeshes();fp2Save();
+        }
+      }
+      return;
     }
     if(buildActive&&FP2.mode==='wall'&&e.button===0){
       /* Refresh hover state so a drag can start even without a prior move. */
       buildUpdateHandles(e);
       const pt=buildPointerPoint(e);
-      if(FP2.mode==='wall'&&!hoveredEdge&&e.button===0){const pt=buildPointerPoint(e);if(!pt){_origOnPointerDown(e);return;}const sx=Math.round(pt.x/(CS/2))*(CS/2),sz=Math.round(pt.z/(CS/2))*(CS/2);wallDraw={startX:sx,startZ:sz,endX:sx,endZ:sz,ghost:null};cv.setPointerCapture(e.pointerId);return;}
+      if(FP2.mode==='wall'&&!hoveredEdge&&e.button===0&&FP2.wallSubMode==='wall'){const pt=buildPointerPoint(e);if(!pt){_origOnPointerDown(e);return;}const sx=Math.round(pt.x/(CS/2))*(CS/2),sz=Math.round(pt.z/(CS/2))*(CS/2);wallDraw={startX:sx,startZ:sz,endX:sx,endZ:sz,ghost:null};cv.setPointerCapture(e.pointerId);return;}
       if(hoveredEdge&&pt){
         const endpoints=hoveredEdge.type==='h'
           ? [[hoveredEdge.ec,hoveredEdge.er+1],[hoveredEdge.ec+1,hoveredEdge.er+1]]
@@ -4457,27 +4560,43 @@ FP2._enter = fp2Enter;
         }
       }
     }
+    // Wall selection
+    if(FP2.mode==='select'&&e.button===0){
+      const r3=new T.Raycaster();
+      const rect=cv.getBoundingClientRect();
+      const nx=((e.clientX-rect.left)/rect.width)*2-1;
+      const ny=-((e.clientY-rect.top)/rect.height)*2+1;
+      r3.setFromCamera(new T.Vector2(nx,ny),cam);
+      const hits=r3.intersectObjects(FP2.wallGroup.children,true);
+      if(hits.length&&hits[0].object.userData.wallId){
+        FP2.selectedWallId=hits[0].object.userData.wallId;
+      }else{
+        FP2.selectedWallId=null;
+      }
+      updateHandles();updateWallPanel();
+    }
     if(_origOnPointerDown) _origOnPointerDown(e);
   };
 
   const _origOnPointerMove = FP2._onPointerMove;
   FP2._onPointerMove = function(e){
-    if(wHandleDrag){
-      const pt=buildPointerPoint(e);if(!pt)return;
-      const snap=CS/2;const sx=Math.round(pt.x/snap)*snap,sz=Math.round(pt.z/snap)*snap;
-      if(wHandleDrag.handleType==='endpoint'){
-        const n=FP2.wallNodes.get(wHandleDrag.nodeId);if(n){n.x=sx;n.z=sz;}
-      }else{
-        const wall=FP2.walls.get(wHandleDrag.wallId);if(!wall)return;
-        const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)return;
-        if(!wHandleDrag._origPt){wHandleDrag._origPt={x:sx,z:sz};wHandleDrag._origN0={x:n0.x,z:n0.z};wHandleDrag._origN1={x:n1.x,z:n1.z};}
-        const dx=sx-wHandleDrag._origPt.x,dz=sz-wHandleDrag._origPt.z;
-        n0.x=wHandleDrag._origN0.x+dx;n0.z=wHandleDrag._origN0.z+dz;
-        n1.x=wHandleDrag._origN1.x+dx;n1.z=wHandleDrag._origN1.z+dz;
-      }
-      WG.buildMeshes();updateWallHandles();updateWallPanel();return;
-    }
     if(wallDraw){const pt=buildPointerPoint(e);if(!pt)return;let ex=Math.round(pt.x/(CS/2))*(CS/2),ez=Math.round(pt.z/(CS/2))*(CS/2);const adx=Math.abs(ex-wallDraw.startX),adz=Math.abs(ez-wallDraw.startZ);if(adx>=adz)ez=wallDraw.startZ;else ex=wallDraw.startX;wallDraw.endX=ex;wallDraw.endZ=ez;if(!wallDraw.ghost&&FP2.wallGroup){wallDraw.ghost=new T.Mesh(new T.BoxGeometry(1,1,1),new T.MeshStandardMaterial({color:0xffaa00,transparent:true,opacity:0.5}));FP2.wallGroup.add(wallDraw.ghost);}if(wallDraw.ghost){const dx=ex-wallDraw.startX,dz=ez-wallDraw.startZ,len=Math.hypot(dx,dz);if(len>=0.2){wallDraw.ghost.scale.set(WALL_THICKNESS,WALL_HEIGHT,len);wallDraw.ghost.position.set((wallDraw.startX+ex)/2,WALL_HEIGHT/2,(wallDraw.startZ+ez)/2);wallDraw.ghost.rotation.y=Math.atan2(dx,dz);wallDraw.ghost.visible=true;}else wallDraw.ghost.visible=false;}return;}
+    if(handleDrag){
+      const pt=buildPointerPoint(e);if(!pt)return;
+      const snap=CS/2;
+      const sx=Math.round(pt.x/snap)*snap,sz=Math.round(pt.z/snap)*snap;
+      if(handleDrag.handleType==='endpoint'){
+        const n=FP2.wallNodes.get(handleDrag.nodeId);if(n){n.x=sx;n.z=sz;}
+      }else{
+        const wall=FP2.walls.get(handleDrag.wallId);if(!wall)return;
+        const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)return;
+        if(!handleDrag._origPt){handleDrag._origPt={x:sx,z:sz};handleDrag._origN0={x:n0.x,z:n0.z};handleDrag._origN1={x:n1.x,z:n1.z};}
+        const dx=sx-handleDrag._origPt.x,dz=sz-handleDrag._origPt.z;
+        n0.x=handleDrag._origN0.x+dx;n0.z=handleDrag._origN0.z+dz;
+        n1.x=handleDrag._origN1.x+dx;n1.z=handleDrag._origN1.z+dz;
+      }
+      WG.buildMeshes();updateHandles();updateWallPanel();return;
+    }
     /* Wall drag in progress */
     if(wallDrag){
       const _dpt=buildPointerPoint(e); if(!_dpt) return;
@@ -4527,8 +4646,8 @@ FP2._enter = fp2Enter;
 
   const _origOnPointerUp = FP2._onPointerUp;
   FP2._onPointerUp = function(e){
-    if(wHandleDrag){fp2Snapshot();fp2Save();wHandleDrag=null;return;}
     if(wallDraw){if(wallDraw.ghost&&FP2.wallGroup){FP2.wallGroup.remove(wallDraw.ghost);wallDraw.ghost.geometry.dispose();}fp2Snapshot();WG.addWall(wallDraw.startX,wallDraw.startZ,wallDraw.endX,wallDraw.endZ);WG.buildMeshes();fp2Save();wallDraw=null;return;}
+    if(handleDrag){fp2Snapshot();fp2Save();handleDrag=null;return;}
     if(wallDrag){
       /* fp2Snapshot records the current value, so snapshot the pre-drag floor
          and restore the live result before persisting it. */
@@ -4552,7 +4671,7 @@ FP2._enter = fp2Enter;
   let hoveredEdge=null;
   let wallDrag=null;
   let wallDraw=null;
-  let wHandleDrag=null; // {handleType,wallId,nodeId,_origPt,_origN0,_origN1}
+  let handleDrag=null;
 
   function buildPointerPoint(e){
     const rect=cv.getBoundingClientRect();
@@ -4602,6 +4721,14 @@ FP2._enter = fp2Enter;
   document.addEventListener('keydown',e=>{
     if(!buildActive) return;
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+    const fp2ModeMap={w:'wall',f:'paint',v:'select',e:'erase'};
+    if(FP2.active&&fp2ModeMap[e.key.toLowerCase()]&&!e.ctrlKey&&!e.metaKey){
+      const newMode=fp2ModeMap[e.key.toLowerCase()];
+      FP2.mode=newMode;
+      document.querySelectorAll('.fp2-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===newMode));
+      if(typeof fp2RenderPalette==='function')fp2RenderPalette();
+      e.preventDefault();
+    }
     const map={s:'select',w:'wall',f:'paint',u:'furniture',e:'erase'};
     if(map[e.key.toLowerCase()]){
       FP2.mode=map[e.key.toLowerCase()];
@@ -4611,10 +4738,10 @@ FP2._enter = fp2Enter;
     }
     if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); updateStatus(); }
     if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); updateStatus(); }
-    if(e.key==='Escape'){ clearInspector(); FP2.selectedWallId=null; clearWallHandles(); updateWallPanel(); }
+    if(e.key==='Escape'){ clearInspector(); FP2.selectedWallId=null; clearHandles(); updateWallPanel(); }
     if(e.key==='Delete'&&FP2.selectedWallId){
       fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
-      clearWallHandles();WG.buildMeshes();fp2Save();e.preventDefault();
+      clearHandles();WG.buildMeshes();updateWallPanel();fp2Save();e.preventDefault();
     }
   });
 
