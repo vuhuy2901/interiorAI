@@ -985,8 +985,9 @@ html, body {
    ========================================================================= */
 const T = THREE, CS = 0.5, W = 60, H_BASE = 40, WING_ROWS = 24, H = H_BASE + WING_ROWS;
 const blocked = new Uint8Array(W * H);
+const fp2WallBlocked = new Uint8Array(W * H); // WallGraph wall cells — updated after WG.buildMeshes
 const B = (c, r) => { if (c >= 0 && r >= 0 && c < W && r < H) blocked[r * W + c] = 1; };
-const isB = (c, r) => c < 0 || r < 0 || c >= W || r >= H || blocked[r * W + c];
+const isB = (c, r) => c < 0 || r < 0 || c >= W || r >= H || blocked[r * W + c] || (window.FP2?.active && fp2WallBlocked[r * W + c]);
 const wx = c => (c + 0.5) * CS;
 const wv = (c, r) => new T.Vector3(wx(c), 0, wx(r));
 const blk = (c0, r0, c1, r1) => { for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) B(c, r); };
@@ -2688,7 +2689,7 @@ buildMeshes(){
       addPanel(pos,len,0,h);addBase(pos,len);
     }
   }
-  if(typeof rebuildWallRooms==='function')try{rebuildWallRooms();}catch(e){}if(typeof rebuildRooms==='function')try{rebuildRooms();}catch(e){}},
+  if(typeof rebuildWallRooms==='function')try{rebuildWallRooms();}catch(e){}if(typeof rebuildRooms==='function')try{rebuildRooms();}catch(e){}if(typeof updateFP2WallBlocked==='function')try{updateFP2WallBlocked();}catch(e){}},
 toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],openings:FP2.wallOpenings||[],_nid:this._nid,_wid:this._wid,_oid:this._oid};},
 fromJSON(d){if(!d)return;FP2.wallNodes=new Map((d.nodes||[]).map(n=>[n.id,n]));FP2.walls=new Map((d.walls||[]).map(w=>[w.id,w]));FP2.wallOpenings=d.openings||[];this._nid=d._nid||0;this._wid=d._wid||0;this._oid=d._oid||0;}};
 
@@ -3011,6 +3012,40 @@ function fp2DetectRooms() {
 
 const _fp2ApplyOrig = fp2Apply;
 fp2Apply = function(){ _fp2ApplyOrig(); fp2DetectRooms(); };
+
+/* ---- WallGraph navgrid integration (A* path respects FP2 walls) ---- */
+function updateFP2WallBlocked(){
+  fp2WallBlocked.fill(0);
+  for(const wall of FP2.walls.values()){
+    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
+    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
+    const steps=Math.ceil(len/CS*8)+1,th=Math.max(1,Math.round(wall.thickness/CS));
+    for(let s=0;s<=steps;s++){
+      const t=s/steps,px=n0.x+dx*t,pz=n0.z+dz*t;
+      const c=Math.round(px/CS-0.5),r=Math.round(pz/CS-0.5);
+      for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
+        const nc=c+dc,nr=r+dr;
+        if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=1;
+      }
+    }
+  }
+  // Clear cells at door/window openings so agents can pass
+  for(const op of(FP2.wallOpenings||[])){
+    const wall=FP2.walls.get(op.wallId);if(!wall)continue;
+    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
+    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len,ow=op.width;
+    const steps2=Math.ceil(ow/CS*8)+1;
+    for(let s=0;s<=steps2;s++){
+      const t=s/steps2,ox=n0.x+ux*(op.offset-ow/2+ow*t),oz=n0.z+uz*(op.offset-ow/2+ow*t);
+      const c=Math.round(ox/CS-0.5),r=Math.round(oz/CS-0.5);
+      const th=Math.max(1,Math.round(wall.thickness/CS))+1;
+      for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
+        const nc=c+dc,nr=r+dr;
+        if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=0;
+      }
+    }
+  }
+}
 
 /* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
 function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}

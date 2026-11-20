@@ -117,3 +117,9 @@ Gọi `rebuildRooms()` ở cuối:
 - [ ] Xóa wall phá vòng → phòng biến mất
 - [ ] Label "Phòng X – Ym²" hiện ở centroid
 - [ ] No console errors với T/X junction
+
+## 6. Verification evidence
+
+- 2026-11-20: JavaScript syntax validation passed: `OK: 3 ERR: 0`.
+- 2026-11-20: Required implementation markers passed: `handleGroup`, `rebuildRooms`, `detectRooms`, `fp2WallProps`, select tab, and `handleDrag` all present.
+- Implementation revision: `9db7dd3c35c6646c73ae0b5f621eae4f57e3c6d8`.

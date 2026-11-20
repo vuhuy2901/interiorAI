@@ -38,3 +38,9 @@ Khi mode='select': click tường → hiện handles (FEAT-2026-140 logic).
 - [ ] Phím W/F/V/E/R/Del/Ctrl+Z/Y hoạt động trong FP2
 - [ ] Panel thuộc tính hiện khi chọn tường
 - [ ] Mode 'select' tab hoạt động
+
+## 6. Verification evidence
+
+- 2026-11-20: JavaScript syntax validation passed: `OK: 3 ERR: 0`.
+- 2026-11-20: Required implementation markers passed: `handleGroup`, `rebuildRooms`, `detectRooms`, `fp2WallProps`, select tab, and `handleDrag` all present.
+- Implementation revision: `9db7dd3c35c6646c73ae0b5f621eae4f57e3c6d8`.

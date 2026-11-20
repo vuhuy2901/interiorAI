@@ -101,3 +101,9 @@ if(e.key==='Delete' && FP2.active && FP2.selectedWallId){
 - [ ] Kéo handle giữa → wall dịch song song cả đoạn
 - [ ] Delete → wall biến mất, nodes orphan được dọn
 - [ ] Undo (Ctrl+Z) sau kéo → khôi phục
+
+## 5. Verification evidence
+
+- 2026-11-20: JavaScript syntax validation passed: `OK: 3 ERR: 0`.
+- 2026-11-20: Required implementation markers passed: `handleGroup`, `rebuildRooms`, `detectRooms`, `fp2WallProps`, select tab, and `handleDrag` all present.
+- Implementation revision: `9db7dd3c35c6646c73ae0b5f621eae4f57e3c6d8`.
