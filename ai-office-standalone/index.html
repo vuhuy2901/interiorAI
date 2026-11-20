@@ -2622,7 +2622,7 @@ const WG={_nid:0,_wid:0,_oid:0,
 addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},
 addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const rTh=th??WALL_THICKNESS,rHt=ht??WALL_HEIGHT;if(Math.abs(rTh-WALL_T)>0.01||Math.abs(rHt-WALL_H)>0.01)console.warn('[Wall] non-standard dims th='+rTh+' h='+rHt+' (expect T='+WALL_T+' H='+WALL_H+')');const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:WALL_T,height:WALL_H,materialId:'walnut'});return id;},
 removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.wallId!==wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},
-addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const op={id,wallId,offset,type:type||'door',width:w||(type==='window'?1.2:0.9),height:h||(type==='window'?1.0:2.1),elevation:elev||(type==='window'?0.8:0)};FP2.wallOpenings.push(op);return id;},
+addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const isWin=type==='window';const defH=isWin?1.0:Math.min(2.1,DOOR_MAX_H);const op={id,wallId,offset,type:type||'sliding-glass',width:w||(isWin?1.2:0.9),height:h||defH,elevation:elev||(isWin?0.8:0)};FP2.wallOpenings.push(op);return id;},
 removeOpening(oid){FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.id!==oid);},
 buildMeshes(){
   if(!FP2.wallGroup)return;
@@ -2658,9 +2658,9 @@ buildMeshes(){
         if(oe>0.02)addPanel(os,oe2,0,oe);
         // Lintel (above opening)
         if(oe+oh<h-0.02)addPanel(os,oe2,oe+oh,h);
-        // Frame (doorframe/windowframe)
+        // Frame (dark metal, matching office door style)
         const FT=0.05,fx=n0.x+ux*op.offset,fz=n0.z+uz*op.offset,fh=oh+oe;
-        const fmat=M(0x2a1810,{roughness:0.6,metalness:0.1});
+        const fmat=M(0x181a1f,{roughness:0.4,metalness:0.8});
         // Lintel beam
         const lnt=new T.Mesh(new T.BoxGeometry(t+0.04,FT,ow+FT*2),fmat);lnt.position.set(fx,oe+oh+FT/2,fz);lnt.rotation.y=angle;FP2.wallGroup.add(lnt);
         // Left jamb
@@ -2669,6 +2669,11 @@ buildMeshes(){
         // Right jamb
         const ro=op.offset+ow/2+FT/2;const rx=n0.x+ux*ro,rz=n0.z+uz*ro;
         const jr=new T.Mesh(new T.BoxGeometry(t+0.04,fh,FT),fmat);jr.position.set(rx,oe+fh/2,rz);jr.rotation.y=angle;FP2.wallGroup.add(jr);
+        // Glass leaf (door/sliding-glass) or glass pane (window)
+        if(op.type==='door'||op.type==='sliding-glass'||op.type==='window'){
+          const glLeaf=new T.Mesh(new T.BoxGeometry(t*0.4,oh-FT,ow-FT*2),new T.MeshStandardMaterial({color:0xa0b8cf,transparent:true,opacity:0.38,roughness:0.1,metalness:0.4}));
+          glLeaf.position.set(fx,oe+oh/2,fz);glLeaf.rotation.y=angle;FP2.wallGroup.add(glLeaf);
+        }
         pos=oe2;
       }
       addPanel(pos,len,0,h);addBase(pos,len);
@@ -4196,7 +4201,7 @@ FP2._enter = fp2Enter;
     } else if(FP2.mode==='wall'){
       // Wall sub-mode buttons: wall-draw | door | window
       pal.innerHTML='';
-      const wallSubModes=[{v:'wall',icon:'🧱',lbl:'Vẽ tường'},{v:'door',icon:'🚪',lbl:'Cửa ra vào'},{v:'window',icon:'🪟',lbl:'Cửa sổ'}];
+      const wallSubModes=[{v:'wall',icon:'🧱',lbl:'Vẽ tường'},{v:'sliding-glass',icon:'🪞',lbl:'Kính trượt'},{v:'door',icon:'🚪',lbl:'Cửa gỗ'},{v:'window',icon:'🪟',lbl:'Cửa sổ'}];
       wallSubModes.forEach(sm=>{
         const d=document.createElement('div');d.className='fp2-item'+(FP2.wallSubMode===sm.v?' sel':'');
         d.innerHTML=`<span class="fp2-item-icon">${sm.icon}</span><div class="fp2-item-name">${sm.lbl}</div>`;
@@ -4531,7 +4536,7 @@ FP2._enter = fp2Enter;
       }
     }
     // Door/Window placement
-    if(buildActive&&FP2.mode==='wall'&&(FP2.wallSubMode==='door'||FP2.wallSubMode==='window')&&e.button===0){
+    if(buildActive&&FP2.mode==='wall'&&(FP2.wallSubMode==='door'||FP2.wallSubMode==='window'||FP2.wallSubMode==='sliding-glass')&&e.button===0){
       const rect=cv.getBoundingClientRect();
       const rdw=new T.Raycaster();rdw.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
       const wallHits=rdw.intersectObjects(FP2.wallGroup.children,true);
