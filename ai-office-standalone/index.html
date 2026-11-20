@@ -707,6 +707,12 @@ html, body {
   transition: background 0.15s;
 }
 .cta-add-btn:hover { background: rgba(212,163,115,0.3); }
+.fp-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px; cursor:pointer; transition:border-color 0.15s; }
+.fp-card:hover { border-color: rgba(212,175,55,0.5); }
+.fp-card.selected { border-color: #d4af37; background: rgba(212,175,55,0.1); }
+.fp-card-name { font-size:11px; color:#f8fafc; font-weight:600; margin-top:3px; }
+.fp-card-size { font-size:10px; color:#64748b; }
+.fp-tab.active { background: rgba(255,255,255,0.12) !important; color: #f8fafc !important; border-color: rgba(255,255,255,0.2) !important; }
 .cta-full-msg { color: #64748b; font-size: 12px; text-align: center; padding: 6px 0; }
 .cta-label { font-size: 11px; color: #94a3b8; margin-top: 4px; margin-bottom: 2px; }
 .cta-empty { color: #475569; font-size: 12px; padding: 4px 0 10px; }
@@ -750,6 +756,7 @@ html, body {
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
     <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
     <button class="ctrl-btn" id="btnCustomTeam" title="Tuỳ chỉnh team của bạn">✏️ Team</button>
+    <button class="ctrl-btn" id="btnFloorplan" title="Mở rộng mặt bằng — ghép phòng & trang trí">🧩</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
@@ -778,6 +785,26 @@ html, body {
   </div>
   <p class="visual-quality-note">Preset chỉ điều chỉnh cách render. Scene, agent, bố cục và vật liệu gốc vẫn được giữ nguyên.</p>
 </section>
+
+<div id="fpPanel" class="glass" style="display:none;position:fixed;left:14px;top:60px;width:272px;max-height:calc(100vh - 80px);overflow-y:auto;border-radius:12px;padding:12px;z-index:200;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <span style="font-weight:600;font-size:14px;">🧩 Mở Rộng Văn Phòng</span>
+    <button id="fpClose" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;">×</button>
+  </div>
+  <div style="display:flex;gap:4px;margin-bottom:10px;">
+    <button class="fp-tab active" data-tab="room" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.08);color:#f8fafc;font-size:11px;cursor:pointer;">🧱 Phòng</button>
+    <button class="fp-tab" data-tab="decor" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#94a3b8;font-size:11px;cursor:pointer;">🌿 Trang Trí</button>
+    <button class="fp-tab" data-tab="select" style="flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#94a3b8;font-size:11px;cursor:pointer;">🔍 Chọn</button>
+  </div>
+  <div id="fpPalette" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"></div>
+  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+    <button id="fpRotate" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Xoay (R)">⟳ Xoay</button>
+    <button id="fpUndo" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Hoàn tác (Ctrl+Z)">↶ Undo</button>
+    <button id="fpDelete" class="ctrl-btn" style="font-size:11px;padding:4px 8px;" title="Xoá (Del)">🗑 Xoá</button>
+  </div>
+  <div id="fpStatus" style="font-size:11px;color:#64748b;min-height:36px;"></div>
+  <div style="font-size:10px;color:#475569;margin-top:4px;">Kéo chuột xoay camera · Click để đặt</div>
+</div>
 
 <!-- Bottom Status Strip - Project & Agent Status Dashboard -->
 <div id="statusStrip" class="glass">
@@ -899,12 +926,15 @@ html, body {
 /* =========================================================================
    1. GRID, COORDINATES & NAVIGATION (60x40 Cells, 0.5m/cell)
    ========================================================================= */
-const T = THREE, CS = 0.5, W = 60, H = 40, blocked = new Uint8Array(W * H);
+const T = THREE, CS = 0.5, W = 60, H_BASE = 40, WING_ROWS = 24, H = H_BASE + WING_ROWS;
+const blocked = new Uint8Array(W * H);
 const B = (c, r) => { if (c >= 0 && r >= 0 && c < W && r < H) blocked[r * W + c] = 1; };
 const isB = (c, r) => c < 0 || r < 0 || c >= W || r >= H || blocked[r * W + c];
 const wx = c => (c + 0.5) * CS;
 const wv = (c, r) => new T.Vector3(wx(c), 0, wx(r));
 const blk = (c0, r0, c1, r1) => { for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) B(c, r); };
+// Block wing (south expansion) — void until FP modules are placed
+for (let r = H_BASE; r < H; r++) for (let c = 0; c < W; c++) blocked[r * W + c] = 1;
 
 /* =========================================================================
    2. THREE.JS NATURAL DISTRIBUTED LIGHTING SETUP
@@ -1188,9 +1218,9 @@ function plane(t, w, h, x, y, z, rx, ry, p = S) {
 /* =========================================================================
    3. ARCHITECTURAL FLOATING PLINTH & WARM LED PERIMETER COVE
    ========================================================================= */
-const plinthW = (W + 2) * CS, plinthD = (H + 2) * CS, plinthH = 0.38;
-bx(W / 2 * CS, -plinthH / 2, H / 2 * CS, plinthW, plinthH, plinthD, 0x111318, S, { roughness: 0.9 });
-bx(W / 2 * CS, 0.015, H / 2 * CS, plinthW + 0.12, 0.035, plinthD + 0.12, 0x3d2f23, S, { roughness: 0.4, metalness: 0.7 });
+const plinthW = (W + 2) * CS, plinthD = (H_BASE + 2) * CS, plinthH = 0.38;
+bx(W / 2 * CS, -plinthH / 2, H_BASE / 2 * CS, plinthW, plinthH, plinthD, 0x111318, S, { roughness: 0.9 });
+bx(W / 2 * CS, 0.015, H_BASE / 2 * CS, plinthW + 0.12, 0.035, plinthD + 0.12, 0x3d2f23, S, { roughness: 0.4, metalness: 0.7 });
 
 const ledMat = new T.MeshStandardMaterial({
   color: 0xffb84d,
@@ -1199,12 +1229,12 @@ const ledMat = new T.MeshStandardMaterial({
   roughness: 0.2
 });
 const coveStrip = new T.Mesh(new T.BoxGeometry(plinthW + 0.16, 0.02, plinthD + 0.16), ledMat);
-coveStrip.position.set(W / 2 * CS, -0.01, H / 2 * CS);
+coveStrip.position.set(W / 2 * CS, -0.01, H_BASE / 2 * CS);
 ledGroup.add(coveStrip);
 
 const groundPlane = new T.Mesh(new T.PlaneGeometry(160, 160), M(0x07080b, { roughness: 0.95 }));
 groundPlane.rotation.x = -Math.PI / 2;
-groundPlane.position.set(W / 2 * CS, -plinthH, H / 2 * CS);
+groundPlane.position.set(W / 2 * CS, -plinthH, H_BASE / 2 * CS);
 groundPlane.receiveShadow = true;
 S.add(groundPlane);
 
@@ -1358,6 +1388,22 @@ wk.forEach((k, i) => {
   glassM.setMatrixAt(i, dm.matrix);
 });
 S.add(glassM);
+
+// Wall index + cache for FP door hiding
+const wallIdx = new Map(wk.map((k, i) => [k, i]));
+const wallMatCache = new Array(wk.length);
+wk.forEach((_, i) => { const m4 = new T.Matrix4(); wm.getMatrixAt(i, m4); wallMatCache[i] = m4.clone(); });
+function setBaseWallVisible(key, vis) {
+  const i = wallIdx.get(key);
+  if (i === undefined) return;
+  for (const mesh of [wm, bbMesh, wallLedMesh, glassM]) {
+    const m4 = new T.Matrix4();
+    if (vis) m4.copy(wallMatCache[i]);
+    else m4.scale(new T.Vector3(0, 0, 0));
+    mesh.setMatrixAt(i, m4);
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 
 // Floor Labels
 function flabel(s, c, r, w) {
@@ -2419,17 +2465,21 @@ createSculpturalPlant(10, 17);
    10. NAVIGATION GRID & A* PATHFINDING
    ========================================================================= */
 const near = new Uint8Array(W * H);
-for (let c = 0; c < W; c++) {
-  for (let r = 0; r < H; r++) {
-    if (!isB(c, r)) {
-      for (let a = -1; a <= 1; a++) {
-        for (let b = -1; b <= 1; b++) {
-          if (isB(c + a, r + b)) near[r * W + c] = 1;
+function rebuildNear() {
+  near.fill(0);
+  for (let c = 0; c < W; c++) {
+    for (let r = 0; r < H; r++) {
+      if (!isB(c, r)) {
+        for (let a = -1; a <= 1; a++) {
+          for (let b = -1; b <= 1; b++) {
+            if (isB(c + a, r + b)) near[r * W + c] = 1;
+          }
         }
       }
     }
   }
 }
+rebuildNear();
 
 const hh = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
@@ -2477,6 +2527,350 @@ function astar(a, b) {
   }
   return null;
 }
+
+/* =========================================================================
+   10b. FLOOR PLAN EDITOR — core
+   ========================================================================= */
+const FP_KEY = 'atelier_fp_v1';
+const FP_MAX_MODULES = 16;
+const FP_HISTORY_MAX = 30;
+
+const FP_CATALOG = [
+  { type: 'meet_s',  name: 'Phòng họp',       w: 10, h: 8,  floorCol: 0x2a1f1a, tex: 'walnut',
+    decor(g, x0, z0, w, h) {
+      const cx = x0 + w*CS/2, cz = z0 + h*CS/2;
+      bx(cx, 0.37, cz, 4*CS, 0.74, 2*CS, 0x3d2b1f, g);
+      for (const [dx,dz] of [[-1.3,0],[1.3,0],[0,-0.6],[0,0.6]]) bx(cx+dx,0.22,cz+dz,0.4,0.44,0.4,0x1a1a2e,g);
+      return [];
+    }
+  },
+  { type: 'storage', name: 'Kho',              w: 6,  h: 6,  floorCol: 0x1a1f24, tex: 'stone',
+    decor(g, x0, z0, w, h) {
+      bx(x0+CS+0.45, 0.6, z0+CS+0.1, 0.9, 1.2, 0.25, 0x2d3748, g);
+      bx(x0+CS+0.45, 0.6, z0+CS+0.6, 0.9, 1.2, 0.25, 0x2d3748, g);
+      return [];
+    }
+  },
+  { type: 'studio',  name: 'Studio',           w: 12, h: 10, floorCol: 0x1a2024, tex: 'herring',
+    decor(g, x0, z0, w, h) {
+      bx(x0+2*CS, 0.37, z0+2*CS+0.5, 4*CS, 0.74, CS, 0x1e3a5f, g);
+      bx(x0+2*CS, 0.37, z0+5*CS+0.5, 4*CS, 0.74, CS, 0x1e3a5f, g);
+      bx(x0+(w-2)*CS, 0.6, z0+h*CS/2, 0.1, 1.5, 3*CS, 0x2d2d3d, g);
+      return [];
+    }
+  },
+  { type: 'pantry',  name: 'Pantry',           w: 8,  h: 8,  floorCol: 0x1f2420, tex: 'stone',
+    decor(g, x0, z0, w, h) {
+      bx(x0+CS, 0.45, z0+1.5*CS, (w-2)*CS, 0.9, 0.3, 0x2a3728, g);
+      bx(x0+CS, 0.45, z0+CS+0.3, 0.3, 0.9, (h-3)*CS, 0x2a3728, g);
+      return [];
+    }
+  },
+  { type: 'focus',   name: 'Phòng tập trung',  w: 6,  h: 5,  floorCol: 0x1f1f28, tex: 'walnut',
+    decor(g, x0, z0, w, h) {
+      const cx = x0+w*CS/2, cz = z0+h*CS/2;
+      bx(cx, 0.37, cz, 2*CS, 0.74, CS, 0x1e1e3f, g);
+      bx(cx, 0.22, cz+CS, 0.4, 0.44, 0.4, 0x1a1a2e, g);
+      return [];
+    }
+  },
+  { type: 'corridor',name: 'Hành lang',        w: 4,  h: 10, floorCol: 0x1a1a20, tex: 'stone',
+    openEnds: true,
+    decor(g, x0, z0, w, h) { return []; }
+  },
+];
+
+const FP_DECOR_CATALOG = [
+  { type: 'plant_pot',   name: 'Chậu cây nhỏ',
+    build(g, x, z) {
+      const mat1 = new T.MeshStandardMaterial({color:0x2d6a2d,roughness:0.8});
+      const mat2 = new T.MeshStandardMaterial({color:0x7c5c3a,roughness:0.9});
+      const geo1 = new T.CylinderGeometry(0.12,0.1,0.5,8); const m1 = new T.Mesh(geo1,mat1); m1.position.set(x,0.25,z); g.add(m1);
+      const geo2 = new T.CylinderGeometry(0.17,0.14,0.18,8); const m2 = new T.Mesh(geo2,mat2); m2.position.set(x,0.09,z); g.add(m2);
+    }
+  },
+  { type: 'plant_tall',  name: 'Cây cao',
+    build(g, x, z) {
+      const mat = new T.MeshStandardMaterial({color:0x1f5c1f,roughness:0.8});
+      const matP = new T.MeshStandardMaterial({color:0x7c5c3a,roughness:0.9});
+      const geo = new T.CylinderGeometry(0.15,0.12,1.2,8); const m = new T.Mesh(geo,mat); m.position.set(x,0.6,z); g.add(m);
+      const geoP = new T.CylinderGeometry(0.22,0.18,0.25,8); const mp = new T.Mesh(geoP,matP); mp.position.set(x,0.125,z); g.add(mp);
+      for (const [ax,ay,az] of [[0.3,1.1,0],[-0.25,0.9,0.15],[0.1,1.3,-0.2]]) {
+        const lmat = new T.MeshStandardMaterial({color:0x2a7a2a,roughness:0.7,side:T.DoubleSide});
+        const lgeo = new T.BoxGeometry(0.25,0.05,0.4); const lm = new T.Mesh(lgeo,lmat);
+        lm.position.set(x+ax,ay,z+az); lm.rotation.z = ax > 0 ? -0.4 : 0.4; g.add(lm);
+      }
+    }
+  },
+  { type: 'plant_corner', name: 'Cây góc',
+    build(g, x, z) {
+      const mat = new T.MeshStandardMaterial({color:0x1a4a1a,roughness:0.8});
+      const matP = new T.MeshStandardMaterial({color:0x6b4c2a,roughness:0.9});
+      for (const [dx,dz,ht,rv] of [[0,0,1.6,0.08],[-0.2,0.15,1.0,0.07],[0.18,-0.1,0.8,0.06]]) {
+        const geo = new T.CylinderGeometry(rv,rv*0.8,ht,8); const m = new T.Mesh(geo,mat); m.position.set(x+dx,ht/2,z+dz); g.add(m);
+        const geoL = new T.SphereGeometry(rv*3,8,6); const ml = new T.Mesh(geoL,mat); ml.position.set(x+dx,ht,z+dz); g.add(ml);
+      }
+      const geoP = new T.CylinderGeometry(0.28,0.22,0.3,8); const mp = new T.Mesh(geoP,matP); mp.position.set(x,0.15,z); g.add(mp);
+    }
+  },
+  { type: 'shelf',       name: 'Kệ sách',
+    build(g, x, z) {
+      bx(x, 0.6, z, 0.9, 1.2, 0.25, 0x4a3728, g);
+      for (let i = 0; i < 3; i++) {
+        bx(x, 0.08+i*0.4, z, 0.9, 0.04, 0.25, 0x3d2d1e, g);
+        const bookMat = new T.MeshStandardMaterial({color:[0x3a5a8a,0x8a3a3a,0x3a8a4a][i],roughness:0.9});
+        const bgeo = new T.BoxGeometry(0.12,0.3,0.2); const bm = new T.Mesh(bgeo,bookMat); bm.position.set(x-0.3,0.25+i*0.4,z); g.add(bm);
+      }
+    }
+  },
+  { type: 'sculpture',   name: 'Tác phẩm',
+    build(g, x, z) {
+      bx(x, 0.05, z, 0.3, 0.1, 0.3, 0x808080, g);
+      bx(x+0.05, 0.3, z-0.05, 0.12, 0.5, 0.12, 0xc0a060, g);
+      bx(x-0.08, 0.5, z+0.03, 0.18, 0.08, 0.14, 0xd4b070, g);
+      bx(x, 0.65, z, 0.08, 0.3, 0.08, 0xb89050, g);
+    }
+  },
+  { type: 'lamp_arc',    name: 'Đèn vòng',
+    build(g, x, z) {
+      bx(x, 0.9, z, 0.05, 1.8, 0.05, 0x2a2a2a, g);
+      const arcGeo = new T.TorusGeometry(0.3, 0.025, 8, 24, Math.PI);
+      const arcM = new T.Mesh(arcGeo, new T.MeshStandardMaterial({color:0x2a2a2a,roughness:0.5,metalness:0.8}));
+      arcM.rotation.z = Math.PI/2; arcM.position.set(x+0.3, 1.8, z); g.add(arcM);
+      const shadeGeo = new T.CylinderGeometry(0.22, 0.28, 0.2, 12, 1, true);
+      const shadeM = new T.Mesh(shadeGeo, new T.MeshStandardMaterial({color:0xfff5d0,roughness:0.5,emissive:0xfff5d0,emissiveIntensity:0.3}));
+      shadeM.position.set(x+0.6, 1.72, z); g.add(shadeM);
+    }
+  },
+];
+
+window.FP = {
+  state: { v: 1, modules: [], doors: [], decors: [] },
+  occ:   new Int16Array(W * H).fill(-1),
+  ring:  new Uint8Array(W * H),
+  group:      new T.Group(),
+  decorGroup: new T.Group(),
+  lotMesh:    null,
+  ghost:      null,
+  history:    [],
+  openedBase: new Set(),
+  active:     false,
+  mode:       'room',
+  selType:    null,
+  selDecorType: null,
+  selModule:  null,
+  rot:        0,
+  anim:       [],
+  _lastCell:  null,
+  _ghostPlacement: null,
+  _hoverFn:   null,
+  _clickFn:   null,
+};
+S.add(FP.group);
+S.add(FP.decorGroup);
+
+function fpSave() {
+  try { localStorage.setItem(FP_KEY, JSON.stringify(FP.state)); } catch {}
+}
+function fpLoad() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FP_KEY) || 'null');
+    if (raw && raw.v === 1) {
+      FP.state = { v:1, modules: raw.modules||[], doors: raw.doors||[], decors: raw.decors||[] };
+    }
+  } catch {}
+}
+function fpGetFootprint(type, rot) {
+  const cat = FP_CATALOG.find(c => c.type === type);
+  if (!cat) return null;
+  const w = (rot % 2 === 0) ? cat.w : cat.h;
+  const h = (rot % 2 === 0) ? cat.h : cat.w;
+  return { w, h, cat };
+}
+function fpValidateModule(type, c, r, rot) {
+  const fp = fpGetFootprint(type, rot);
+  if (!fp) return { ok: false, reason: 'Loại không hợp lệ' };
+  const { w, h, cat } = fp;
+  if (c < 0 || c + w > W || r < H_BASE - 1 || r + h > H)
+    return { ok: false, reason: 'Ngoài lô đất' };
+  const ring = [], interior = [], shared = [];
+  for (let dr = 0; dr < h; dr++) {
+    for (let dc = 0; dc < w; dc++) {
+      const cc = c + dc, rr = r + dr;
+      const isRingCell = dr === 0 || dr === h-1 || dc === 0 || dc === w-1;
+      const isOpenEnd = cat.openEnds && (dc === 0 || dc === w-1) && dr > 0 && dr < h-1;
+      if (isOpenEnd) continue;
+      const key = `${cc},${rr}`;
+      if (isRingCell) {
+        ring.push([cc, rr, key]);
+        if ((rr === H_BASE - 1 && wall && wall.has(key)) ||
+            (rr >= H_BASE && FP.ring[rr * W + cc] === 1)) {
+          shared.push([cc, rr]);
+        } else if (rr >= H_BASE) {
+          const idx = rr * W + cc;
+          if (FP.occ[idx] >= 0) return { ok: false, reason: 'Chồng lên phòng khác' };
+        }
+      } else {
+        if (rr < H_BASE) return { ok: false, reason: 'Phần nội thất nằm trong toà nhà gốc' };
+        const idx = rr * W + cc;
+        if (FP.occ[idx] >= 0) return { ok: false, reason: 'Chồng lên phòng khác' };
+        if (FP.ring[idx] === 1) return { ok: false, reason: 'Chồng lên tường phòng khác' };
+        interior.push([cc, rr]);
+      }
+    }
+  }
+  if (shared.length < 2 && r >= H_BASE)
+    return { ok: false, reason: 'Phải ghép sát tường văn phòng hoặc phòng khác' };
+  return { ok: true, reason: '', shared, ring, interior };
+}
+function fpAutoDoorsForModule(type, c, r, rot) {
+  const { ok, shared } = fpValidateModule(type, c, r, rot);
+  if (!ok || !shared || shared.length < 4) return [];
+  const hGroups = {};
+  for (const [sc, sr] of shared) {
+    if (!hGroups[sr]) hGroups[sr] = [];
+    hGroups[sr].push(sc);
+  }
+  const doors = [];
+  for (const [rr, cols] of Object.entries(hGroups)) {
+    cols.sort((a,b)=>a-b);
+    if (cols.length >= 4) {
+      const len = cols.length >= 8 ? 3 : 2;
+      const mid = Math.floor(cols.length / 2);
+      const startC = cols[mid - Math.floor(len/2)];
+      doors.push({ id: 'd_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4),
+                   c: startC, r: parseInt(rr), dir: 'h', len, auto: true });
+    }
+  }
+  return doors;
+}
+function fpApply() {
+  for (let r = H_BASE; r < H; r++)
+    for (let c = 0; c < W; c++) { blocked[r*W+c]=1; FP.occ[r*W+c]=-1; FP.ring[r*W+c]=0; }
+  for (const key of FP.openedBase) {
+    const [cs2,rs2] = key.split(',').map(Number);
+    blocked[rs2*W+cs2]=1; setBaseWallVisible(key,true);
+  }
+  FP.openedBase.clear();
+  const validModules = [];
+  for (let i = 0; i < FP.state.modules.length; i++) {
+    const m = FP.state.modules[i];
+    const v = fpValidateModule(m.type, m.c, m.r, m.rot||0);
+    if (!v.ok) { console.warn('FP: drop module', m.id, v.reason); continue; }
+    validModules.push(m);
+    const idx2 = validModules.length - 1;
+    for (const [cc,rr] of (v.interior||[])) { blocked[rr*W+cc]=0; FP.occ[rr*W+cc]=idx2; }
+    for (const [cc,rr] of (v.ring||[])) { if(rr>=H_BASE){blocked[rr*W+cc]=1; FP.ring[rr*W+cc]=1;} }
+  }
+  FP.state.modules = validModules;
+  const validDoors = [];
+  for (const d of FP.state.doors) {
+    for (let i = 0; i < d.len; i++) {
+      const cc = d.dir==='h' ? d.c+i : d.c;
+      const rr = d.dir==='v' ? d.r+i : d.r;
+      const key = `${cc},${rr}`;
+      blocked[rr*W+cc]=0;
+      if (wall && wall.has(key)) { setBaseWallVisible(key,false); FP.openedBase.add(key); }
+      FP.ring[rr*W+cc]=0;
+    }
+    validDoors.push(d);
+  }
+  FP.state.doors = validDoors;
+  rebuildNear();
+  fpBuildMeshes();
+  fpBuildDecors();
+  if (typeof refreshGridOverlay === 'function') refreshGridOverlay();
+  if (typeof agents !== 'undefined') fpRelocateAgents();
+}
+function fpBuildMeshes() {
+  FP.group.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material && !o.material._fpShared) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+  });
+  while (FP.group.children.length) FP.group.remove(FP.group.children[0]);
+  const doorSet = new Set();
+  for (const d of FP.state.doors) for (let i=0;i<d.len;i++) {
+    const cc=d.dir==='h'?d.c+i:d.c, rr=d.dir==='v'?d.r+i:d.r;
+    doorSet.add(`${cc},${rr}`);
+  }
+  const ringArr = [];
+  for (let r=H_BASE;r<H;r++) for (let c=0;c<W;c++) {
+    if (FP.ring[r*W+c]) { const k=`${c},${r}`; if(!doorSet.has(k)&&!(wall&&wall.has(k))) ringArr.push(k); }
+  }
+  if (ringArr.length > 0) {
+    const wallH=0.85, bbH=0.09;
+    const wGeo=new T.BoxGeometry(CS,wallH,CS);
+    const wMeshFP=new T.InstancedMesh(wGeo,walnutWallMat,ringArr.length); wMeshFP.castShadow=true;
+    const bbGeo=new T.BoxGeometry(CS,bbH,CS);
+    const bbMeshFP=new T.InstancedMesh(bbGeo,bbMat,ringArr.length);
+    for (let i=0;i<ringArr.length;i++) {
+      const [cc,rr]=ringArr[i].split(',').map(Number);
+      const x=(cc+0.5)*CS, z=(rr+0.5)*CS;
+      wMeshFP.setMatrixAt(i,new T.Matrix4().setPosition(x,wallH/2,z));
+      bbMeshFP.setMatrixAt(i,new T.Matrix4().setPosition(x,bbH/2,z));
+    }
+    wMeshFP.instanceMatrix.needsUpdate=true; bbMeshFP.instanceMatrix.needsUpdate=true;
+    FP.group.add(wMeshFP); FP.group.add(bbMeshFP);
+  }
+  for (let mi=0;mi<FP.state.modules.length;mi++) {
+    const m=FP.state.modules[mi];
+    const fp=fpGetFootprint(m.type,m.rot||0); if(!fp) continue;
+    const {w,h,cat}=fp;
+    const x0=m.c*CS, z0=m.r*CS;
+    const xMid=x0+w*CS/2, zMid=z0+h*CS/2;
+    bx(xMid,-0.19,zMid,w*CS,plinthH,h*CS,0x111318,FP.group);
+    const texMap={walnut:walnutTex,stone:stoneTex,herring:herringboneTex};
+    const floorMat=new T.MeshStandardMaterial({color:cat.floorCol,roughness:0.9});
+    if(texMap[cat.tex]) floorMat.map=texMap[cat.tex];
+    const floorGeo=new T.PlaneGeometry(w*CS-0.1,h*CS-0.1);
+    const floorM=new T.Mesh(floorGeo,floorMat); floorM.rotation.x=-Math.PI/2;
+    floorM.position.set(xMid,0.001,zMid); floorM.receiveShadow=true; FP.group.add(floorM);
+    const lCanvas=document.createElement('canvas'); lCanvas.width=256; lCanvas.height=64;
+    const lCtx=lCanvas.getContext('2d');
+    lCtx.fillStyle='rgba(0,0,0,0)'; lCtx.fillRect(0,0,256,64);
+    lCtx.fillStyle='#94a3b8'; lCtx.font='bold 20px sans-serif'; lCtx.textAlign='center';
+    lCtx.fillText(m.name||cat.name,128,40);
+    const lTex=new T.CanvasTexture(lCanvas);
+    const lMat=new T.MeshBasicMaterial({map:lTex,transparent:true,depthWrite:false,side:T.DoubleSide});
+    const lGeo=new T.PlaneGeometry(w*CS*0.8,h*CS*0.2);
+    const lM=new T.Mesh(lGeo,lMat); lM.rotation.x=-Math.PI/2; lM.position.set(xMid,0.01,zMid); FP.group.add(lM);
+    if(cat.decor) cat.decor(FP.group,x0,z0,w,h);
+    for (const d of FP.state.doors) {
+      if(!d.auto) continue;
+      if(d.r===m.r||d.r===m.r+h-1) {
+        bx((d.c+d.len/2)*CS,0.004,(d.r+0.5)*CS,d.len*CS,0.008,CS,0xd4af37,FP.group);
+      }
+    }
+  }
+}
+function fpBuildDecors() {
+  FP.decorGroup.traverse(o => { if(o.geometry) o.geometry.dispose(); });
+  while(FP.decorGroup.children.length) FP.decorGroup.remove(FP.decorGroup.children[0]);
+  for (const d of FP.state.decors) {
+    const cat=FP_DECOR_CATALOG.find(c=>c.type===d.type); if(!cat) continue;
+    cat.build(FP.decorGroup,(d.c+0.5)*CS,(d.r+0.5)*CS);
+  }
+}
+function fpRelocateAgents() {
+  if (typeof agents==='undefined') return;
+  for (const ag of agents) {
+    const c=Math.floor(ag.mesh.position.x/CS), r=Math.floor(ag.mesh.position.z/CS);
+    if(c<0||c>=W||r<0||r>=H||!blocked[r*W+c]) continue;
+    const q=[[c,r]], seen=new Set([`${c},${r}`]); let found=null;
+    while(q.length&&!found) {
+      const [cc,rr]=q.shift();
+      for (const [dc,dr] of [[0,1],[0,-1],[1,0],[-1,0]]) {
+        const nc=cc+dc,nr=rr+dr; if(nc<0||nc>=W||nr<0||nr>=H) continue;
+        const k=`${nc},${nr}`; if(seen.has(k)) continue; seen.add(k);
+        if(!blocked[nr*W+nc]){found=[nc,nr];break;}
+        if(seen.size<64) q.push([nc,nr]);
+      }
+    }
+    if(found){ag.mesh.position.x=(found[0]+0.5)*CS;ag.mesh.position.z=(found[1]+0.5)*CS;}
+  }
+}
+fpLoad();
+fpApply();
 
 /* =========================================================================
    11. SIMULATION CLOCK & TWEENING
@@ -3261,6 +3655,7 @@ cv.addEventListener('pointerdown', e => {
   }
 });
 cv.addEventListener('pointermove', e => {
+  if (FP.active && FP._hoverFn && !drag) { FP._hoverFn(e); }
   if (!drag) return;
   camOrbit.th -= (e.clientX - drag[0]) * 0.005;
   camOrbit.ph = Math.min(1.3, Math.max(0.25, camOrbit.ph - (e.clientY - drag[1]) * 0.004));
@@ -3282,6 +3677,10 @@ const mouse = new T.Vector2();
 const hitboxes = agents.map(a => a.hitbox);
 
 cv.addEventListener('click', e => {
+  if (FP.active) {
+    if (FP._clickFn) FP._clickFn(e);
+    return;
+  }
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, cam);
@@ -3419,6 +3818,24 @@ for (let c = 0; c < W; c++) {
 gm.visible = false;
 S.add(gm);
 
+function refreshGridOverlay() {
+  if (!gm) return;
+  for (let r = H_BASE; r < H; r++) {
+    for (let c = 0; c < W; c++) {
+      const idx = r * W + c;
+      const dummy2 = new T.Object3D();
+      dummy2.position.set(wx(c), 0.04, wx(r));
+      dummy2.rotation.set(-Math.PI/2, 0, 0);
+      if (blocked[idx]) dummy2.scale.set(0,0,0); else dummy2.scale.set(1,1,1);
+      dummy2.updateMatrix();
+      gm.setMatrixAt(idx, dummy2.matrix);
+      if (!blocked[idx]) gm.setColorAt(idx, new T.Color(0x34d399));
+    }
+  }
+  gm.instanceMatrix.needsUpdate = true;
+  if (gm.instanceColor) gm.instanceColor.needsUpdate = true;
+}
+
 document.getElementById('btnGrid').onclick = e => {
   gm.visible = !gm.visible;
   e.target.classList.toggle('active', gm.visible);
@@ -3444,6 +3861,215 @@ stylePreset.onchange = e => {
 applyVisualSettings();
 
 document.getElementById('btnReset').onclick = () => resetView();
+
+/* =========================================================================
+   16b. FLOOR PLAN EDITOR — UI
+   ========================================================================= */
+(function setupFpUI() {
+  const panel = document.getElementById('fpPanel');
+  const palette = document.getElementById('fpPalette');
+  const status = document.getElementById('fpStatus');
+  if (!panel || !palette || !status) return;
+
+  let _camSaved = null;
+
+  document.getElementById('btnFloorplan')?.addEventListener('click', () => {
+    if (!FP.active) fpEnter(); else fpExit();
+  });
+  document.getElementById('fpClose')?.addEventListener('click', fpExit);
+
+  document.querySelectorAll('.fp-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.fp-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      FP.mode = btn.dataset.tab;
+      FP.selType = null; FP.selDecorType = null; FP.selModule = null;
+      fpRenderPalette();
+      fpDestroyGhost();
+    });
+  });
+
+  document.getElementById('fpRotate')?.addEventListener('click', () => { FP.rot=(FP.rot+1)%4; fpUpdateGhost(); });
+  document.getElementById('fpUndo')?.addEventListener('click', fpUndo);
+  document.getElementById('fpDelete')?.addEventListener('click', fpDeleteSelected);
+
+  function fpEnter() {
+    FP.active = true;
+    panel.style.display = 'block';
+    fpRenderPalette();
+    fpShowLot(true);
+    _camSaved = { target: camTarget.clone(), r: camOrbit.r, ph: camOrbit.ph, th: camOrbit.th };
+    camTarget.copy(new T.Vector3(W*CS/2, 0.5, (H_BASE+WING_ROWS/2)*CS));
+    camOrbit.r = Math.min(_camSaved.r * 1.6, 34);
+    camOrbit.ph = 0.6;
+    updateCamera();
+  }
+  function fpExit() {
+    FP.active = false; FP.selType = null; FP.selDecorType = null; FP.selModule = null;
+    panel.style.display = 'none';
+    fpDestroyGhost(); fpShowLot(false); fpSave();
+    if (_camSaved) { camTarget.copy(_camSaved.target); camOrbit.r=_camSaved.r; camOrbit.ph=_camSaved.ph; updateCamera(); }
+  }
+  function fpShowLot(vis) {
+    if (!FP.lotMesh) {
+      const geo = new T.PlaneGeometry(W*CS, WING_ROWS*CS);
+      const lc = document.createElement('canvas'); lc.width=64; lc.height=64;
+      const lctx = lc.getContext('2d');
+      lctx.strokeStyle='rgba(224,160,83,0.3)'; lctx.lineWidth=1; lctx.strokeRect(1,1,62,62);
+      const ltex = new T.CanvasTexture(lc);
+      ltex.wrapS = ltex.wrapT = T.RepeatWrapping; ltex.repeat.set(W, WING_ROWS);
+      const lmat = new T.MeshBasicMaterial({map:ltex,transparent:true,opacity:0.4,depthWrite:false});
+      FP.lotMesh = new T.Mesh(geo, lmat);
+      FP.lotMesh.rotation.x = -Math.PI/2;
+      FP.lotMesh.position.set(W*CS/2, 0.002, (H_BASE+WING_ROWS/2)*CS);
+      FP.lotMesh.renderOrder = 1;
+      S.add(FP.lotMesh);
+    }
+    FP.lotMesh.visible = vis;
+  }
+  function fpRenderPalette() {
+    palette.innerHTML = '';
+    if (FP.mode === 'select') {
+      palette.innerHTML = `<div style="color:#94a3b8;font-size:12px;grid-column:1/-1;">Click một phòng trong scene để chọn.<br><br>Phòng đã đặt: ${FP.state.modules.length}/${FP_MAX_MODULES}</div>`;
+      return;
+    }
+    const items = FP.mode === 'room' ? FP_CATALOG : FP_DECOR_CATALOG;
+    for (const cat of items) {
+      const card = document.createElement('div');
+      card.className = 'fp-card';
+      const selType = FP.mode === 'room' ? FP.selType : FP.selDecorType;
+      if (cat.type === selType) card.classList.add('selected');
+      const swatch = document.createElement('div');
+      swatch.style.cssText = `width:100%;height:28px;border-radius:4px;background:#${((cat.floorCol||0x2a2a3a)>>>0).toString(16).padStart(6,'0')};`;
+      const name = document.createElement('div'); name.className='fp-card-name'; name.textContent=cat.name;
+      card.appendChild(swatch); card.appendChild(name);
+      if (cat.w && cat.h) {
+        const fp = fpGetFootprint(cat.type, FP.rot);
+        const size = document.createElement('div'); size.className='fp-card-size';
+        size.textContent = fp ? `${fp.w*CS}×${fp.h*CS}m` : '';
+        card.appendChild(size);
+      }
+      card.addEventListener('click', () => {
+        if (FP.mode==='room') FP.selType=cat.type; else FP.selDecorType=cat.type;
+        fpRenderPalette();
+        fpUpdateStatus('Hover lên sàn để xem preview · Click để đặt', true);
+      });
+      palette.appendChild(card);
+    }
+  }
+  function fpUpdateStatus(msg, ok) {
+    status.innerHTML = `<span style="color:${ok?'#34d399':'#f87171'}">${msg}</span><br><span style="color:#64748b;font-size:10px;">Phòng: ${FP.state.modules.length}/${FP_MAX_MODULES} · Trang trí: ${FP.state.decors.length}</span>`;
+  }
+  function fpDestroyGhost() {
+    if (!FP.ghost) return;
+    FP.ghost.traverse(o => { if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+    S.remove(FP.ghost); FP.ghost = null;
+  }
+  const fpPlane = new T.Plane(new T.Vector3(0,1,0), 0);
+  const fpHit = new T.Vector3();
+  function fpCellFromEvent(e) {
+    const rect = R.domElement.getBoundingClientRect();
+    const mx=((e.clientX-rect.left)/rect.width)*2-1;
+    const my=-((e.clientY-rect.top)/rect.height)*2+1;
+    raycaster.setFromCamera(new T.Vector2(mx,my), cam);
+    if (!raycaster.ray.intersectPlane(fpPlane, fpHit)) return null;
+    return [Math.floor(fpHit.x/CS), Math.floor(fpHit.z/CS)];
+  }
+  function fpUpdateGhost() {
+    if (!FP._lastCell) return;
+    fpHoverAt(FP._lastCell[0], FP._lastCell[1]);
+  }
+  function fpHoverAt(c, r) {
+    if (!FP.active) return;
+    FP._lastCell = [c, r];
+    if (FP.mode==='room' && FP.selType) {
+      const fp = fpGetFootprint(FP.selType, FP.rot); if(!fp) return;
+      const {w,h} = fp;
+      let bc=c-Math.floor(w/2), br=r-Math.floor(h/2);
+      let best=null, bestDist=999;
+      for (let dc=-2;dc<=2;dc++) for (let dr=-2;dr<=2;dr++) {
+        const v=fpValidateModule(FP.selType,bc+dc,br+dr,FP.rot);
+        if(v.ok){const d=Math.abs(dc)+Math.abs(dr);if(d<bestDist){bestDist=d;best=[bc+dc,br+dr];}}
+      }
+      if(best&&bestDist<=2){bc=best[0];br=best[1];}
+      const v=fpValidateModule(FP.selType,bc,br,FP.rot);
+      fpDrawGhost(bc,br,w,h,v.ok);
+      if(v.ok) fpUpdateStatus('Click để đặt'+(v.shared&&v.shared.length>=4?' · Sẽ tạo cửa':''),true);
+      else fpUpdateStatus(v.reason,false);
+      FP._ghostPlacement={c:bc,r:br};
+    } else if (FP.mode==='decor' && FP.selDecorType) {
+      fpDrawDecorGhost(c,r);
+      FP._ghostPlacement={c,r};
+      fpUpdateStatus('Click để đặt trang trí',true);
+    }
+  }
+  function fpDrawGhost(c, r, w, h, ok) {
+    fpDestroyGhost();
+    FP.ghost = new T.Group(); FP.ghost.renderOrder=999;
+    const col=ok?0x34d399:0xf87171;
+    const mat=new T.MeshBasicMaterial({color:col,transparent:true,opacity:0.35,depthWrite:false});
+    const geo=new T.BoxGeometry(w*CS-0.05,0.02,h*CS-0.05);
+    const m=new T.Mesh(geo,mat); m.position.set((c+w/2)*CS,0.3,(r+h/2)*CS);
+    FP.ghost.add(m); S.add(FP.ghost);
+  }
+  function fpDrawDecorGhost(c, r) {
+    fpDestroyGhost();
+    FP.ghost = new T.Group(); FP.ghost.renderOrder=999;
+    const mat=new T.MeshBasicMaterial({color:0x34d399,transparent:true,opacity:0.4,depthWrite:false});
+    const geo=new T.BoxGeometry(CS*0.8,0.5,CS*0.8);
+    const m=new T.Mesh(geo,mat); m.position.set((c+0.5)*CS,0.25,(r+0.5)*CS);
+    FP.ghost.add(m); S.add(FP.ghost);
+  }
+  function fpClickPlace(c, r) {
+    if (FP.mode==='room' && FP.selType && FP._ghostPlacement) {
+      const {c:pc,r:pr}=FP._ghostPlacement;
+      if(FP.state.modules.length>=FP_MAX_MODULES){fpUpdateStatus('Đã đạt tối đa 16 phòng',false);return;}
+      const v=fpValidateModule(FP.selType,pc,pr,FP.rot);
+      if(!v.ok){fpUpdateStatus(v.reason,false);return;}
+      FP.history.push(JSON.stringify(FP.state));
+      if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
+      const id='m_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4);
+      FP.state.modules.push({id,type:FP.selType,c:pc,r:pr,rot:FP.rot});
+      FP.state.doors.push(...fpAutoDoorsForModule(FP.selType,pc,pr,FP.rot));
+      fpApply(); fpSave(); fpRenderPalette();
+      const catName=FP_CATALOG.find(x=>x.type===FP.selType)?.name||FP.selType;
+      fpUpdateStatus(`Đã đặt "${catName}"`,true);
+    } else if (FP.mode==='decor' && FP.selDecorType) {
+      if(c<0||c>=W||r<0||r>=H) return;
+      FP.history.push(JSON.stringify(FP.state));
+      if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
+      const id='dc_'+Date.now().toString(36)+Math.random().toString(36).slice(2,4);
+      FP.state.decors.push({id,type:FP.selDecorType,c,r,rot:FP.rot});
+      fpBuildDecors(); fpSave();
+      const dName=FP_DECOR_CATALOG.find(x=>x.type===FP.selDecorType)?.name||FP.selDecorType;
+      fpUpdateStatus(`Đặt ${dName}`,true);
+    }
+  }
+  function fpUndo() {
+    if(!FP.history.length) return;
+    try { FP.state=JSON.parse(FP.history.pop()); fpApply(); fpSave(); fpRenderPalette(); fpUpdateStatus('Đã hoàn tác',true); } catch {}
+  }
+  function fpDeleteSelected() {
+    if(!FP.selModule) return;
+    FP.history.push(JSON.stringify(FP.state));
+    if(FP.history.length>FP_HISTORY_MAX) FP.history.shift();
+    FP.state.modules=FP.state.modules.filter(m=>m.id!==FP.selModule);
+    FP.state.doors=FP.state.doors.filter(d=>!d.auto);
+    FP.selModule=null; fpApply(); fpSave(); fpRenderPalette(); fpUpdateStatus('Đã xoá phòng',true);
+  }
+
+  FP._hoverFn = (e) => { const cell=fpCellFromEvent(e); if(cell) fpHoverAt(cell[0],cell[1]); };
+  FP._clickFn = (e) => { const cell=fpCellFromEvent(e); if(cell) fpClickPlace(cell[0],cell[1]); };
+
+  document.addEventListener('keydown', e => {
+    if (!FP.active) return;
+    if (document.activeElement&&document.activeElement.tagName==='INPUT') return;
+    if (e.key==='r'||e.key==='R') { FP.rot=(FP.rot+1)%4; fpUpdateGhost(); }
+    if (e.key==='Escape') { if(FP.selType||FP.selDecorType){FP.selType=null;FP.selDecorType=null;fpDestroyGhost();fpRenderPalette();}else fpExit(); }
+    if ((e.key==='Delete'||e.key==='Backspace')&&FP.selModule) fpDeleteSelected();
+    if (e.ctrlKey&&e.key==='z') { e.preventDefault(); fpUndo(); }
+  });
+})();
 
 /* =========================================================================
    17. MAIN ANIMATION LOOP WITH 2D LABEL COLLISION AVOIDANCE
@@ -3550,6 +4176,14 @@ function loop(now) {
   if (sim.isTimelapse) {
     sim.hour = (sim.hour + dt * sim.timelapseSpeed) % 24;
     setTimeOfDay(sim.hour);
+  }
+
+  if (FP.ghost) {
+    const ft = performance.now() * 0.001;
+    FP.ghost.children.forEach(m => {
+      if (m.material && m.material.opacity !== undefined)
+        m.material.opacity = 0.3 + 0.1 * Math.sin(ft * 6);
+    });
   }
 
   R.render(S, cam);
