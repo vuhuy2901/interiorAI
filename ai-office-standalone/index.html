@@ -987,6 +987,7 @@ const WALL_H = 2.6;      // standard wall height (m)
 const WALL_T = 0.15;     // standard wall thickness (m)
 const WALL_COL = 0x38281d; // standard wall colour
 const DOOR_MAX_H = WALL_H - 0.3; // door max height
+const FLOOR_DEFAULT = 'herringbone'; // default floor material id
 
 /* =========================================================================
    1. GRID, COORDINATES & NAVIGATION (60x40 Cells, 0.5m/cell)
@@ -1298,11 +1299,22 @@ const coveStrip = new T.Mesh(new T.BoxGeometry(plinthW + 0.16, 0.02, plinthD + 0
 coveStrip.position.set(W / 2 * CS, -0.01, H_BASE / 2 * CS);
 ledGroup.add(coveStrip);
 
-const groundPlane = new T.Mesh(new T.PlaneGeometry(160, 160), M(0x07080b, { roughness: 0.95 }));
+const groundPlane = new T.Mesh(new T.PlaneGeometry(2000, 2000), M(0x07080b, { roughness: 0.95 }));
 groundPlane.rotation.x = -Math.PI / 2;
 groundPlane.position.set(W / 2 * CS, -plinthH, H_BASE / 2 * CS);
 groundPlane.receiveShadow = true;
 S.add(groundPlane);
+// Infinite build grid (shown in BUILD mode only)
+const _buildGridMat = new T.ShaderMaterial({
+  transparent:true, side:T.DoubleSide, depthWrite:false,
+  uniforms:{uScale:{value:CS},uColor:{value:new T.Color(0x38bdf8)},uAlpha:{value:0.12}},
+  vertexShader:`varying vec2 vUv;void main(){vUv=position.xz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+  fragmentShader:`uniform float uScale;uniform vec3 uColor;uniform float uAlpha;varying vec2 vUv;void main(){vec2 g=abs(fract(vUv/uScale-.5)-.5)/fwidth(vUv/uScale);float l=1.-min(min(g.x,g.y),1.);gl_FragColor=vec4(uColor,l*uAlpha);}`
+});
+const _buildGrid = new T.Mesh(new T.PlaneGeometry(2000,2000,1,1), _buildGridMat);
+_buildGrid.rotation.x=-Math.PI/2; _buildGrid.position.set(1000,-plinthH+0.005,1000); _buildGrid.visible=false;
+S.add(_buildGrid);
+FP2._buildGrid=_buildGrid;
 
 /* AO-style contact layer: soft baked ellipses under the hero furniture. */
 const contactShadowTexture = makeCanvasTexture(192, 128, (ctx, w, h) => {
@@ -2603,7 +2615,8 @@ window.FP2 = {
 };
 S.add(FP2.group);
 FP2.wallOpenings=[];
-FP2.wallSubMode='wall'; // 'wall'|'door'|'window'
+FP2.wallSubMode='wall'; // 'wall'|'door'|'window'|'sliding-glass'
+FP2.floorTiles={};      // cell-key → material id ('herringbone','dark_wood','tile_gray','tile_white','carpet','concrete')
 FP2.wallGroup=new T.Group();
 S.add(FP2.wallGroup);
 FP2.handleGroup=new T.Group();
@@ -2893,16 +2906,34 @@ function fp2Apply(){
   WG.buildMeshes();
 }
 
+const FP2_FLOOR_MATS={
+  herringbone:{col:0x1a1f2e,rough:0.9,tex:()=>typeof herringboneTex!=='undefined'?herringboneTex:null},
+  dark_wood:  {col:0x1a0f07,rough:0.75,tex:()=>typeof walnutTex!=='undefined'?walnutTex:null},
+  tile_gray:  {col:0x8e8e8e,rough:0.4,tex:null},
+  tile_white: {col:0xe8e4de,rough:0.35,tex:null},
+  carpet:     {col:0x2d3a3a,rough:0.95,tex:null},
+  concrete:   {col:0x9a9b9c,rough:0.85,tex:null},
+};
+function fp2GetFloorMat(mid){
+  const def=FP2_FLOOR_MATS[mid]||FP2_FLOOR_MATS[FLOOR_DEFAULT];
+  const m=new T.MeshStandardMaterial({color:def.col,roughness:def.rough});
+  if(def.tex){const t=def.tex();if(t)m.map=t;}
+  return m;
+}
 function fp2BuildMeshes(){
   FP2.group.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared){if(o.material.map)o.material.map.dispose();o.material.dispose();}});
   while(FP2.group.children.length)FP2.group.remove(FP2.group.children[0]);
   if(!FP2.floor.size) return;
-  const floorMat=new T.MeshStandardMaterial({color:0x1a1f2e,roughness:0.9});
-  if(typeof herringboneTex!=='undefined'&&herringboneTex) floorMat.map=herringboneTex;
+  // Group cells by material id for batched rendering
+  const byMat={};
+  for(const key of FP2.floor){const mid=(FP2.floorTiles||{})[key]||FLOOR_DEFAULT;if(!byMat[mid])byMat[mid]=[];byMat[mid].push(key);}
   const floorGeo=new T.PlaneGeometry(CS-0.02,CS-0.02);
-  for(const key of FP2.floor){
-    const[c,r]=key.split(',').map(Number);
-    const m=new T.Mesh(floorGeo,floorMat); m.rotation.x=-Math.PI/2; m.position.set((c+0.5)*CS,0.001,(r+0.5)*CS); m.receiveShadow=true; FP2.group.add(m);
+  for(const[mid,keys] of Object.entries(byMat)){
+    const floorMat=fp2GetFloorMat(mid);
+    for(const key of keys){
+      const[c,r]=key.split(',').map(Number);
+      const m=new T.Mesh(floorGeo,floorMat); m.rotation.x=-Math.PI/2; m.position.set((c+0.5)*CS,0.001,(r+0.5)*CS); m.receiveShadow=true; m.userData.floorKey=key; FP2.group.add(m);
+    }
   }
   let minC=W,maxC=0,minR=H,maxR=H_BASE;
   for(const key of FP2.floor){const[c,r]=key.split(',').map(Number);minC=Math.min(minC,c);maxC=Math.max(maxC,c);minR=Math.min(minR,r);maxR=Math.max(maxR,r);}
@@ -2924,7 +2955,7 @@ function fp2BuildFurniture(){
   }
 }
 
-function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:4,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{},wallGraph:WG.toJSON()}));}catch{} }
+function fp2Save(){ try{localStorage.setItem(FP2_KEY,JSON.stringify({v:5,floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,rooms:FP2.rooms||{},wallGraph:WG.toJSON(),floorTiles:FP2.floorTiles||{}}));}catch{} }
 function fp2SeedDefaultRooms(){
   // 7 rooms + corridor matching original hardcoded layout (FEAT-2026-136)
   // Interior cells only — shared border gaps become FP2 auto-walls between rooms
@@ -2935,7 +2966,7 @@ function fp2SeedDefaultWalls(){const T2=WALL_T,H2=WALL_H;const segs=[[0,0,30,0,T
 function fp2Load(){
   try{
     const raw=JSON.parse(localStorage.getItem(FP2_KEY)||'null');
-    if(raw&&(raw.v===3||raw.v===4)){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; const wg=raw.wallGraph;if(wg&&wg.walls)wg.walls.forEach(w=>{w.thickness=WALL_T;w.height=WALL_H;});WG.fromJSON(wg); }
+    if(raw&&(raw.v===3||raw.v===4||raw.v===5)){ FP2.floor=new Set(raw.floor||[]); FP2.openings=new Set(raw.openings||[]); FP2.furniture=raw.furniture||[]; FP2.rooms=raw.rooms||{}; FP2.floorTiles=raw.floorTiles||{}; const wg=raw.wallGraph;if(wg&&wg.walls)wg.walls.forEach(w=>{w.thickness=WALL_T;w.height=WALL_H;});WG.fromJSON(wg); }
     else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
@@ -4209,9 +4240,31 @@ FP2._enter = fp2Enter;
         pal.appendChild(d);
       });
       setStatus(FP2.wallSubMode==='door'?'Click tường để đặt cửa':FP2.wallSubMode==='window'?'Click tường để đặt cửa sổ':'Kéo để vẽ tường','');
+    } else if(FP2.mode==='paint'){
+      // Floor material palette
+      const matList=[
+        {id:'herringbone',icon:'🪵',lbl:'Gỗ xương cá'},
+        {id:'dark_wood',  icon:'🌳',lbl:'Gỗ tối'},
+        {id:'tile_gray',  icon:'🪨',lbl:'Gạch xám'},
+        {id:'tile_white', icon:'⬜',lbl:'Gạch trắng'},
+        {id:'carpet',     icon:'🟫',lbl:'Thảm'},
+        {id:'concrete',   icon:'🔲',lbl:'Bê tông'},
+      ];
+      matList.forEach(mat=>{
+        const d=document.createElement('div');d.className='fp2-item'+(FP2._paintMatId===mat.id?' sel':'');
+        d.innerHTML=`<span class="fp2-item-icon">${mat.icon}</span><div class="fp2-item-name">${mat.lbl}</div>`;
+        d.onclick=()=>{FP2._paintMatId=mat.id;fp2RenderPalette();setStatus('Vật liệu: '+mat.lbl,'');};
+        pal.appendChild(d);
+      });
+      // Eyedropper
+      const eye=document.createElement('div');eye.className='fp2-item'+(FP2._eyedropper?' sel':'');
+      eye.innerHTML='<span class="fp2-item-icon">🔍</span><div class="fp2-item-name">Hút màu</div>';
+      eye.onclick=()=>{FP2._eyedropper=!FP2._eyedropper;fp2RenderPalette();setStatus(FP2._eyedropper?'Click sàn để hút màu':'','');};
+      pal.appendChild(eye);
+      setStatus('Kéo chuột để sơn sàn','');
     } else {
       pal.innerHTML='';
-      const hints={'paint':'Kéo chuột lên sàn để vẽ ô sàn','select':'Click tường để chọn · kéo handles','erase':'Kéo chuột để xoá ô sàn'};
+      const hints={'select':'Click tường để chọn · kéo handles','erase':'Kéo chuột để xoá ô sàn'};
       setStatus(hints[FP2.mode]||'','');
     }
   }
@@ -4247,8 +4300,10 @@ FP2._enter = fp2Enter;
   let lastPaintedCell = null;
   function paintCell(c,r){
     const key=`${c},${r}`;
-    if(FP2.mode==='paint'&&r>=H_BASE&&r<H&&c>=0&&c<W){
-      if(!FP2.floor.has(key)){ FP2.floor.add(key); return true; }
+    if(FP2.mode==='paint'){
+      const mid=FP2._paintMatId||FLOOR_DEFAULT;
+      if(!FP2.floor.has(key)){ FP2.floor.add(key); FP2.floorTiles[key]=mid; return true; }
+      else if((FP2.floorTiles[key]||FLOOR_DEFAULT)!==mid){ FP2.floorTiles[key]=mid; return true; }
     }
     if(FP2.mode==='erase'){
       if(FP2.floor.has(key)){ FP2.floor.delete(key); FP2.furniture=FP2.furniture.filter(f=>{
@@ -4274,6 +4329,10 @@ FP2._enter = fp2Enter;
         FP2.furniture.push({type:selFurnType,c,r,rot:ghostRot,_id:id});
         fp2Apply(); fp2Save(); setStatus('Đã đặt · click để đặt thêm',true);
       }
+    } else if(FP2.mode==='paint'&&FP2._eyedropper){
+      // Eyedropper: hút màu từ ô sàn
+      const key=`${c},${r}`;
+      if(FP2.floor.has(key)){ FP2._paintMatId=FP2.floorTiles[key]||FLOOR_DEFAULT; FP2._eyedropper=false; fp2RenderPalette(); setStatus('Đã hút màu',''); }
     } else {
       isPainting=true; cv.setPointerCapture(e.pointerId);
       fp2Snapshot();
@@ -4376,6 +4435,7 @@ FP2._enter = fp2Enter;
   function enterBuildMode(){
     buildActive=true;
     if(FP2._gridMesh) FP2._gridMesh.visible=true;
+    if(FP2._buildGrid) FP2._buildGrid.visible=true;
     toolbar.classList.remove('hidden');
     statusBar.classList.remove('hidden');
     toggleBtn.textContent='LIVE'; toggleBtn.classList.add('active');
@@ -4387,6 +4447,7 @@ FP2._enter = fp2Enter;
   function exitBuildMode(){
     buildActive=false;
     if(FP2._gridMesh) FP2._gridMesh.visible=false;
+    if(FP2._buildGrid) FP2._buildGrid.visible=false;
     toolbar.classList.add('hidden');
     statusBar.classList.add('hidden');
     inspector.classList.add('hidden');
@@ -4630,7 +4691,7 @@ FP2._enter = fp2Enter;
       const addRange=(from,to,makeKey)=>{
         for(let n=Math.min(from,to);n<=Math.max(from,to);n++){
           const key=makeKey(n);
-          if(wallDrag.axis==='row'?(n>=0&&n<H):(n>=0&&n<W)) next.add(key);
+          next.add(key); // no grid bounds — free building in all directions
         }
       };
       const removeRange=(from,to,makeKey)=>{
@@ -4640,7 +4701,7 @@ FP2._enter = fp2Enter;
         }
       };
       if(wallDrag.axis==='row'){
-        const targetR=Math.max(0,Math.min(H-1,nr<=wallDrag.fixedR?nr:nr-1));
+        const targetR=nr<=wallDrag.fixedR?nr:nr-1;
         const makeKey=r=>`${wallDrag.fixedC},${r}`;
         if(wallDrag.dir>0){
           if(targetR>wallDrag.fixedR) addRange(wallDrag.fixedR+1,targetR,makeKey);
@@ -4650,7 +4711,7 @@ FP2._enter = fp2Enter;
           else if(targetR>wallDrag.fixedR) removeRange(wallDrag.fixedR+1,targetR,makeKey);
         }
       } else {
-        const targetC=Math.max(0,Math.min(W-1,nc<=wallDrag.fixedC?nc:nc-1));
+        const targetC=nc<=wallDrag.fixedC?nc:nc-1;
         const makeKey=c=>`${c},${wallDrag.fixedR}`;
         if(wallDrag.dir>0){
           if(targetC>wallDrag.fixedC) addRange(wallDrag.fixedC+1,targetC,makeKey);
