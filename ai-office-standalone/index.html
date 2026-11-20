@@ -653,7 +653,61 @@ html, body {
 @media(max-width: 900px) {
   #deptTabs { display: none; }
   #agentDrawer { width: calc(100vw - 28px); right: 14px; }
+  #customTeamDrawer { width: calc(100vw - 28px); right: 14px; }
 }
+
+/* ===== CUSTOM TEAM BUILDER ===== */
+#customTeamDrawer {
+  position: fixed; bottom: 80px; right: 16px; width: 320px;
+  background: rgba(10, 14, 22, 0.97);
+  border: 1px solid rgba(212, 163, 115, 0.35);
+  border-radius: 14px; padding: 18px 20px; z-index: 60;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.65);
+  display: none; max-height: 72vh; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(212,163,115,0.3) transparent;
+}
+#customTeamDrawer h4 {
+  margin: 0 0 14px; font-size: 14px; color: #f59e0b; font-weight: 700; letter-spacing: 0.04em;
+}
+.cta-agent-row {
+  display: flex; gap: 10px; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.cta-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.cta-info { flex: 1; min-width: 0; }
+.cta-info .cta-name { font-size: 13px; font-weight: 600; color: #f8fafc; }
+.cta-info .cta-role { font-size: 11px; color: #94a3b8; }
+.cta-del { background: none; border: none; color: #f87171; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; border-radius: 4px; }
+.cta-del:hover { background: rgba(248,113,113,0.1); }
+.cta-sep { border: none; border-top: 1px solid rgba(212,163,115,0.2); margin: 14px 0 10px; }
+.cta-form-row { display: flex; flex-direction: column; gap: 8px; }
+.cta-form-row input, .cta-form-row textarea {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px; padding: 8px 10px; color: #f8fafc; font-size: 12px;
+  font-family: inherit; outline: none; resize: none;
+}
+.cta-form-row input:focus, .cta-form-row textarea:focus {
+  border-color: rgba(212,163,115,0.5); background: rgba(255,255,255,0.08);
+}
+.cta-form-row input::placeholder, .cta-form-row textarea::placeholder { color: #475569; }
+.cta-color-row { display: flex; gap: 10px; align-items: center; }
+.cta-color-row input[type=color] {
+  width: 36px; height: 36px; padding: 2px; cursor: pointer;
+  border-radius: 7px; border: 1px solid rgba(255,255,255,0.15);
+}
+.cta-color-row label { font-size: 11px; color: #94a3b8; }
+.cta-add-btn {
+  margin-top: 4px; width: 100%; padding: 9px; border-radius: 8px; border: none;
+  background: rgba(212,163,115,0.18); color: #f59e0b; font-size: 13px;
+  font-weight: 600; cursor: pointer; letter-spacing: 0.03em;
+  transition: background 0.15s;
+}
+.cta-add-btn:hover { background: rgba(212,163,115,0.3); }
+.cta-full-msg { color: #64748b; font-size: 12px; text-align: center; padding: 6px 0; }
 </style>
 </head>
 <body>
@@ -687,6 +741,7 @@ html, body {
     <button class="ctrl-btn" id="btnNight" title="Bật/Tắt ánh sáng ban đêm">🌙 Đêm</button>
     <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
     <button class="ctrl-btn" id="btnVisualQuality" title="Cấu hình chất lượng hiển thị">✨ Visual</button>
+    <button class="ctrl-btn" id="btnCustomTeam" title="Tuỳ chỉnh team của bạn">✏️ Team</button>
     <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
   </div>
 </div>
@@ -802,7 +857,34 @@ html, body {
   </div>
 </div>
 
+<!-- Custom Team Builder Panel -->
+<div id="customTeamDrawer" class="glass">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+    <h4>✏️ Tuỳ Chỉnh Team</h4>
+    <button onclick="document.getElementById('customTeamDrawer').style.display='none'" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+  </div>
+  <div style="color:#64748b;font-size:11px;margin-bottom:14px;">Thêm agent của riêng bạn vào văn phòng (tối đa 4)</div>
+
+  <div id="ctaAgentList"></div>
+
+  <div id="ctaFormArea">
+    <hr class="cta-sep">
+    <form id="ctaForm" class="cta-form-row">
+      <input id="ctaName" placeholder="Tên agent *" required maxlength="32">
+      <input id="ctaShortName" placeholder="Tên ngắn (tùy chọn)" maxlength="16">
+      <input id="ctaRole" placeholder="Chức danh / Vai trò" maxlength="48">
+      <textarea id="ctaBio" placeholder="Mô tả công việc" rows="2" maxlength="120"></textarea>
+      <div class="cta-color-row">
+        <input type="color" id="ctaColor" value="#7c3aed">
+        <label>Màu nhận diện</label>
+      </div>
+      <button type="submit" class="cta-add-btn">+ Thêm vào văn phòng</button>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 "use strict";
 
@@ -1821,6 +1903,18 @@ AG.forEach(([id, , , , c, r, , , screenType]) => {
   registerSeat('d_' + id, [c + 1, r + 2], [c + 1, r + 3], Math.PI, false);
 });
 
+/* Pre-allocate 4 reserved desk/seat slots for custom agents */
+const CUSTOM_SLOTS = [
+  { id: 'custom_0', c: 8,  r: 34, screenType: 'design', dept: 'design' },
+  { id: 'custom_1', c: 26, r: 34, screenType: 'bim',    dept: 'bim'    },
+  { id: 'custom_2', c: 45, r: 27, screenType: 'po',     dept: 'cost'   },
+  { id: 'custom_3', c: 54, r: 27, screenType: 'design', dept: 'qa'     },
+];
+CUSTOM_SLOTS.forEach(sl => {
+  createDetailedDesk(sl.c, sl.r, sl.screenType, false);
+  registerSeat('d_' + sl.id, [sl.c + 1, sl.r + 2], [sl.c + 1, sl.r + 3], Math.PI, false);
+});
+
 /* =========================================================================
    ATELIER LOUNGE, PANTRY & WELLNESS STUDIO (PHÒNG NGHỈ NGƠI, ĂN UỐNG & TẬP THỂ DỤC)
    ========================================================================= */
@@ -2661,6 +2755,44 @@ function updateCompanyStatus() {
 agents = AG.map(([id, n, r, col, c, row, dept, bio, , shortName]) => new Agent(id, n, r, col, seats['d_' + id], dept, bio, shortName));
 A = Object.fromEntries(agents.map(a => [a.id, a]));
 
+/* ===== CUSTOM TEAM: load/save/spawn ===== */
+const _CUSTOM_COLORS = [0x7c3aed, 0xdb2777, 0x0891b2, 0x16a34a];
+
+function getCustomAgentConfigs() {
+  try { return JSON.parse(localStorage.getItem('atelier_custom_agents') || '[]'); } catch { return []; }
+}
+function saveCustomAgentConfigs(arr) {
+  try { localStorage.setItem('atelier_custom_agents', JSON.stringify(arr)); } catch {}
+}
+
+function spawnCustomAgent(cfg, slotIdx) {
+  const slot = CUSTOM_SLOTS[slotIdx];
+  if (!slot || A[slot.id]) return;
+  const seat = seats['d_' + slot.id];
+  if (!seat) return;
+  const col = typeof cfg.color === 'number' ? cfg.color : (_CUSTOM_COLORS[slotIdx] || 0x7c3aed);
+  const ag = new Agent(slot.id, cfg.name, cfg.role || 'Custom Agent', col, seat, slot.dept, cfg.bio || '', cfg.shortName || cfg.name.split(' ')[0]);
+  agents.push(ag);
+  A[slot.id] = ag;
+  if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
+}
+
+function despawnCustomAgent(slotIdx) {
+  const slot = CUSTOM_SLOTS[slotIdx];
+  if (!slot) return;
+  const ag = A[slot.id];
+  if (!ag) return;
+  if (ag.g) S.remove(ag.g);
+  if (ag.lb) ag.lb.remove();
+  if (ag.bb) ag.bb.remove();
+  agents = agents.filter(a => a.id !== slot.id);
+  delete A[slot.id];
+  if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
+}
+
+// Restore saved custom agents on startup
+getCustomAgentConfigs().forEach((cfg, i) => spawnCustomAgent(cfg, i));
+
 window.focusAgent = function(id) {
   const agent = A[id];
   if (agent) {
@@ -3398,6 +3530,124 @@ function loop(now) {
 setTimeOfDay(sim.hour);
 syncLiveCompanyStatus();
 setInterval(syncLiveCompanyStatus, 6000);
+
+/* =========================================================================
+   FURNIMESH GLB LOADER — nhận mô hình từ Paperclip qua postMessage
+   ========================================================================= */
+(function setupFurniMeshLoader() {
+  const loader = new THREE.GLTFLoader();
+  const placed = [];
+
+  function loadFurniMeshGlb(cfg) {
+    const url = cfg.glb_url;
+    const name = cfg.name || 'FurniMesh model';
+    loader.load(url, (gltf) => {
+      const model = gltf.scene;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 2) {
+        const s = 2 / maxDim;
+        model.scale.setScalar(s);
+      }
+      const slot = placed.length;
+      model.position.set(14 + slot * 2.5, 0, 9);
+      model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      S.add(model);
+      placed.push(model);
+      console.info('[FurniMesh] loaded:', name);
+    }, undefined, (err) => {
+      console.error('[FurniMesh] GLB load error:', err);
+    });
+  }
+
+  window.addEventListener('message', (ev) => {
+    if (ev.data && ev.data.type === 'furnimesh:add' && typeof ev.data.glb_url === 'string') {
+      loadFurniMeshGlb(ev.data);
+    }
+  });
+})();
+
+/* ===== CUSTOM TEAM PANEL UI ===== */
+function renderCustomTeamPanel() {
+  const configs = getCustomAgentConfigs();
+  const list = document.getElementById('ctaAgentList');
+  const formArea = document.getElementById('ctaFormArea');
+  if (!list || !formArea) return;
+
+  list.innerHTML = configs.length === 0
+    ? '<div style="color:#475569;font-size:12px;padding:4px 0 10px;">Chưa có agent tuỳ chỉnh nào.</div>'
+    : configs.map((cfg, i) => {
+        const bgCol = cfg.colorHex || '#7c3aed';
+        const initials = (cfg.name || '?')[0].toUpperCase();
+        return `<div class="cta-agent-row">
+          <div class="cta-avatar" style="background:${bgCol};">${initials}</div>
+          <div class="cta-info">
+            <div class="cta-name">${cfg.name}</div>
+            <div class="cta-role">${cfg.role || 'Custom Agent'}</div>
+          </div>
+          <button class="cta-del" onclick="removeCustomAgent(${i})" title="Xoá agent này">×</button>
+        </div>`;
+      }).join('');
+
+  if (configs.length >= CUSTOM_SLOTS.length) {
+    formArea.innerHTML = `<p class="cta-full-msg">Đã đạt tối đa ${CUSTOM_SLOTS.length} custom agents.</p>`;
+  } else {
+    formArea.innerHTML = `<hr class="cta-sep">
+    <form id="ctaForm" class="cta-form-row">
+      <input id="ctaName" placeholder="Tên agent *" required maxlength="32">
+      <input id="ctaShortName" placeholder="Tên ngắn (tùy chọn)" maxlength="16">
+      <input id="ctaRole" placeholder="Chức danh / Vai trò" maxlength="48">
+      <textarea id="ctaBio" placeholder="Mô tả công việc" rows="2" maxlength="120"></textarea>
+      <div class="cta-color-row">
+        <input type="color" id="ctaColor" value="#7c3aed">
+        <label>Màu nhận diện</label>
+      </div>
+      <button type="submit" class="cta-add-btn">+ Thêm vào văn phòng</button>
+    </form>`;
+    document.getElementById('ctaForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const name = document.getElementById('ctaName').value.trim();
+      if (!name) return;
+      const colorHex = document.getElementById('ctaColor').value;
+      const cfgs = getCustomAgentConfigs();
+      const newCfg = {
+        name,
+        shortName: document.getElementById('ctaShortName').value.trim() || name.split(' ')[0],
+        role: document.getElementById('ctaRole').value.trim() || 'Custom Agent',
+        bio: document.getElementById('ctaBio').value.trim() || 'Thành viên tuỳ chỉnh của team',
+        colorHex,
+        color: parseInt(colorHex.replace('#', ''), 16)
+      };
+      cfgs.push(newCfg);
+      saveCustomAgentConfigs(cfgs);
+      spawnCustomAgent(newCfg, cfgs.length - 1);
+      renderCustomTeamPanel();
+    });
+  }
+}
+
+window.removeCustomAgent = function(idx) {
+  const cfgs = getCustomAgentConfigs();
+  cfgs.splice(idx, 1);
+  for (let i = idx; i < CUSTOM_SLOTS.length; i++) despawnCustomAgent(i);
+  saveCustomAgentConfigs(cfgs);
+  cfgs.forEach((cfg, i) => { if (i >= idx) spawnCustomAgent(cfg, i); });
+  renderCustomTeamPanel();
+};
+
+const btnCustomTeam = document.getElementById('btnCustomTeam');
+if (btnCustomTeam) {
+  btnCustomTeam.onclick = () => {
+    const drawer = document.getElementById('customTeamDrawer');
+    const isOpen = drawer.style.display !== 'none' && drawer.style.display !== '';
+    drawer.style.display = isOpen ? 'none' : 'block';
+    if (!isOpen) renderCustomTeamPanel();
+    btnCustomTeam.classList.toggle('active', !isOpen);
+  };
+}
+
 requestAnimationFrame(loop);
 </script>
 </body>
