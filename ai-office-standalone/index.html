@@ -1419,7 +1419,8 @@ wk.forEach((k, i) => {
 });
 wm.castShadow = true;
 wm.receiveShadow = true;
-S.add(wm);
+// FEAT-2026-149: hardcoded walls removed — WallGraph only
+wm.visible = false;
 
 // Baseboard Trim
 const bbMat = M(0x231d17, { roughness: 0.5, metalness: 0.6 });
@@ -1431,7 +1432,7 @@ wk.forEach((k, i) => {
   dm.updateMatrix();
   bbMesh.setMatrixAt(i, dm.matrix);
 });
-S.add(bbMesh);
+bbMesh.visible = false;
 
 // Warm LED Kickboard Strip
 const wallLedMesh = new T.InstancedMesh(new T.BoxGeometry(CS, 0.015, CS + 0.025), ledMat, wk.length);
@@ -1442,7 +1443,7 @@ wk.forEach((k, i) => {
   dm.updateMatrix();
   wallLedMesh.setMatrixAt(i, dm.matrix);
 });
-ledGroup.add(wallLedMesh);
+wallLedMesh.visible = false;
 
 // Glass partitions removed — walls now full WALL_H
 
@@ -1450,17 +1451,7 @@ ledGroup.add(wallLedMesh);
 const wallIdx = new Map(wk.map((k, i) => [k, i]));
 const wallMatCache = new Array(wk.length);
 wk.forEach((_, i) => { const m4 = new T.Matrix4(); wm.getMatrixAt(i, m4); wallMatCache[i] = m4.clone(); });
-function setBaseWallVisible(key, vis) {
-  const i = wallIdx.get(key);
-  if (i === undefined) return;
-  for (const mesh of [wm, bbMesh, wallLedMesh]) {
-    const m4 = new T.Matrix4();
-    if (vis) m4.copy(wallMatCache[i]);
-    else m4.scale(new T.Vector3(0, 0, 0));
-    mesh.setMatrixAt(i, m4);
-    mesh.instanceMatrix.needsUpdate = true;
-  }
-}
+function setBaseWallVisible(_key, _vis) { /* FEAT-2026-149: hardcoded walls removed */ }
 
 // Floor Labels
 function flabel(s, c, r, w) {
