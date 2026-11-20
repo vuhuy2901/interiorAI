@@ -2406,16 +2406,32 @@ export function atelierBridgeRoutes(db: Db) {
   // ============================================================================
   // ATELIER OFFICE-AGENTS — no-auth endpoint for ai-office 3D panel
   // ============================================================================
-  router.get("/atelier/office-agents", async (_req, res) => {
+  router.get("/atelier/office-agents", async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET");
     try {
-      const companyId = await resolveAtelierCompanyId(_req);
-      const rows = await db
-        .select({ id: agents.id, name: agents.name, role: agents.role, title: agents.title })
-        .from(agents)
-        .where(eq(agents.companyId, companyId))
-        .orderBy(agents.name);
+      const companyId = await resolveAtelierCompanyId(req);
+      const projectId = typeof req.query.project_id === "string" ? req.query.project_id.trim() : null;
+
+      let rows: Array<{ id: string; name: string; role: string; title: string | null }>;
+      if (projectId) {
+        // Return agents assigned to issues in this specific project
+        rows = await db
+          .selectDistinct({ id: agents.id, name: agents.name, role: agents.role, title: agents.title })
+          .from(agents)
+          .innerJoin(
+            issues,
+            and(eq(issues.assigneeAgentId, agents.id), eq(issues.projectId, projectId)),
+          )
+          .where(eq(agents.companyId, companyId))
+          .orderBy(agents.name);
+      } else {
+        rows = await db
+          .select({ id: agents.id, name: agents.name, role: agents.role, title: agents.title })
+          .from(agents)
+          .where(eq(agents.companyId, companyId))
+          .orderBy(agents.name);
+      }
       res.json({
         ok: true,
         agents: rows.map((a) => ({

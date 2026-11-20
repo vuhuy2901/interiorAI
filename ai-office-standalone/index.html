@@ -3659,7 +3659,17 @@ async function renderCustomTeamPanel() {
   if (_ctaPcAgents === null) {
     _ctaPcAgents = [];
     try {
-      const r = await fetch('http://localhost:3100/api/atelier/office-agents', { signal: AbortSignal.timeout(2000) });
+      // Get active project from bootstrap, then fetch project-specific agents
+      const boot = await fetch('http://localhost:3100/api/atelier/bootstrap', { signal: AbortSignal.timeout(2000) });
+      let projectId = null;
+      if (boot.ok) {
+        const bd = await boot.json();
+        projectId = bd.paperclipBootstrap?.projectId || null;
+      }
+      const agentsUrl = projectId
+        ? `http://localhost:3100/api/atelier/office-agents?project_id=${encodeURIComponent(projectId)}`
+        : 'http://localhost:3100/api/atelier/office-agents';
+      const r = await fetch(agentsUrl, { signal: AbortSignal.timeout(2000) });
       if (r.ok) { const d = await r.json(); _ctaPcAgents = d.agents || []; }
     } catch { /* Paperclip offline — fallback to manual */ }
   }
