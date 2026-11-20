@@ -1314,7 +1314,7 @@ const _buildGridMat = new T.ShaderMaterial({
 const _buildGrid = new T.Mesh(new T.PlaneGeometry(2000,2000,1,1), _buildGridMat);
 _buildGrid.rotation.x=-Math.PI/2; _buildGrid.position.set(1000,-plinthH+0.005,1000); _buildGrid.visible=false;
 S.add(_buildGrid);
-FP2._buildGrid=_buildGrid;
+// _buildGrid assigned to FP2 after FP2 is initialized below
 
 /* AO-style contact layer: soft baked ellipses under the hero furniture. */
 const contactShadowTexture = makeCanvasTexture(192, 128, (ctx, w, h) => {
@@ -2628,6 +2628,7 @@ FP2.selectedWallId=null;
 FP2.wallRoomGroup=new T.Group(); S.add(FP2.wallRoomGroup);
 FP2.detectedWallRooms=[];
 S.add(FP2.decorGroup);
+FP2._buildGrid=_buildGrid; // assign after FP2 init
 
 // FEAT-2026-138: proper 3D furniture matching existing office style
 const WALL_THICKNESS=WALL_T,WALL_HEIGHT=WALL_H,WALL_COLOR=WALL_COL,WALL_BB_COLOR=0x231d17;
