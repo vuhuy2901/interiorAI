@@ -815,6 +815,7 @@ html, body {
     <button id="fp2Close" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;">×</button>
   </div>
   <div style="display:flex;gap:3px;margin-bottom:10px;" id="fp2Tabs">
+    <button class="fp2-tab" data-mode="select">&#128306;<br>Chọn</button>
     <button class="fp2-tab active" data-mode="paint">🖌️<br>Sàn</button>
     <button class="fp2-tab" data-mode="wall">🧱<br>Tường</button>
     <button class="fp2-tab" data-mode="furniture">🪑<br>Đồ đạc</button>
@@ -830,6 +831,13 @@ html, body {
   </div>
   <div class="fp2-status" id="fp2Status">Chọn chế độ bên trên để bắt đầu</div>
   <div style="font-size:9px;color:#475569;margin-top:5px;">Kéo vẽ sàn · Click cạnh để mở tường · Đặt đồ đạc</div>
+</div>
+
+<div id="fp2WallProps" style="display:none;position:absolute;top:140px;right:10px;background:rgba(20,15,10,0.92);padding:10px 14px;border-radius:8px;color:#ccc;font-size:12px;z-index:200;min-width:160px;">
+  <div style="font-weight:bold;margin-bottom:8px;color:#e8d5a0">Tường</div>
+  <div style="margin-bottom:4px">Dài: <strong id="fp2WallLen">-</strong>m</div>
+  <div style="margin-bottom:4px">Dày: <input id="fp2WallTh" type="number" step="0.05" min="0.05" max="0.5" style="width:55px;background:#333;color:#eee;border:1px solid #555;border-radius:3px;padding:1px 4px"></div>
+  <div>Cao: <input id="fp2WallHt" type="number" step="0.1" min="0.3" max="3.5" style="width:55px;background:#333;color:#eee;border:1px solid #555;border-radius:3px;padding:1px 4px"></div>
 </div>
 
 <!-- Build Toolbar -->
@@ -2602,15 +2610,138 @@ window.FP2 = {
   wallNodes: new Map(),
   walls: new Map(),
   wallGroup: null,
+  selectedWallId: null,
+  handleGroup: null,
+  detectedRooms: [],
+  roomDetectGroup: null,
 };
 S.add(FP2.group);
 FP2.wallGroup=new T.Group();
 S.add(FP2.wallGroup);
+FP2.handleGroup=new T.Group();
+S.add(FP2.handleGroup);
+FP2.roomDetectGroup=new T.Group();
+S.add(FP2.roomDetectGroup);
+FP2.wallSelectGroup=new T.Group(); S.add(FP2.wallSelectGroup);
+FP2.selectedWallId=null;
+FP2.wallRoomGroup=new T.Group(); S.add(FP2.wallRoomGroup);
+FP2.detectedWallRooms=[];
 S.add(FP2.decorGroup);
 
 // FEAT-2026-138: proper 3D furniture matching existing office style
 const WALL_THICKNESS=0.1,WALL_HEIGHT=0.85,WALL_COLOR=0x38281d,WALL_BB_COLOR=0x231d17;
-const WG={_nid:0,_wid:0,addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},buildMeshes(){if(!FP2.wallGroup)return;FP2.wallGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});while(FP2.wallGroup.children.length)FP2.wallGroup.remove(FP2.wallGroup.children[0]);for(const wall of FP2.walls.values()){const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz),cx=(n0.x+n1.x)/2,cz=(n0.z+n1.z)/2,h=wall.height,t=wall.thickness;const mesh=new T.Mesh(new T.BoxGeometry(t,h,len),M(WALL_COLOR,{roughness:0.55}));mesh.position.set(cx,h/2,cz);mesh.rotation.y=angle;mesh.castShadow=true;mesh.userData.wallId=wall.id;FP2.wallGroup.add(mesh);const bb=new T.Mesh(new T.BoxGeometry(t+0.02,0.08,len+0.02),M(WALL_BB_COLOR,{roughness:0.5,metalness:0.6}));bb.position.set(cx,0.04,cz);bb.rotation.y=angle;FP2.wallGroup.add(bb);}},toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],_nid:this._nid,_wid:this._wid};},fromJSON(d){if(!d)return;FP2.wallNodes=new Map(d.nodes.map(n=>[n.id,n]));FP2.walls=new Map(d.walls.map(w=>[w.id,w]));this._nid=d._nid||0;this._wid=d._wid||0;}};
+const WG={_nid:0,_wid:0,addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:th??WALL_THICKNESS,height:ht??WALL_HEIGHT,materialId:'walnut'});return id;},removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},buildMeshes(){if(!FP2.wallGroup)return;FP2.wallGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&!o.material._shared)o.material.dispose();});while(FP2.wallGroup.children.length)FP2.wallGroup.remove(FP2.wallGroup.children[0]);for(const wall of FP2.walls.values()){const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz),cx=(n0.x+n1.x)/2,cz=(n0.z+n1.z)/2,h=wall.height,t=wall.thickness;const mesh=new T.Mesh(new T.BoxGeometry(t,h,len),M(WALL_COLOR,{roughness:0.55}));mesh.position.set(cx,h/2,cz);mesh.rotation.y=angle;mesh.castShadow=true;mesh.userData.wallId=wall.id;FP2.wallGroup.add(mesh);const bb=new T.Mesh(new T.BoxGeometry(t+0.02,0.08,len+0.02),M(WALL_BB_COLOR,{roughness:0.5,metalness:0.6}));bb.position.set(cx,0.04,cz);bb.rotation.y=angle;bb.userData.wallId=wall.id;FP2.wallGroup.add(bb);}if(typeof rebuildWallRooms==='function')try{rebuildWallRooms();}catch(e){}if(typeof rebuildRooms==='function')try{rebuildRooms();}catch(e){}},toJSON(){return{nodes:[...FP2.wallNodes.values()],walls:[...FP2.walls.values()],_nid:this._nid,_wid:this._wid};},fromJSON(d){if(!d)return;FP2.wallNodes=new Map((d.nodes||[]).map(n=>[n.id,n]));FP2.walls=new Map((d.walls||[]).map(w=>[w.id,w]));this._nid=d._nid||0;this._wid=d._wid||0;}};
+
+function clearHandles(){while(FP2.handleGroup.children.length)FP2.handleGroup.remove(FP2.handleGroup.children[0]);}
+function updateHandles(){
+  clearHandles();
+  if(!FP2.selectedWallId)return;
+  const wall=FP2.walls.get(FP2.selectedWallId);if(!wall)return;
+  const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)return;
+  [[n0.x,n0.z,0xff6600,{handleType:'endpoint',nodeId:wall.startId,wallId:wall.id}],
+   [n1.x,n1.z,0xff6600,{handleType:'endpoint',nodeId:wall.endId,wallId:wall.id}],
+   [(n0.x+n1.x)/2,(n0.z+n1.z)/2,0xffcc00,{handleType:'midpoint',wallId:wall.id}]]
+  .forEach(([x,z,c,ud])=>{const m=new T.Mesh(new T.SphereGeometry(0.14,8,8),M(c,{roughness:0.3,metalness:0.5}));m.position.set(x,0.5,z);Object.assign(m.userData,ud);FP2.handleGroup.add(m);});
+}
+function updateWallPanel(){
+  const panel=document.getElementById('fp2WallProps');if(!panel)return;
+  if(!FP2.selectedWallId){panel.style.display='none';return;}
+  const w=FP2.walls.get(FP2.selectedWallId);if(!w){panel.style.display='none';return;}
+  const n0=FP2.wallNodes.get(w.startId),n1=FP2.wallNodes.get(w.endId);if(!n0||!n1)return;
+  panel.style.display='block';
+  const lenEl=document.getElementById('fp2WallLen');if(lenEl)lenEl.textContent=Math.hypot(n1.x-n0.x,n1.z-n0.z).toFixed(2);
+  const thEl=document.getElementById('fp2WallTh');if(thEl)thEl.value=w.thickness;
+  const htEl=document.getElementById('fp2WallHt');if(htEl)htEl.value=w.height;
+}
+
+function polygonArea(pts){
+  let a=0;
+  for(let i=0,j=pts.length-1;i<pts.length;j=i++)
+    a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;
+  return Math.abs(a)/2;
+}
+
+function makeRoomLabel(name,detail){
+  const labelCanvas=document.createElement('canvas');labelCanvas.width=256;labelCanvas.height=96;
+  const ctx=labelCanvas.getContext('2d');if(!ctx)return null;
+  ctx.fillStyle='rgba(0,0,0,0.68)';ctx.roundRect(4,4,248,88,12);ctx.fill();
+  ctx.fillStyle='#f8fafc';ctx.font='bold 22px sans-serif';ctx.textAlign='center';ctx.fillText(name,128,40);
+  ctx.fillStyle='#e8d5a0';ctx.font='16px sans-serif';ctx.fillText(detail,128,68);
+  const sprite=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(labelCanvas),transparent:true,depthTest:false}));
+  sprite.scale.set(2.3,0.86,1);return sprite;
+}
+
+function detectRooms(){
+  if(FP2.walls.size<3)return[];
+  const adj=new Map();
+  for(const[nid]of FP2.wallNodes)adj.set(nid,[]);
+  for(const w of FP2.walls.values()){
+    if(adj.has(w.startId))adj.get(w.startId).push({wallId:w.id,next:w.endId});
+    if(adj.has(w.endId))adj.get(w.endId).push({wallId:w.id,next:w.startId});
+  }
+  const usedEdges=new Set(),rooms=[];
+  for(const startNode of FP2.wallNodes.keys()){
+    for(const{wallId,next}of(adj.get(startNode)||[])){
+      if(usedEdges.has(wallId+':'+startNode))continue;
+      const loop=[startNode],edgesUsed=[];
+      let cur=next,prev=startNode,curW=wallId,ok=false;
+      for(let i=0;i<200;i++){
+        const ek=curW+':'+prev;
+        if(usedEdges.has(ek))break;
+        edgesUsed.push(ek);loop.push(cur);
+        if(cur===startNode){ok=true;break;}
+        const nbrs=(adj.get(cur)||[]).filter(e=>e.next!==prev);
+        if(!nbrs.length)break;
+        const inA=Math.atan2(
+          FP2.wallNodes.get(cur).x-FP2.wallNodes.get(prev).x,
+          FP2.wallNodes.get(cur).z-FP2.wallNodes.get(prev).z
+        );
+        nbrs.sort((a,b)=>{
+          const na=FP2.wallNodes.get(a.next),nb=FP2.wallNodes.get(b.next),nc=FP2.wallNodes.get(cur);
+          const da=((Math.atan2(na.x-nc.x,na.z-nc.z)-inA+3*Math.PI)%(2*Math.PI));
+          const db=((Math.atan2(nb.x-nc.x,nb.z-nc.z)-inA+3*Math.PI)%(2*Math.PI));
+          return da-db;
+        });
+        prev=cur;cur=nbrs[0].next;curW=nbrs[0].wallId;
+      }
+      if(ok&&loop.length>=4){
+        const pts=loop.slice(0,-1).map(nid=>FP2.wallNodes.get(nid)).filter(Boolean);
+        const area=polygonArea(pts);
+        if(area>0.5){for(const ek of edgesUsed)usedEdges.add(ek);rooms.push({wallLoop:loop.slice(0,-1),area});}
+      }
+    }
+  }
+  return rooms;
+}
+
+function rebuildRooms(){
+  FP2.roomDetectGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.map)o.material.map.dispose();if(o.material)o.material.dispose();});
+  while(FP2.roomDetectGroup.children.length)FP2.roomDetectGroup.remove(FP2.roomDetectGroup.children[0]);
+  const existing=new Map((FP2.detectedRooms||[]).map(r=>[r.wallLoop.join(','),r.name]));
+  FP2.detectedRooms=detectRooms();
+  FP2.detectedRooms.forEach((r,i)=>{
+    const key=r.wallLoop.join(',');
+    r.name=existing.get(key)||('Phòng '+(i+1));
+    const pts=r.wallLoop.map(nid=>FP2.wallNodes.get(nid)).filter(Boolean);
+    if(pts.length<3)return;
+    try{
+      const shape=new T.Shape(pts.map(p=>new T.Vector2(p.x,p.z)));
+      const geo=new T.ShapeGeometry(shape);
+      const mesh=new T.Mesh(geo,new T.MeshStandardMaterial({color:0x1a1510,roughness:0.9,transparent:true,opacity:0.15,side:T.DoubleSide}));
+      mesh.rotation.x=-Math.PI/2;mesh.position.y=0.003;mesh.userData.roomIdx=i;
+      FP2.roomDetectGroup.add(mesh);
+    }catch(e){}
+    try{
+      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cz=pts.reduce((s,p)=>s+p.z,0)/pts.length;
+      if(typeof makeRoomLabel==='function'){
+        const lbl=makeRoomLabel(r.name,r.area.toFixed(1)+'m2');
+        if(lbl){lbl.position.set(cx,0.4,cz);FP2.roomDetectGroup.add(lbl);}
+      }
+    }catch(e){}
+  });
+}
+
 const FP2_FURN = [
   { type:'desk', name:'Bàn làm việc', w:2, h:1, icon:'💻',
     build(g,x,z,rot){
@@ -2757,17 +2888,17 @@ function fp2Load(){
     else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
-function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
+function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
 function fp2Undo(){
   if(!FP2._history.length) return;
-  FP2._future.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));
-  const s=JSON.parse(FP2._history.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture;
+  FP2._future.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()}));
+  const s=JSON.parse(FP2._history.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph);
   fp2Apply(); fp2Save();
 }
 function fp2Redo(){
   if(!FP2._future.length) return;
-  FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture}));
-  const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture;
+  FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()}));
+  const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph);
   fp2Apply(); fp2Save();
 }
 
@@ -2820,6 +2951,109 @@ function fp2DetectRooms() {
 
 const _fp2ApplyOrig = fp2Apply;
 fp2Apply = function(){ _fp2ApplyOrig(); fp2DetectRooms(); };
+
+/* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
+function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}
+function rebuildWallRooms(){
+  if(!FP2.wallRoomGroup)return;
+  FP2.wallRoomGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material&&o.material.map)o.material.map.dispose();if(o.material)o.material.dispose();});
+  while(FP2.wallRoomGroup.children.length)FP2.wallRoomGroup.remove(FP2.wallRoomGroup.children[0]);
+  if(FP2.walls.size<3){FP2.detectedWallRooms=[];return;}
+  const adj=new Map();for(const[nid]of FP2.wallNodes)adj.set(nid,[]);
+  for(const w of FP2.walls.values()){if(adj.has(w.startId))adj.get(w.startId).push({wallId:w.id,next:w.endId});if(adj.has(w.endId))adj.get(w.endId).push({wallId:w.id,next:w.startId});}
+  const usedEdges=new Set(),rooms=[];
+  for(const startNode of FP2.wallNodes.keys()){
+    for(const{wallId,next}of(adj.get(startNode)||[])){
+      if(usedEdges.has(wallId+':'+startNode))continue;
+      const loop=[startNode],edgesUsed=[];
+      let cur=next,prev=startNode,curW=wallId,ok=false;
+      for(let i=0;i<300;i++){
+        const ek=curW+':'+prev;if(usedEdges.has(ek))break;
+        edgesUsed.push(ek);loop.push(cur);
+        if(cur===startNode){ok=true;break;}
+        const nbrs=(adj.get(cur)||[]).filter(e=>e.next!==prev);if(!nbrs.length)break;
+        const inA=Math.atan2(FP2.wallNodes.get(cur).x-FP2.wallNodes.get(prev).x,FP2.wallNodes.get(cur).z-FP2.wallNodes.get(prev).z);
+        nbrs.sort((a,b)=>{
+          const na=FP2.wallNodes.get(a.next),nb2=FP2.wallNodes.get(b.next),nc=FP2.wallNodes.get(cur);if(!na||!nb2||!nc)return 0;
+          const da=((Math.atan2(na.x-nc.x,na.z-nc.z)-inA+3*Math.PI)%(2*Math.PI));
+          const db=((Math.atan2(nb2.x-nc.x,nb2.z-nc.z)-inA+3*Math.PI)%(2*Math.PI));
+          return da-db;
+        });
+        prev=cur;cur=nbrs[0].next;curW=nbrs[0].wallId;
+      }
+      if(ok&&loop.length>=4){
+        const pts=loop.slice(0,-1).map(nid=>FP2.wallNodes.get(nid)).filter(Boolean);
+        const area=_wgPolyArea(pts);
+        if(area>0.5){for(const ek of edgesUsed)usedEdges.add(ek);rooms.push({wallLoop:loop.slice(0,-1),area,pts});}
+      }
+    }
+  }
+  const existing=new Map((FP2.detectedWallRooms||[]).map(r=>[r.wallLoop.join(','),r.name]));
+  FP2.detectedWallRooms=rooms;
+  rooms.forEach((r,i)=>{
+    const key=r.wallLoop.join(',');r.name=existing.get(key)||('Phòng '+(i+1));
+    if(r.pts.length<3)return;
+    try{
+      const shape=new T.Shape(r.pts.map(p=>new T.Vector2(p.x,p.z)));
+      const geo=new T.ShapeGeometry(shape);
+      const mesh=new T.Mesh(geo,new T.MeshStandardMaterial({color:0x1a1510,roughness:0.9,transparent:true,opacity:0.12,side:T.DoubleSide,depthWrite:false}));
+      mesh.rotation.x=-Math.PI/2;mesh.position.y=0.004;mesh.userData.wRoomIdx=i;
+      FP2.wallRoomGroup.add(mesh);
+    }catch(e){}
+    // Canvas label sprite
+    try{
+      const cx=r.pts.reduce((s,p)=>s+p.x,0)/r.pts.length;
+      const cz=r.pts.reduce((s,p)=>s+p.z,0)/r.pts.length;
+      const lc=document.createElement('canvas');lc.width=160;lc.height=72;
+      const lx=lc.getContext('2d');
+      lx.fillStyle='rgba(10,8,6,0.72)';if(lx.roundRect)lx.roundRect(2,2,156,68,10);else lx.rect(2,2,156,68);lx.fill();
+      lx.fillStyle='#e8d5a0';lx.font='bold 14px sans-serif';lx.textAlign='center';lx.fillText(r.name,80,28);
+      lx.fillStyle='#94a3b8';lx.font='11px sans-serif';lx.fillText(r.area.toFixed(1)+'m²',80,50);
+      const tex=new T.CanvasTexture(lc);
+      const spr=new T.Sprite(new T.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+      spr.scale.set(1.8,0.9,1);spr.position.set(cx,0.7,cz);spr.userData.wRoomIdx=i;
+      FP2.wallRoomGroup.add(spr);
+    }catch(e){}
+  });
+}
+
+/* ---- Wall segment selection + handles ---- */
+function clearWallHandles(){
+  if(!FP2.wallSelectGroup)return;
+  FP2.wallSelectGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});
+  while(FP2.wallSelectGroup.children.length)FP2.wallSelectGroup.remove(FP2.wallSelectGroup.children[0]);
+}
+function updateWallHandles(){
+  clearWallHandles();
+  if(!FP2.selectedWallId)return;
+  const wall=FP2.walls.get(FP2.selectedWallId);if(!wall)return;
+  const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)return;
+  [[n0.x,n0.z,0xff6600,{handleType:'endpoint',nodeId:wall.startId,wallId:wall.id}],
+   [n1.x,n1.z,0xff6600,{handleType:'endpoint',nodeId:wall.endId,wallId:wall.id}],
+   [(n0.x+n1.x)/2,(n0.z+n1.z)/2,0xffcc00,{handleType:'midpoint',wallId:wall.id}]]
+  .forEach(([hx,hz,c,ud])=>{
+    const m=new T.Mesh(new T.SphereGeometry(0.14,8,8),new T.MeshStandardMaterial({color:c,roughness:0.3,metalness:0.5,depthTest:false}));
+    m.position.set(hx,0.6,hz);m.renderOrder=10;Object.assign(m.userData,ud);FP2.wallSelectGroup.add(m);
+    // Outline ring
+    const r=new T.Mesh(new T.TorusGeometry(0.2,0.025,8,16),new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.4,depthTest:false}));
+    r.position.set(hx,0.001,hz);r.rotation.x=Math.PI/2;r.renderOrder=9;FP2.wallSelectGroup.add(r);
+  });
+  // Highlight selected wall with a slightly larger bbox
+  const wall2=FP2.walls.get(FP2.selectedWallId);
+  const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),angle=Math.atan2(dx,dz);
+  const hl=new T.Mesh(new T.BoxGeometry(wall2.thickness+0.06,wall2.height+0.04,len+0.1),new T.MeshBasicMaterial({color:0xd4af37,transparent:true,opacity:0.25,depthTest:false}));
+  hl.position.set((n0.x+n1.x)/2,wall2.height/2,(n0.z+n1.z)/2);hl.rotation.y=angle;hl.renderOrder=8;FP2.wallSelectGroup.add(hl);
+}
+function updateWallPanel(){
+  const panel=document.getElementById('fp2WallProps');if(!panel)return;
+  if(!FP2.selectedWallId){panel.style.display='none';return;}
+  const w=FP2.walls.get(FP2.selectedWallId);if(!w){panel.style.display='none';return;}
+  const n0=FP2.wallNodes.get(w.startId),n1=FP2.wallNodes.get(w.endId);if(!n0||!n1)return;
+  panel.style.display='block';
+  const lel=document.getElementById('fp2WallLen');if(lel)lel.textContent=Math.hypot(n1.x-n0.x,n1.z-n0.z).toFixed(2);
+  const tel=document.getElementById('fp2WallTh');if(tel)tel.value=w.thickness;
+  const hel=document.getElementById('fp2WallHt');if(hel)hel.value=w.height;
+}
 
 fp2Load();
 if(FP2.floor.size) fp2Apply();
@@ -4034,7 +4268,7 @@ FP2._enter = fp2Enter;
     buildActive=true;
     toolbar.classList.remove('hidden');
     statusBar.classList.remove('hidden');
-    toggleBtn.textContent='▶ Simulate'; toggleBtn.classList.add('active');
+    toggleBtn.textContent='LIVE'; toggleBtn.classList.add('active');
     /* enter FP2 if not already */
     if(!FP2.active){ if(typeof FP2._enter==='function') FP2._enter(); }
     updateStatus();
@@ -4045,12 +4279,19 @@ FP2._enter = fp2Enter;
     toolbar.classList.add('hidden');
     statusBar.classList.add('hidden');
     inspector.classList.add('hidden');
-    toggleBtn.textContent='🏗 Build'; toggleBtn.classList.remove('active');
+    toggleBtn.textContent='BUILD'; toggleBtn.classList.remove('active');
     clearInspector();
     if(FP2.active && typeof fp2Exit==='function') fp2Exit();
   }
 
   toggleBtn.onclick=()=>{ if(buildActive) exitBuildMode(); else enterBuildMode(); };
+
+  document.getElementById('fp2WallTh')?.addEventListener('change',e=>{
+    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){fp2Snapshot();w.thickness=+e.target.value;WG.buildMeshes();updateHandles();updateWallPanel();fp2Save();}}
+  });
+  document.getElementById('fp2WallHt')?.addEventListener('change',e=>{
+    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){fp2Snapshot();w.height=+e.target.value;WG.buildMeshes();updateHandles();updateWallPanel();fp2Save();}}
+  });
 
   /* Tool buttons */
   toolbar.querySelectorAll('.btool[data-btool]').forEach(btn=>{
@@ -4168,6 +4409,23 @@ FP2._enter = fp2Enter;
   /* ---- Override pointer move for wall handles ---- */
   const _origOnPointerDown = FP2._onPointerDown;
   FP2._onPointerDown = function(e){
+    // Wall segment handle drag (highest priority)
+    if(buildActive&&e.button===0&&FP2.wallSelectGroup&&FP2.wallSelectGroup.children.length){
+      const rect=cv.getBoundingClientRect();
+      const r2=new T.Raycaster();r2.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
+      const hits2=r2.intersectObjects(FP2.wallSelectGroup.children);
+      const hHandle=hits2.find(h=>h.object.userData.handleType);
+      if(hHandle){const hud=hHandle.object.userData;wHandleDrag={handleType:hud.handleType,wallId:hud.wallId,nodeId:hud.nodeId,_origPt:null,_origN0:null,_origN1:null};cv.setPointerCapture(e.pointerId);return;}
+    }
+    // Wall selection (select mode click)
+    if(buildActive&&FP2.mode==='select'&&e.button===0){
+      const rect=cv.getBoundingClientRect();
+      const r3=new T.Raycaster();r3.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
+      const hits3=r3.intersectObjects(FP2.wallGroup.children,true);
+      const wallHit=hits3.find(h=>h.object.userData.wallId);
+      if(wallHit){FP2.selectedWallId=wallHit.object.userData.wallId;}else{FP2.selectedWallId=null;}
+      updateWallHandles();updateWallPanel();
+    }
     if(buildActive&&FP2.mode==='wall'&&e.button===0){
       /* Refresh hover state so a drag can start even without a prior move. */
       buildUpdateHandles(e);
@@ -4204,6 +4462,21 @@ FP2._enter = fp2Enter;
 
   const _origOnPointerMove = FP2._onPointerMove;
   FP2._onPointerMove = function(e){
+    if(wHandleDrag){
+      const pt=buildPointerPoint(e);if(!pt)return;
+      const snap=CS/2;const sx=Math.round(pt.x/snap)*snap,sz=Math.round(pt.z/snap)*snap;
+      if(wHandleDrag.handleType==='endpoint'){
+        const n=FP2.wallNodes.get(wHandleDrag.nodeId);if(n){n.x=sx;n.z=sz;}
+      }else{
+        const wall=FP2.walls.get(wHandleDrag.wallId);if(!wall)return;
+        const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)return;
+        if(!wHandleDrag._origPt){wHandleDrag._origPt={x:sx,z:sz};wHandleDrag._origN0={x:n0.x,z:n0.z};wHandleDrag._origN1={x:n1.x,z:n1.z};}
+        const dx=sx-wHandleDrag._origPt.x,dz=sz-wHandleDrag._origPt.z;
+        n0.x=wHandleDrag._origN0.x+dx;n0.z=wHandleDrag._origN0.z+dz;
+        n1.x=wHandleDrag._origN1.x+dx;n1.z=wHandleDrag._origN1.z+dz;
+      }
+      WG.buildMeshes();updateWallHandles();updateWallPanel();return;
+    }
     if(wallDraw){const pt=buildPointerPoint(e);if(!pt)return;let ex=Math.round(pt.x/(CS/2))*(CS/2),ez=Math.round(pt.z/(CS/2))*(CS/2);const adx=Math.abs(ex-wallDraw.startX),adz=Math.abs(ez-wallDraw.startZ);if(adx>=adz)ez=wallDraw.startZ;else ex=wallDraw.startX;wallDraw.endX=ex;wallDraw.endZ=ez;if(!wallDraw.ghost&&FP2.wallGroup){wallDraw.ghost=new T.Mesh(new T.BoxGeometry(1,1,1),new T.MeshStandardMaterial({color:0xffaa00,transparent:true,opacity:0.5}));FP2.wallGroup.add(wallDraw.ghost);}if(wallDraw.ghost){const dx=ex-wallDraw.startX,dz=ez-wallDraw.startZ,len=Math.hypot(dx,dz);if(len>=0.2){wallDraw.ghost.scale.set(WALL_THICKNESS,WALL_HEIGHT,len);wallDraw.ghost.position.set((wallDraw.startX+ex)/2,WALL_HEIGHT/2,(wallDraw.startZ+ez)/2);wallDraw.ghost.rotation.y=Math.atan2(dx,dz);wallDraw.ghost.visible=true;}else wallDraw.ghost.visible=false;}return;}
     /* Wall drag in progress */
     if(wallDrag){
@@ -4254,6 +4527,7 @@ FP2._enter = fp2Enter;
 
   const _origOnPointerUp = FP2._onPointerUp;
   FP2._onPointerUp = function(e){
+    if(wHandleDrag){fp2Snapshot();fp2Save();wHandleDrag=null;return;}
     if(wallDraw){if(wallDraw.ghost&&FP2.wallGroup){FP2.wallGroup.remove(wallDraw.ghost);wallDraw.ghost.geometry.dispose();}fp2Snapshot();WG.addWall(wallDraw.startX,wallDraw.startZ,wallDraw.endX,wallDraw.endZ);WG.buildMeshes();fp2Save();wallDraw=null;return;}
     if(wallDrag){
       /* fp2Snapshot records the current value, so snapshot the pre-drag floor
@@ -4278,6 +4552,7 @@ FP2._enter = fp2Enter;
   let hoveredEdge=null;
   let wallDrag=null;
   let wallDraw=null;
+  let wHandleDrag=null; // {handleType,wallId,nodeId,_origPt,_origN0,_origN1}
 
   function buildPointerPoint(e){
     const rect=cv.getBoundingClientRect();
@@ -4336,7 +4611,19 @@ FP2._enter = fp2Enter;
     }
     if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); fp2Undo(); updateStatus(); }
     if(e.ctrlKey&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); fp2Redo(); updateStatus(); }
-    if(e.key==='Escape'){ clearInspector(); }
+    if(e.key==='Escape'){ clearInspector(); FP2.selectedWallId=null; clearWallHandles(); updateWallPanel(); }
+    if(e.key==='Delete'&&FP2.selectedWallId){
+      fp2Snapshot();WG.removeWall(FP2.selectedWallId);FP2.selectedWallId=null;
+      clearWallHandles();WG.buildMeshes();fp2Save();e.preventDefault();
+    }
+  });
+
+  // Wire up wall property panel inputs
+  document.getElementById('fp2WallTh')?.addEventListener('change',e2=>{
+    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){w.thickness=+e2.target.value;WG.buildMeshes();fp2Save();}}
+  });
+  document.getElementById('fp2WallHt')?.addEventListener('change',e2=>{
+    if(FP2.selectedWallId){const w=FP2.walls.get(FP2.selectedWallId);if(w){w.height=+e2.target.value;WG.buildMeshes();fp2Save();}}
   });
 
   /* expose for loop() */
