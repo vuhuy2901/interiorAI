@@ -830,6 +830,8 @@ html, body {
     <button class="ctrl-btn" id="fp2Rot" style="font-size:10px;padding:3px 7px;" title="R">⟳</button>
   </div>
   <div class="fp2-status" id="fp2Status">Chọn chế độ bên trên để bắt đầu</div>
+  <div id="navMsg" style="font-size:11px;min-height:14px;margin-top:4px;"></div>
+  <div id="navWarn" style="display:none;margin-top:6px;"></div>
   <div style="font-size:9px;color:#475569;margin-top:5px;">Kéo vẽ sàn · Click cạnh để mở tường · Đặt đồ đạc</div>
 </div>
 
@@ -2580,6 +2582,131 @@ function astar(a, b) {
    10b. FP2 — Free-Draw Floor Plan Editor (core)
    ========================================================================= */
 
+/* ===== FEAT-2026-158 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+const OfficeNav = (function () {
+  const EPS = 1e-6, FRONT_DIST = 0.6, EDGE_MARGIN = 0.1, SNAP_TOL = 0.3, OPEN_GAP = 0.05, WALL_PAD = 0.3;
+  const isPassType = t => t === 'door' || t === 'sliding-glass';
+  const defaultWidth = t => t === 'window' ? 1.2 : 0.9;
+  const worldToCell = (CS, x) => Math.floor(x / CS);
+
+  function wallGeom(state, wall) {
+    const n0 = state.nodes.get(wall.startId), n1 = state.nodes.get(wall.endId);
+    if (!n0 || !n1) return null;
+    const dx = n1.x - n0.x, dz = n1.z - n0.z, len = Math.hypot(dx, dz);
+    if (len < EPS) return null;
+    const ux = dx / len, uz = dz / len;
+    return { n0, n1, len, ux, uz, nx: -uz, nz: ux };
+  }
+
+  /* Validate / snap a prospective opening. Returns {ok, offset, width, reason?, snapped?} */
+  function validateOpening(state, wallId, rawOffset, type, width, ignoreId) {
+    const wall = state.walls.get(wallId), g = wall && wallGeom(state, wall);
+    if (!g) return { ok: false, reason: 'Không tìm thấy tường' };
+    const w = width || defaultWidth(type);
+    if (g.len < w + 2 * EDGE_MARGIN) return { ok: false, width: w, reason: 'Tường quá ngắn (cần ≥ ' + (w + 2 * EDGE_MARGIN).toFixed(2) + ' m)' };
+    const lo = w / 2 + EDGE_MARGIN, hi = g.len - w / 2 - EDGE_MARGIN;
+    if (rawOffset < lo - SNAP_TOL || rawOffset > hi + SNAP_TOL) return { ok: false, width: w, reason: 'Cửa vượt mép tường (chừa ≥ 0.1 m mỗi đầu)' };
+    let off = Math.min(hi, Math.max(lo, rawOffset));
+    const others = state.openings.filter(o => o.wallId === wallId && o.id !== ignoreId);
+    const clash = p => others.find(o => Math.abs(o.offset - p) < (o.width + w) / 2 + OPEN_GAP - EPS);
+    if (clash(off)) {
+      const cands = [];
+      for (const o of others) cands.push(o.offset - (o.width + w) / 2 - OPEN_GAP, o.offset + (o.width + w) / 2 + OPEN_GAP);
+      const free = cands.filter(p => p >= lo - EPS && p <= hi + EPS && !clash(p)).sort((a, b) => Math.abs(a - rawOffset) - Math.abs(b - rawOffset));
+      if (free.length && Math.abs(free[0] - rawOffset) <= SNAP_TOL) off = free[0];
+      else return { ok: false, width: w, reason: 'Chồng lên cửa/cửa sổ khác' };
+    }
+    return { ok: true, offset: off, width: w, snapped: Math.abs(off - rawOffset) > 1e-6 };
+  }
+
+  function doorInfo(state, op) {
+    const wall = state.walls.get(op.wallId), g = wall && wallGeom(state, wall);
+    if (!g) return null;
+    const cx = g.n0.x + g.ux * op.offset, cz = g.n0.z + g.uz * op.offset;
+    return {
+      id: op.id, wallId: op.wallId, type: op.type, pass: isPassType(op.type), open: op.open !== false,
+      center: { x: cx, z: cz }, normal: { x: g.nx, z: g.nz }, width: op.width,
+      frontPt: { x: cx + g.nx * FRONT_DIST, z: cz + g.nz * FRONT_DIST },
+      backPt: { x: cx - g.nx * FRONT_DIST, z: cz - g.nz * FRONT_DIST },
+      cells: [], roomA: null, roomB: null
+    };
+  }
+
+  /* Build wall-blocked grid with open pass-door cells carved out (only cells of the door's own wall). */
+  function buildDoorGrid(state, cfg) {
+    const { CS, W, H } = cfg, blocked = new Uint8Array(W * H);
+    const doors = [];
+    for (const op of state.openings) { const d = doorInfo(state, op); if (d) doors.push(d); }
+    for (const wall of state.walls.values()) {
+      const g = wallGeom(state, wall); if (!g) continue;
+      const lim = (wall.thickness || 0.15) / 2 + WALL_PAD;
+      const minx = Math.min(g.n0.x, g.n1.x) - lim, maxx = Math.max(g.n0.x, g.n1.x) + lim;
+      const minz = Math.min(g.n0.z, g.n1.z) - lim, maxz = Math.max(g.n0.z, g.n1.z) + lim;
+      const c0 = Math.max(0, worldToCell(CS, minx)), c1 = Math.min(W - 1, worldToCell(CS, maxx));
+      const r0 = Math.max(0, worldToCell(CS, minz)), r1 = Math.min(H - 1, worldToCell(CS, maxz));
+      const mine = doors.filter(d => d.wallId === wall.id);
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        const px = (c + 0.5) * CS - g.n0.x, pz = (r + 0.5) * CS - g.n0.z;
+        const along = px * g.ux + pz * g.uz, t = Math.min(g.len, Math.max(0, along));
+        if (Math.hypot(px - g.ux * t, pz - g.uz * t) > lim) continue;
+        let carved = false;
+        for (const d of mine) {
+          const off = (d.center.x - g.n0.x) * g.ux + (d.center.z - g.n0.z) * g.uz;
+          if (Math.abs(along - off) <= d.width / 2 + EPS) {
+            d.cells.push([c, r]);
+            if (d.pass && d.open) carved = true;
+          }
+        }
+        if (!carved) blocked[r * W + c] = 1;
+      }
+    }
+    return { blocked, doors };
+  }
+
+  const cellBlocked = (grid, W, H, base, c, r) => c < 0 || r < 0 || c >= W || r >= H || grid[r * W + c] === 1 || (base && base[r * W + c] === 1);
+
+  /* A* on cells (same movement rules as the game's astar). a,b = [c,r]. Returns [[c,r],...] or null. */
+  function astarCells(grid, cfg, a, b) {
+    const { W, H, base } = cfg, N = W * H;
+    const isB = (c, r) => cellBlocked(grid, W, H, base, c, r);
+    if (isB(a[0], a[1]) || isB(b[0], b[1])) return null;
+    const g = new Float32Array(N).fill(1e9), par = new Int32Array(N).fill(-1), cl = new Uint8Array(N);
+    const h = (c, r) => Math.hypot(c - b[0], r - b[1]);
+    const heap = [[h(a[0], a[1]), a[0], a[1]]];
+    const push = it => { heap.push(it); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { let l = 2 * i + 1, r = l + 1, m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    g[a[1] * W + a[0]] = 0;
+    while (heap.length) {
+      const [, c, r] = pop(), q = r * W + c;
+      if (cl[q]) continue; cl[q] = 1;
+      if (c === b[0] && r === b[1]) { const p = []; let z = q; while (z >= 0) { p.push([z % W, Math.floor(z / W)]); z = par[z]; } return p.reverse(); }
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+        if (!dc && !dr) continue;
+        const nc = c + dc, nr = r + dr;
+        if (isB(nc, nr)) continue;
+        if (dc && dr && (isB(c + dc, r) || isB(c, r + dr))) continue;
+        const n = nr * W + nc, ng = g[q] + (dc && dr ? 1.414 : 1);
+        if (ng < g[n]) { g[n] = ng; par[n] = q; push([ng + h(nc, nr), nc, nr]); }
+      }
+    }
+    return null;
+  }
+
+  /* A* between world points; returns [{x,z},...] (cell centres, exact endpoints) or null. */
+  function astarPoints(grid, cfg, p, q) {
+    const { CS } = cfg;
+    const ca = [worldToCell(CS, p.x), worldToCell(CS, p.z)], cb = [worldToCell(CS, q.x), worldToCell(CS, q.z)];
+    const path = astarCells(grid, cfg, ca, cb);
+    if (!path) return null;
+    const pts = path.map(([c, r]) => ({ x: (c + 0.5) * CS, z: (r + 0.5) * CS }));
+    pts[0] = { x: p.x, z: p.z }; pts[pts.length - 1] = { x: q.x, z: q.z };
+    return pts;
+  }
+
+  return { FRONT_DIST, EDGE_MARGIN, SNAP_TOL, isPassType, defaultWidth, worldToCell, wallGeom, validateOpening, doorInfo, buildDoorGrid, cellBlocked, astarCells, astarPoints };
+})();
+/* ===== FEAT-2026-158 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -2629,7 +2756,7 @@ const WG={_nid:0,_wid:0,_oid:0,
 addNode(x,z){for(const n of FP2.wallNodes.values())if(Math.hypot(n.x-x,n.z-z)<0.15)return n.id;const id='n'+(++this._nid);FP2.wallNodes.set(id,{id,x,z});return id;},
 addWall(x0,z0,x1,z1,th,ht){if(Math.hypot(x1-x0,z1-z0)<0.2)return null;const rTh=th??WALL_THICKNESS,rHt=ht??WALL_HEIGHT;if(Math.abs(rTh-WALL_T)>0.01||Math.abs(rHt-WALL_H)>0.01)console.warn('[Wall] non-standard dims th='+rTh+' h='+rHt+' (expect T='+WALL_T+' H='+WALL_H+')');const sId=this.addNode(x0,z0),eId=this.addNode(x1,z1);if(sId===eId)return null;for(const w of FP2.walls.values())if((w.startId===sId&&w.endId===eId)||(w.startId===eId&&w.endId===sId))return w.id;const id='w'+(++this._wid);FP2.walls.set(id,{id,startId:sId,endId:eId,thickness:WALL_T,height:WALL_H,materialId:'walnut'});return id;},
 removeWall(wid){const w=FP2.walls.get(wid);if(!w)return;FP2.walls.delete(wid);FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.wallId!==wid);const used=new Set();for(const wall of FP2.walls.values()){used.add(wall.startId);used.add(wall.endId);}for(const nid of[w.startId,w.endId])if(!used.has(nid))FP2.wallNodes.delete(nid);},
-addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const isWin=type==='window';const defH=isWin?1.0:Math.min(2.1,DOOR_MAX_H);const op={id,wallId,offset,type:type||'sliding-glass',width:w||(isWin?1.2:0.9),height:h||defH,elevation:elev||(isWin?0.8:0)};FP2.wallOpenings.push(op);return id;},
+addOpening(wallId,offset,type,w,h,elev){const id='o'+(++this._oid);const isWin=type==='window';const defH=isWin?1.0:Math.min(2.1,DOOR_MAX_H);const op={id,wallId,offset,type:type||'sliding-glass',width:w||(isWin?1.2:0.9),height:h||defH,elevation:elev||(isWin?0.8:0),open:true};FP2.wallOpenings.push(op);return id;},
 removeOpening(oid){FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.id!==oid);},
 buildMeshes(){
   if(!FP2.wallGroup)return;
@@ -2678,7 +2805,7 @@ buildMeshes(){
         const jr=new T.Mesh(new T.BoxGeometry(t+0.04,fh,FT),fmat);jr.position.set(rx,oe+fh/2,rz);jr.rotation.y=angle;FP2.wallGroup.add(jr);
         // Glass leaf (door/sliding-glass) or glass pane (window)
         if(op.type==='door'||op.type==='sliding-glass'||op.type==='window'){
-          const glLeaf=new T.Mesh(new T.BoxGeometry(t*0.4,oh-FT,ow-FT*2),new T.MeshStandardMaterial({color:0xa0b8cf,transparent:true,opacity:0.38,roughness:0.1,metalness:0.4}));
+          const glLeaf=new T.Mesh(new T.BoxGeometry(t*0.4,oh-FT,ow-FT*2),new T.MeshStandardMaterial({color:0xa0b8cf,transparent:true,opacity:(op.open===false&&op.type!=='window')?0.85:0.38,roughness:0.1,metalness:0.4}));
           glLeaf.position.set(fx,oe+oh/2,fz);glLeaf.rotation.y=angle;FP2.wallGroup.add(glLeaf);
         }
         pos=oe2;
@@ -3030,37 +3157,48 @@ fp2Apply = function(){ _fp2ApplyOrig(); fp2DetectRooms(); };
 
 /* ---- WallGraph navgrid integration (A* path respects FP2 walls) ---- */
 function updateFP2WallBlocked(){
-  fp2WallBlocked.fill(0);
-  for(const wall of FP2.walls.values()){
-    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
-    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
-    const steps=Math.ceil(len/CS*8)+1,th=Math.max(1,Math.round(wall.thickness/CS));
-    for(let s=0;s<=steps;s++){
-      const t=s/steps,px=n0.x+dx*t,pz=n0.z+dz*t;
-      const c=Math.round(px/CS-0.5),r=Math.round(pz/CS-0.5);
-      for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
-        const nc=c+dc,nr=r+dr;
-        if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=1;
-      }
-    }
-  }
-  // Clear cells at door/window openings so agents can pass
-  for(const op of(FP2.wallOpenings||[])){
-    const wall=FP2.walls.get(op.wallId);if(!wall)continue;
-    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
-    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz),ux=dx/len,uz=dz/len,ow=op.width;
-    const steps2=Math.ceil(ow/CS*8)+1;
-    for(let s=0;s<=steps2;s++){
-      const t=s/steps2,ox=n0.x+ux*(op.offset-ow/2+ow*t),oz=n0.z+uz*(op.offset-ow/2+ow*t);
-      const c=Math.round(ox/CS-0.5),r=Math.round(oz/CS-0.5);
-      const th=Math.max(1,Math.round(wall.thickness/CS))+1;
-      for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
-        const nc=c+dc,nr=r+dr;
-        if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=0;
-      }
-    }
-  }
+  /* FEAT-2026-158: precise wall grid, open pass-doors carved (see FEAT158 block below) */
+  FEAT158.refresh();
 }
+
+/* ===== FEAT-2026-158 PAGE INTEGRATION ===== */
+const FEAT158={
+  model:null, debug:false, afterRefresh:[], _dbg:null,
+  state(){return{nodes:FP2.wallNodes,walls:FP2.walls,openings:FP2.wallOpenings||[]};},
+  cfg(){return{CS,W,H};},
+  refresh(){
+    const st=this.state(),m=OfficeNav.buildDoorGrid(st,this.cfg());
+    this.model=m;fp2WallBlocked.set(m.blocked);
+    const byId=new Map(m.doors.map(d=>[d.id,d]));
+    for(const op of st.openings){
+      const d=byId.get(op.id);if(!d)continue;
+      op.open=op.open!==false;op.center=d.center;op.normal=d.normal;op.frontPt=d.frontPt;op.backPt=d.backPt;op.cells=d.cells;
+      if(op.roomA===undefined)op.roomA=null;
+      if(op.roomB===undefined)op.roomB=null;
+    }
+    for(const fn of this.afterRefresh){try{fn(m);}catch(e){console.warn('[FEAT158] hook',e);}}
+    if(this.debug)this.drawDebug();
+  },
+  validate(wallId,rawOffset,type,ignoreId){return OfficeNav.validateOpening(this.state(),wallId,rawOffset,type,0,ignoreId);},
+  msg(text,ok){const el=document.getElementById('navMsg');if(el){el.textContent=text||'';el.style.color=ok?'#34d399':'#f87171';}},
+  setDebug(on){
+    this.debug=!!on;
+    if(!this._dbg){this._dbg=new T.Group();S.add(this._dbg);}
+    if(this.debug)this.drawDebug();else this.clearDebug();
+  },
+  clearDebug(){if(!this._dbg)return;this._dbg.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});while(this._dbg.children.length)this._dbg.remove(this._dbg.children[0]);},
+  drawDebug(){
+    if(!this._dbg){this._dbg=new T.Group();S.add(this._dbg);}
+    this.clearDebug();if(!this.model)return;
+    const quad=(c,r,col)=>{const m=new T.Mesh(new T.PlaneGeometry(CS*0.9,CS*0.9),new T.MeshBasicMaterial({color:col,transparent:true,opacity:0.45,depthTest:false,side:T.DoubleSide}));m.rotation.x=-Math.PI/2;m.position.set((c+0.5)*CS,0.06,(r+0.5)*CS);m.renderOrder=20;this._dbg.add(m);};
+    for(let r=0;r<H_BASE;r++)for(let c=0;c<W;c++)if(this.model.blocked[r*W+c])quad(c,r,0xef4444);
+    for(const d of this.model.doors){
+      for(const [c,r] of d.cells)quad(c,r,d.pass&&d.open?0x22c55e:0xf59e0b);
+      if(!d.pass)continue;
+      for(const [p,col] of[[d.frontPt,0x3b82f6],[d.backPt,0xf97316]]){const s=new T.Mesh(new T.SphereGeometry(0.09,8,8),new T.MeshBasicMaterial({color:col,depthTest:false}));s.position.set(p.x,0.15,p.z);s.renderOrder=21;this._dbg.add(s);}
+    }
+  }
+};
 
 /* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
 function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}
@@ -3167,7 +3305,8 @@ function updateWallPanel(){
     const ops=(FP2.wallOpenings||[]).filter(o=>o.wallId===FP2.selectedWallId);
     if(ops.length){
       const typeLabel={door:'Cửa gỗ','sliding-glass':'Kính trượt',window:'Cửa sổ'};
-      oList.innerHTML=ops.map(o=>`<span style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">${typeLabel[o.type]||o.type} <button data-oid="${o.id}" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">✕</button></span>`).join('');
+      oList.innerHTML=ops.map(o=>`<span style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px">${typeLabel[o.type]||o.type}${OfficeNav.isPassType(o.type)?` <button data-tog="${o.id}" style="background:#1e3a5f;color:#bfdbfe;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">${o.open===false?'Đóng':'Mở'}</button>`:''} <button data-oid="${o.id}" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">✕</button></span>`).join('');
+      oList.querySelectorAll('button[data-tog]').forEach(b=>b.onclick=()=>{const op=FP2.wallOpenings.find(x=>x.id===b.dataset.tog);if(!op)return;fp2Snapshot();op.open=op.open===false;WG.buildMeshes();fp2Save();updateWallPanel();});
       oList.querySelectorAll('button[data-oid]').forEach(b=>b.onclick=()=>{fp2Snapshot();WG.removeOpening(b.dataset.oid);WG.buildMeshes();fp2Save();updateWallPanel();});
     } else {
       oList.innerHTML='';
@@ -4459,6 +4598,7 @@ FP2._enter = fp2Enter;
     inspector.classList.add('hidden');
     toggleBtn.textContent='BUILD'; toggleBtn.classList.remove('active');
     clearInspector();
+    if(FP2._navGhostHide) FP2._navGhostHide();
     if(FP2.active && typeof FP2._exit==='function') FP2._exit();
   }
 
@@ -4622,8 +4762,10 @@ FP2._enter = fp2Enter;
         if(n0&&n1){
           const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
           const pt=wh.point;
-          const offset=Math.max(0.5,Math.min(len-0.5,((pt.x-n0.x)*dx/len+(pt.z-n0.z)*dz/len)));
-          fp2Snapshot();WG.addOpening(wid,offset,FP2.wallSubMode);WG.buildMeshes();fp2Save();
+          const rawOff=((pt.x-n0.x)*dx/len+(pt.z-n0.z)*dz/len);
+          const vd=FEAT158.validate(wid,rawOff,FP2.wallSubMode);
+          if(!vd.ok){FEAT158.msg(vd.reason,false);return;}
+          fp2Snapshot();WG.addOpening(wid,vd.offset,FP2.wallSubMode,vd.width);WG.buildMeshes();fp2Save();FEAT158.msg('Đã thêm '+FP2.wallSubMode,true);
         }
       }
       return;
@@ -4815,6 +4957,39 @@ FP2._enter = fp2Enter;
     }
     geo.dispose(); mat.dispose();
   }
+
+  /* ===== FEAT-2026-158 UI: ghost cửa + phím N bật/tắt debug lưới ===== */
+  const navGhostGroup=new T.Group();S.add(navGhostGroup);
+  let navGhost=null;
+  function navGhostHide(){if(navGhost)navGhost.visible=false;}
+  function navGhostUpdate(e){
+    const sm=FP2.wallSubMode;
+    if(!(buildActive&&FP2.mode==='wall'&&(sm==='door'||sm==='window'||sm==='sliding-glass'))){navGhostHide();return;}
+    const rect=cv.getBoundingClientRect();
+    const ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
+    const wh=ray.intersectObjects(FP2.wallGroup.children,true).find(h=>h.object.userData.wallId);
+    if(!wh){navGhostHide();return;}
+    const wid=wh.object.userData.wallId,g=OfficeNav.wallGeom(FEAT158.state(),FP2.walls.get(wid));
+    if(!g){navGhostHide();return;}
+    const rawOff=(wh.point.x-g.n0.x)*g.ux+(wh.point.z-g.n0.z)*g.uz;
+    const v=FEAT158.validate(wid,rawOff,sm),w=v.width||OfficeNav.defaultWidth(sm);
+    const off=v.ok?v.offset:Math.min(g.len-w/2,Math.max(w/2,rawOff));
+    const isWin=sm==='window',hgt=isWin?1.0:2.1,elev=isWin?0.8:0;
+    if(!navGhost){navGhost=new T.Mesh(new T.BoxGeometry(1,1,1),new T.MeshBasicMaterial({color:0x22c55e,transparent:true,opacity:0.5,depthTest:false}));navGhost.renderOrder=22;navGhostGroup.add(navGhost);}
+    navGhost.material.color.setHex(v.ok?0x22c55e:0xef4444);
+    navGhost.scale.set(WALL_THICKNESS+0.12,hgt,w);
+    navGhost.position.set(g.n0.x+g.ux*off,elev+hgt/2,g.n0.z+g.uz*off);
+    navGhost.rotation.y=Math.atan2(g.ux,g.uz);navGhost.visible=true;
+    FEAT158.msg(v.ok?(v.snapped?'Hợp lệ (đã hít về vị trí gần nhất)':'Vị trí hợp lệ'):v.reason,v.ok);
+  }
+  const _navPrevMove=FP2._onPointerMove;
+  FP2._onPointerMove=function(e){try{navGhostUpdate(e);}catch(err){console.warn('[FEAT158] ghost',err);}return _navPrevMove?_navPrevMove.call(this,e):undefined;};
+  FP2._navGhostHide=navGhostHide;
+  document.addEventListener('keydown',e=>{
+    if(!FP2.active||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
+    if(e.key==='n'||e.key==='N'){FEAT158.setDebug(!FEAT158.debug);FEAT158.msg('Debug lưới '+(FEAT158.debug?'BẬT':'TẮT')+' (đỏ=chặn, xanh=ô cửa, xanh dương/cam=front/back)',true);}
+  });
 
   /* ---- Keyboard shortcuts ---- */
   document.addEventListener('keydown',e=>{

@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Sonnet subagent (pha 1) |
 | Người chấp thuận | Opus (phiên chính) theo `docs/plans/2026-11-22-office-navigation.md` |
 | Ngày tạo | 2026-11-22 |
 | Frozen at | 2026-11-22 |
 | Revision bắt đầu | 702c68bb |
-| Revision cuối | Chưa có |
+| Revision cuối | xem commit feat(FEAT-2026-158) |
 
 ## 1. Bối cảnh
 
@@ -61,12 +61,12 @@ Trong `ai-office-standalone/index.html`, cửa (`FP2.wallOpenings`) chỉ có `w
 
 ## 7. Acceptance criteria
 
-- [ ] AC-01: Đặt cửa ở 3 vị trí khác nhau (tường ngang, dọc, không căn lưới): frontPt/backPt nằm hai bên tường, cách tâm cửa 0.6 m, sai số khoảng cách tới đường tâm tường < 0.05 m.
-- [ ] AC-02: A* từ ô chứa frontPt tới ô chứa backPt thành công khi cửa mở, thất bại khi cửa đóng.
-- [ ] AC-03: Cửa vượt mép, chồng cửa khác, tường quá ngắn bị `validateOpening` từ chối kèm `reason`; vị trí lệch <= 0.3 m được hít về hợp lệ.
-- [ ] AC-04: Cửa sổ chặn lưới (A* thất bại qua cửa sổ).
-- [ ] AC-05: Trình duyệt: ghost xanh/đỏ hiển thị, debug overlay bật/tắt bằng `N`, 0 lỗi console, Build/FP2 vẫn hoạt động.
-- [ ] AC-06: `node --check` toàn bộ script inline pass.
+- [x] AC-01: Đặt cửa ở 3 vị trí khác nhau (tường ngang, dọc, không căn lưới): frontPt/backPt nằm hai bên tường, cách tâm cửa 0.6 m, sai số khoảng cách tới đường tâm tường < 0.05 m.
+- [x] AC-02: A* từ ô chứa frontPt tới ô chứa backPt thành công khi cửa mở, thất bại khi cửa đóng.
+- [x] AC-03: Cửa vượt mép, chồng cửa khác, tường quá ngắn bị `validateOpening` từ chối kèm `reason`; vị trí lệch <= 0.3 m được hít về hợp lệ.
+- [x] AC-04: Cửa sổ chặn lưới (A* thất bại qua cửa sổ).
+- [x] AC-05: Trình duyệt: ghost xanh/đỏ hiển thị, debug overlay bật/tắt bằng `N`, 0 lỗi console, Build/FP2 vẫn hoạt động.
+- [x] AC-06: `node --check` toàn bộ script inline pass.
 
 ## 8. Verification plan
 
@@ -105,18 +105,20 @@ Rollback point: commit `702c68bb`; rollback bằng `git revert` commit của FEA
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | e8457454 -> commit feat | Khối OfficeNav (158), FEAT158 refresh/debug/ghost, viết lại updateFP2WallBlocked, nút Mở/Đóng, test Node | Hành vi cũ đổi: cửa sổ chặn lưới; dải chặn tường hẹp hơn |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-22 | feat 158 | `node --check` script inline (trích bằng regex) | exit 0 | terminal |
+| 2026-11-22 | feat 158 | `node scripts/tests/office-nav.test.mjs` | 4 pass, 0 fail (AC-01..04) | terminal |
+| 2026-11-22 | feat 158 | Trình duyệt `python -m http.server 8141`: vào Build, thêm cửa bằng sự kiện con trỏ, ghost + hít, debug N | cửa o1 có frontPt/backPt/cells, vượt mép bị từ chối, debug hiển thị | `docs/features/evidence/FEAT-2026-158-door-overlay.jpg`, `FEAT-2026-158-ghost-snap.jpg` |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
+- Kết quả: đạt AC-01..06.
+- Hạn chế còn lại: ô lưới 0.5 m; cửa hẹp hơn 0.9 m kém chính xác. Cửa tự mở/đóng theo agent thuộc FEAT-161.
 - Việc chưa hoàn tất:
 - Rollback point: 702c68bb
 - Trạng thái `CLOSED` bởi:
