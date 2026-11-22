@@ -819,6 +819,7 @@ html, body {
     <button class="fp2-tab active" data-mode="paint">🖌️<br>Sàn</button>
     <button class="fp2-tab" data-mode="wall">🧱<br>Tường</button>
     <button class="fp2-tab" data-mode="furniture">🪑<br>Đồ đạc</button>
+    <button class="fp2-tab" data-mode="desk" title="B">🖥️<br>Bàn</button>
     <button class="fp2-tab" data-mode="erase">🗑️<br>Xoá</button>
   </div>
   <div id="fp2Palette" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:8px;"></div>
@@ -832,6 +833,7 @@ html, body {
   <div class="fp2-status" id="fp2Status">Chọn chế độ bên trên để bắt đầu</div>
   <div id="navMsg" style="font-size:11px;min-height:14px;margin-top:4px;"></div>
   <div id="navWarn" style="display:none;margin-top:6px;"></div>
+  <div id="deskPanel" style="display:none;margin-top:6px;max-height:260px;overflow:auto;"></div>
   <div style="font-size:9px;color:#475569;margin-top:5px;">Kéo vẽ sàn · Click cạnh để mở tường · Đặt đồ đạc</div>
 </div>
 
@@ -850,6 +852,7 @@ html, body {
   <button class="btool" data-btool="wall">🧱 Tường</button>
   <button class="btool" data-btool="paint">🖌 Sàn</button>
   <button class="btool" data-btool="furniture">🪑 Đồ đạc</button>
+  <button class="btool" data-btool="desk" title="B">🖥 Bàn</button>
   <button class="btool" data-btool="erase">🗑 Xoá</button>
   <div class="btool-sep"></div>
   <button class="btool" id="btUndo">↶ Undo</button>
@@ -936,6 +939,12 @@ html, body {
       <span class="role-dot" style="background:#4ade80;"></span>
       <span id="dStatusTxt">Đang làm việc tại bàn</span>
     </div>
+  </div>
+
+  <div class="drawer-section" id="dDeskSec" style="display:none;">
+    <span class="drawer-lbl">Bàn làm việc</span>
+    <select id="dDeskSel" style="width:100%;margin-top:4px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px;font-size:12px;"></select>
+    <div id="dDeskMsg" style="font-size:11px;color:#94a3b8;margin-top:3px;"></div>
   </div>
 
   <div class="drawer-section">
@@ -1910,10 +1919,11 @@ const screenTextures = {
   })
 };
 
-function createDetailedDesk(c, r, screenType = 'design', dualMon = false) {
+function createDetailedDesk(c, r, screenType = 'design', dualMon = false, free = null) {
   const deskGroup = new T.Group();
-  const x = (c + 2) * CS, z = (r + 1) * CS;
+  const x = free ? free.x : (c + 2) * CS, z = free ? free.z : (r + 1) * CS;
   deskGroup.position.set(x, 0, z);
+  if (free) deskGroup.rotation.y = (free.rot || 0) * Math.PI / 2; /* FEAT-2026-160: bàn tự do, không chặn lưới cũ */
 
   bx(0, 0.74, 0, 4 * CS - 0.08, 0.05, 2 * CS - 0.08, 0x3d2c1f, deskGroup, { roughness: 0.45 });
   bx(0, 0.768, 0.06, 1.25, 0.008, 0.58, 0x1f2229, deskGroup, { roughness: 0.9 });
@@ -1965,6 +1975,7 @@ function createDetailedDesk(c, r, screenType = 'design', dualMon = false) {
   cyl(0, 0.05, 0, 0.04, 0.05, 0x3d7048, 0, plantPot);
 
   S.add(deskGroup);
+  if (free) return deskGroup;
   blk(c, r, c + 3, r + 1);
 }
 
@@ -2975,6 +2986,181 @@ const OfficeNav = (function () {
 })(OfficeNav);
 /* ===== FEAT-2026-159 CORE END ===== */
 
+/* ===== FEAT-2026-160 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const SNAP = 0.25, BODY_HX = 1.0, BODY_HZ = 0.5, SEAT_D = 0.75, APPROACH_D = 1.25, CHAIR_H = 0.28, EPS = 1e-6;
+  const r6 = v => Math.round(v * 1e6) / 1e6;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+  const snap = v => Math.round(v / SNAP) * SNAP;
+
+  /* Hình học bàn. rot 0..3; ghế/agent ở phía s=(sinθ,cosθ); agent quay mặt về bàn (facing=θ+π). */
+  function geom(x, z, rot) {
+    rot = ((Math.round(rot) % 4) + 4) % 4;
+    const th = rot * Math.PI / 2, sx = r6(Math.sin(th)), sz = r6(Math.cos(th)), ux = r6(Math.cos(th)), uz = r6(-Math.sin(th));
+    let facing = th + Math.PI; if (facing >= 2 * Math.PI) facing -= 2 * Math.PI;
+    return {
+      x, z, rot, facing,
+      seatPt: { x: r6(x + sx * SEAT_D), z: r6(z + sz * SEAT_D) },
+      approachPt: { x: r6(x + sx * APPROACH_D), z: r6(z + sz * APPROACH_D) },
+      body: { cx: x, cz: z, ux, uz, hx: BODY_HX, hz: BODY_HZ },
+      chair: { cx: r6(x + sx * SEAT_D), cz: r6(z + sz * SEAT_D), ux, uz, hx: CHAIR_H, hz: CHAIR_H }
+    };
+  }
+
+  /* SAT 2D giữa hai OBB; chạm mép không tính là chồng. */
+  function obbOverlap(a, b) {
+    const axes = [[a.ux, a.uz], [-a.uz, a.ux], [b.ux, b.uz], [-b.uz, b.ux]];
+    const proj = (o, ax) => {
+      const c = o.cx * ax[0] + o.cz * ax[1];
+      const r = o.hx * Math.abs(o.ux * ax[0] + o.uz * ax[1]) + o.hz * Math.abs(-o.uz * ax[0] + o.ux * ax[1]);
+      return [c - r, c + r];
+    };
+    for (const ax of axes) {
+      const p = proj(a, ax), q = proj(b, ax);
+      if (p[1] <= q[0] + EPS || q[1] <= p[0] + EPS) return false;
+    }
+    return true;
+  }
+
+  function make(id, x, z, rot, nav, extra) {
+    const g = geom(x, z, rot);
+    return Object.assign({
+      id, x: g.x, z: g.z, rot: g.rot,
+      roomId: nav ? Nav.pointInRoom(nav, x, z) : null,
+      seatPt: g.seatPt, approachPt: g.approachPt, facing: g.facing, agentId: null, screen: 'design'
+    }, extra || {});
+  }
+
+  /* Lưới vật cản của các bàn (ô giao thân bàn). Ô approachPt của chính bàn luôn trống. */
+  function baseGrid(desks, cfg) {
+    const { CS, W, H } = cfg, grid = new Uint8Array(W * H);
+    for (const d of desks) {
+      const g = geom(d.x, d.z, d.rot), b = g.body;
+      const ex = b.hx * Math.abs(b.ux) + b.hz * Math.abs(b.uz), ez = b.hx * Math.abs(b.uz) + b.hz * Math.abs(b.ux);
+      const c0 = Math.max(0, Math.floor((d.x - ex) / CS)), c1 = Math.min(W - 1, Math.floor((d.x + ex) / CS));
+      const r0 = Math.max(0, Math.floor((d.z - ez) / CS)), r1 = Math.min(H - 1, Math.floor((d.z + ez) / CS));
+      const ap = [Nav.worldToCell(CS, g.approachPt.x), Nav.worldToCell(CS, g.approachPt.z)];
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        if (c === ap[0] && r === ap[1]) continue;
+        const cell = { cx: (c + 0.5) * CS, cz: (r + 0.5) * CS, ux: 1, uz: 0, hx: CS / 2, hz: CS / 2 };
+        if (obbOverlap(b, cell)) grid[r * W + c] = 1;
+      }
+    }
+    return grid;
+  }
+
+  /* Điểm "trong phòng" của các cửa mở nối phòng này. */
+  function roomExitPts(nav, roomId) {
+    const res = [];
+    for (const d of nav.doors) {
+      if (!d.pass || !d.open || d.roomA === d.roomB) continue;
+      if (d.roomA === roomId) res.push({ door: d.id, pt: d.frontPt });
+      else if (d.roomB === roomId) res.push({ door: d.id, pt: d.backPt });
+    }
+    return res;
+  }
+
+  /* Từ from có tới được một cửa mở của phòng (cửa gần nhất thử trước). */
+  /* Lưới chặn = base + mọi ô ngoài đa giác phòng (đường kiểm tra không được đi vòng qua phòng khác). */
+  function roomMask(nav, roomId, base) {
+    const { CS, W, H } = nav.cfg, room = nav.roomById[roomId], m = new Uint8Array(W * H);
+    if (base) m.set(base);
+    if (!room) return m;
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (!m[r * W + c] && !Nav.pointInPoly(room.poly, (c + 0.5) * CS, (r + 0.5) * CS)) m[r * W + c] = 1;
+    return m;
+  }
+  function canExit(nav, base, roomId, from) {
+    const cfg = Object.assign({}, nav.cfg, { base: roomMask(nav, roomId, base) });
+    const ex = roomExitPts(nav, roomId).sort((a, b) => dist(from, a.pt) - dist(from, b.pt));
+    for (const e of ex) if (Nav.astarPoints(nav.blocked, cfg, from, e.pt)) return true;
+    return false;
+  }
+
+  function wallObb(state, wall) {
+    const g = Nav.wallGeom(state, wall); if (!g) return null;
+    return { cx: (g.n0.x + g.n1.x) / 2, cz: (g.n0.z + g.n1.z) / 2, ux: g.ux, uz: g.uz, hx: g.len / 2, hz: (wall.thickness || 0.15) / 2 + 0.02 };
+  }
+  function doorZone(d) {
+    return { cx: d.center.x, cz: d.center.z, ux: -d.normal.z, uz: d.normal.x, hx: d.width / 2 + 0.25, hz: Nav.FRONT_DIST + 0.3 };
+  }
+
+  /* Kiểm tra bàn ứng viên. cand = {x,z,rot[,id]}. desks = bàn đã có (bỏ qua cand.id). */
+  function validate(state, nav, desks, cand) {
+    const fail = reason => ({ ok: false, reason });
+    const { CS, W, H } = nav.cfg;
+    const x = snap(cand.x), z = snap(cand.z), g = geom(x, z, cand.rot);
+    const others = desks.filter(d => d.id !== cand.id);
+    const pts = [g.seatPt, g.approachPt];
+    for (const o of [g.body, g.chair]) {
+      const ex = o.hx * Math.abs(o.ux) + o.hz * Math.abs(o.uz), ez = o.hx * Math.abs(o.uz) + o.hz * Math.abs(o.ux);
+      pts.push({ x: o.cx - ex, z: o.cz - ez }, { x: o.cx + ex, z: o.cz + ez });
+    }
+    for (const p of pts) if (p.x < 0 || p.z < 0 || p.x >= W * CS || p.z >= H * CS) return fail('Ngoài vùng mặt bằng');
+    const roomId = Nav.pointInRoom(nav, x, z);
+    if (roomId === Nav.OUT_ID) return fail('Bàn phải đặt trong phòng khép kín');
+    const name = (nav.roomById[roomId] && nav.roomById[roomId].name) || roomId;
+    if (nav.noDoor.includes(roomId)) return fail(name + ' chưa có cửa');
+    if (!Nav.isRoomReachable(nav, roomId)) return fail(name + ' chưa tới được (mọi cửa đang đóng)');
+    for (const w of state.walls.values()) {
+      const o = wallObb(state, w);
+      if (o && (obbOverlap(g.body, o) || obbOverlap(g.chair, o))) return fail('Chồng lên tường');
+    }
+    for (const d of nav.doors) {
+      if (!d.pass) continue;
+      const z2 = doorZone(d);
+      if (obbOverlap(g.body, z2) || obbOverlap(g.chair, z2)) return fail('Chắn khung cửa ' + d.id);
+    }
+    for (const d of others) {
+      const o = geom(d.x, d.z, d.rot);
+      if (obbOverlap(g.body, o.body) || obbOverlap(g.body, o.chair) || obbOverlap(g.chair, o.body) || obbOverlap(g.chair, o.chair)) return fail('Chồng lên bàn khác');
+    }
+    if (Nav.pointInRoom(nav, g.approachPt.x, g.approachPt.z) !== roomId) return fail('Điểm tiếp cận (phía ghế) nằm ngoài ' + name);
+    const cand2 = make(cand.id || '_new', x, z, cand.rot, nav);
+    const base = baseGrid(others.concat([cand2]), nav.cfg);
+    if (Nav.cellBlocked(nav.blocked, W, H, base, Nav.worldToCell(CS, g.approachPt.x), Nav.worldToCell(CS, g.approachPt.z))) return fail('Điểm tiếp cận bị tường/bàn chặn');
+    if (!canExit(nav, base, roomId, g.approachPt)) return fail('Bàn làm mất lối đi tới cửa của ' + name);
+    const exits = roomExitPts(nav, roomId);
+    const cfgR = Object.assign({}, nav.cfg, { base: roomMask(nav, roomId, base) });
+    for (let i = 1; i < exits.length; i++) {
+      if (!Nav.astarPoints(nav.blocked, cfgR, exits[0].pt, exits[i].pt)) return fail('Bàn làm đứt đường nối các cửa của ' + name);
+    }
+    for (const d of others) {
+      if (d.roomId !== roomId && Nav.pointInRoom(nav, d.x, d.z) !== roomId) continue;
+      const ap = geom(d.x, d.z, d.rot).approachPt;
+      if (!canExit(nav, base, roomId, ap)) return fail('Bàn này chặn lối đi của bàn khác trong ' + name);
+    }
+    return { ok: true, desk: make(cand.id || null, x, z, cand.rot, nav, { agentId: cand.agentId || null, screen: cand.screen || 'design' }), roomId };
+  }
+
+  const VERSION = 1;
+  function serialize(desks, deskless, next) {
+    return JSON.stringify({ v: VERSION, next: next || desks.length + 1, deskless: deskless || [], desks: desks.map(d => ({ id: d.id, x: d.x, z: d.z, rot: d.rot, roomId: d.roomId, seatPt: d.seatPt, approachPt: d.approachPt, facing: d.facing, agentId: d.agentId || null, screen: d.screen || 'design' })) });
+  }
+  function parse(json) {
+    let o; try { o = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return null; }
+    if (!o || o.v !== VERSION || !Array.isArray(o.desks)) return null;
+    const desks = o.desks.filter(d => d && typeof d.x === 'number' && typeof d.z === 'number').map(d => {
+      const g = geom(d.x, d.z, d.rot || 0);
+      return { id: d.id, x: g.x, z: g.z, rot: g.rot, roomId: d.roomId || null, seatPt: g.seatPt, approachPt: g.approachPt, facing: g.facing, agentId: d.agentId || null, screen: d.screen || 'design' };
+    });
+    return { desks, deskless: Array.isArray(o.deskless) ? o.deskless : [], next: o.next || desks.length + 1 };
+  }
+
+  /* DESK_POOL + cấu hình custom agent cũ (poolIdx) -> bàn tự do cùng vị trí. Không kiểm tra hợp lệ (không được mất agent). */
+  function migratePool(pool, cfgs, CS, nav) {
+    const desks = []; let n = 1;
+    (cfgs || []).forEach((cfg, i) => {
+      const idx = typeof cfg.poolIdx === 'number' ? cfg.poolIdx : i, slot = pool[idx];
+      if (!slot || desks.some(d => d.agentId === slot.id)) return;
+      desks.push(make('D' + (n++), (slot.c + 2) * CS, (slot.r + 1) * CS, 0, nav, { agentId: slot.id, screen: slot.screenType || 'design' }));
+    });
+    return { desks, next: n };
+  }
+
+  Nav.desk = { SNAP, geom, snap, obbOverlap, make, baseGrid, roomExitPts, canExit, validate, serialize, parse, migratePool, VERSION };
+})(OfficeNav);
+/* ===== FEAT-2026-160 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -3359,17 +3545,19 @@ function fp2Load(){
     else { fp2SeedDefaultRooms();fp2SeedDefaultWalls(); try{fp2Save();}catch{} }
   }catch{}
 }
-function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
+function f160Snap(){ try{ return FEAT160.snap(); }catch(e){ return undefined; } }
+function f160Restore(d){ try{ if(d!==undefined) FEAT160.restore(d); }catch(e){ console.warn('[FEAT160] restore',e); } }
+function fp2Snapshot(){ FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON(),desks:f160Snap()})); if(FP2._history.length>FP2_HIST)FP2._history.shift(); FP2._future=[]; }
 function fp2Undo(){
   if(!FP2._history.length) return;
-  FP2._future.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()}));
-  const s=JSON.parse(FP2._history.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph);
+  FP2._future.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON(),desks:f160Snap()}));
+  const s=JSON.parse(FP2._history.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph); f160Restore(s.desks);
   fp2Apply(); fp2Save();
 }
 function fp2Redo(){
   if(!FP2._future.length) return;
-  FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON()}));
-  const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph);
+  FP2._history.push(JSON.stringify({floor:[...FP2.floor],openings:[...FP2.openings],furniture:FP2.furniture,wallGraph:WG.toJSON(),desks:f160Snap()}));
+  const s=JSON.parse(FP2._future.pop()); FP2.floor=new Set(s.floor); FP2.openings=new Set(s.openings); FP2.furniture=s.furniture; if(s.wallGraph)WG.fromJSON(s.wallGraph); f160Restore(s.desks);
   fp2Apply(); fp2Save();
 }
 
@@ -3534,7 +3722,7 @@ const FEAT159={
   },
   planRoute(from,to,opts){
     const nav=this.nav;if(!nav)return{ok:false,reason:'Chưa dựng đồ thị phòng'};
-    nav.cfg.base=(opts&&opts.useBase)?blocked:null;
+    nav.cfg.base=(opts&&opts.useBase)?(window.FEAT160?FEAT160.baseGrid():blocked):null; /* FEAT-160: useBase = lưới bàn tự do */
     return OfficeNav.planRoute(nav,from,to);
   }
 };
@@ -3975,14 +4163,14 @@ function spawnCustomAgent(cfg) {
   const pidx = typeof cfg.poolIdx === 'number' ? cfg.poolIdx : 0;
   const slot = DESK_POOL[pidx];
   if (!slot || A[slot.id]) return false;
-  if (!seats['d_' + slot.id]) {
-    createDetailedDesk(slot.c, slot.r, slot.screenType, false);
-    registerSeat('d_' + slot.id, [slot.c + 1, slot.r + 2], [slot.c + 1, slot.r + 3], Math.PI, false);
-  }
-  const seat = seats['d_' + slot.id];
-  if (!seat) return false;
+  /* FEAT-2026-160: bàn tự do thay cho bàn cố định DESK_POOL */
+  const desk = FEAT160.deskOf(slot.id);
+  const seat = desk ? FEAT160.seatOf(desk) : FEAT160.standbySeat(slot);
   const col = typeof cfg.color === 'number' ? cfg.color : 0x7c3aed;
   const ag = new Agent(slot.id, cfg.name, cfg.role || 'Custom Agent', col, seat, slot.dept, cfg.bio || '', cfg.shortName || cfg.name.split(' ')[0]);
+  ag._f160 = true;
+  if (desk) seats['d_' + slot.id] = seat;
+  else { ag.sitting = false; ag.seat = null; ag.home = null; ag.noDesk = true; ag.cell = [slot.c + 1, slot.r + 3]; }
   agents.push(ag);
   A[slot.id] = ag;
   if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
@@ -3999,9 +4187,231 @@ function despawnCustomAgent(poolIdx) {
   if (ag.bb) ag.bb.remove();
   agents = agents.filter(a => a.id !== slot.id);
   delete A[slot.id];
+  { const d = FEAT160.deskOf(slot.id); if (d) { d.agentId = null; FEAT160.save(); } FEAT160.deskless = FEAT160.deskless.filter(x => x !== slot.id); FEAT160.renderPanel(); }
   if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
 }
 
+/* ===== FEAT-2026-160 PAGE INTEGRATION: bàn làm việc đặt tự do, gán agent 1-1 ===== */
+const FEAT160 = {
+  KEY: 'atelier_desks_v1', desks: [], deskless: [], next: 1, _ver: 0, _base: null, _baseVer: -1,
+  meshes: new Map(), seats: new Map(), selected: null, issues: {}, _timer: null, mark: null,
+  cellOf: v => Math.floor(v / CS),
+  baseGrid() {
+    if (!this._base || this._baseVer !== this._ver) { this._base = OfficeNav.desk.baseGrid(this.desks, { CS, W, H }); this._baseVer = this._ver; }
+    return this._base;
+  },
+  snap() { return OfficeNav.desk.serialize(this.desks, this.deskless, this.next); },
+  save() { try { localStorage.setItem(this.KEY, this.snap()); } catch (e) {} },
+  load() {
+    try { const p = OfficeNav.desk.parse(localStorage.getItem(this.KEY)); if (!p) return false; this.desks = p.desks; this.deskless = p.deskless; this.next = p.next; return true; } catch (e) { return false; }
+  },
+  /* Lần đầu tải (chưa có dữ liệu bàn): custom agent cũ (poolIdx) -> bàn tự do cùng vị trí. */
+  init() {
+    if (!this.load()) {
+      const m = OfficeNav.desk.migratePool(DESK_POOL, getCustomAgentConfigs(), CS, FEAT159.nav);
+      this.desks = m.desks; this.next = m.next; this.deskless = [];
+      this.save();
+    }
+    this.desks.forEach(d => this.buildMesh(d));
+    this._ver++;
+  },
+  validate(c) {
+    const nav = FEAT159.nav; if (!nav) return { ok: false, reason: 'Chưa dựng đồ thị phòng' };
+    const v = OfficeNav.desk.validate(FEAT158.state(), nav, this.desks, c);
+    if (v.ok) { const ca = FEAT159.canAssign(v.roomId); if (!ca.ok) return { ok: false, reason: ca.reason }; }
+    return v;
+  },
+  buildMesh(d) {
+    if (this.meshes.has(d.id)) return;
+    const group = createDetailedDesk(0, 0, d.screen || 'design', false, { x: d.x, z: d.z, rot: d.rot });
+    const chair = createErgonomicTaskChair(-1, -1, d.facing);
+    chair.position.set(d.seatPt.x, 0, d.seatPt.z); chair.rotation.y = d.facing;
+    this.meshes.set(d.id, { group, chair, key: [d.x, d.z, d.rot].join() });
+  },
+  removeMesh(id) {
+    const m = this.meshes.get(id); if (!m) return;
+    for (const o of [m.group, m.chair]) { S.remove(o); o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); }
+    this.meshes.delete(id); this.seats.delete(id);
+  },
+  seatOf(d) {
+    let s = this.seats.get(d.id);
+    if (!s) {
+      const m = this.meshes.get(d.id), c = this.cellOf;
+      s = { cr: [c(d.seatPt.x), c(d.seatPt.z)], ap: [c(d.approachPt.x), c(d.approachPt.z)], apPt: d.approachPt, face: d.facing, ch: m.chair, base: m.chair.position.clone(), _f160: d.id };
+      this.seats.set(d.id, s);
+    }
+    return s;
+  },
+  deskOf(agentId) { return this.desks.find(d => d.agentId === agentId) || null; },
+  deskById(id) { return this.desks.find(d => d.id === id) || null; },
+  deskLabel(d) { return 'Bàn ' + d.id + ' · ' + FEAT159.roomName(d.roomId); },
+  customAgents() { return agents.filter(a => a._f160); },
+  standbySeat(slot) { return { cr: [slot.c + 1, slot.r + 3], ap: [slot.c + 1, slot.r + 3], face: 0, ch: new T.Object3D(), base: new T.Vector3() }; },
+  /* Thêm bàn mới (đã kiểm tra) */
+  add(d) {
+    d.id = 'D' + (this.next++); this.desks.push(d); this._ver++; this.buildMesh(d); this.save(); this.renderPanel(); return d;
+  },
+  place(cand) {
+    const v = this.validate(cand);
+    if (!v.ok) return v;
+    fp2Snapshot();
+    this.add(v.desk);
+    return { ok: true, desk: v.desk };
+  },
+  /* Bàn tự động cho agent mới ở vị trí DESK_POOL (chỉ khi hợp lệ) */
+  autoDeskForSlot(slot) {
+    if (this.deskOf(slot.id)) return true;
+    const v = this.validate({ x: (slot.c + 2) * CS, z: (slot.r + 1) * CS, rot: 0 });
+    if (!v.ok) { console.warn('[FEAT160] không đặt được bàn cho', slot.id, v.reason); return false; }
+    v.desk.agentId = slot.id; v.desk.screen = slot.screenType || 'design'; this.add(v.desk); return true;
+  },
+  removeDesk(id) {
+    const d = this.deskById(id); if (!d) return;
+    fp2Snapshot();
+    this.removeMesh(id);
+    this.desks = this.desks.filter(x => x !== d); this._ver++;
+    if (d.agentId && A[d.agentId]) this._detachAgent(A[d.agentId]);
+    else if (d.agentId && !this.deskless.includes(d.agentId)) this.deskless.push(d.agentId);
+    if (this.selected === id) this.selected = null;
+    this.save(); this.renderPanel(); this.drawMarks();
+  },
+  _detachAgent(ag) {
+    if (ag.seat && ag.seat.ap) { ag.g.position.copy(wv(...ag.seat.ap)); ag.cell = ag.seat.ap; }
+    ag.sitting = false; ag.seat = null; ag.home = null; ag.noDesk = true; delete seats['d_' + ag.id];
+    if (!this.deskless.includes(ag.id)) this.deskless.push(ag.id);
+    ag.say('Chưa có bàn', 3);
+  },
+  /* Gán agent <-> bàn 1-1. agentId=null: bỏ gán. */
+  assign(deskId, agentId) {
+    const d = this.deskById(deskId); if (!d) return { ok: false, reason: 'Không có bàn' };
+    if (agentId) { const ca = FEAT159.canAssign(d.roomId); if (!ca.ok) { FEAT158.msg(ca.reason, false); this.renderPanel(); return ca; } }
+    fp2Snapshot();
+    const prev = d.agentId;
+    if (agentId) { const od = this.desks.find(x => x !== d && x.agentId === agentId); if (od) od.agentId = null; this.deskless = this.deskless.filter(x => x !== agentId); }
+    d.agentId = agentId || null;
+    if (prev && prev !== agentId && A[prev]) this._detachAgent(A[prev]);
+    else if (prev && prev !== agentId && !this.deskless.includes(prev)) this.deskless.push(prev);
+    this.save();
+    if (agentId && A[agentId]) this.bind(A[agentId], d, true);
+    this.renderPanel(); this.drawMarks(); if (typeof refreshDrawerDesk === 'function') refreshDrawerDesk();
+    return { ok: true };
+  },
+  bind(ag, d, walk) {
+    const seat = this.seatOf(d);
+    ag.home = seat; ag.noDesk = false; ag._f160 = true; seats['d_' + ag.id] = seat;
+    if (walk) this.goToDesk(ag, d);
+  },
+  nearestFree(pt) {
+    const nav = FEAT159.nav, base = this.baseGrid(); if (!nav) return pt;
+    const c0 = this.cellOf(pt.x), r0 = this.cellOf(pt.z);
+    for (let rad = 0; rad <= 5; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== rad) continue;
+      if (!OfficeNav.cellBlocked(nav.blocked, W, H, base, c0 + dc, r0 + dr)) return rad === 0 ? pt : { x: (c0 + dc + 0.5) * CS, z: (r0 + dr + 0.5) * CS };
+    }
+    return pt;
+  },
+  route(ag, to) {
+    const p = ag.g.position, from = this.nearestFree({ x: p.x, z: p.z });
+    const r = FEAT159.planRoute(from, to, { useBase: true });
+    if (r.ok && (from.x !== p.x || from.z !== p.z)) r.waypoints.unshift({ x: p.x, z: p.z });
+    return r;
+  },
+  async goToDesk(ag, d) {
+    if (ag.isTransitioning) return { ok: false, reason: 'đang di chuyển' };
+    ag.isTransitioning = true;
+    try {
+      if (ag.sitting && ag.seat) await ag.standUp();
+      const r = this.route(ag, d.approachPt);
+      if (!r.ok) { ag.say(r.reason, 4); FEAT158.msg(r.reason, false); return r; }
+      await ag._followPts(r.waypoints);
+      ag.g.rotation.y = d.facing; ag.cell = [this.cellOf(d.approachPt.x), this.cellOf(d.approachPt.z)];
+      ag.say('Về bàn ' + d.id, 2.5);
+      return r;
+    } finally { ag.isTransitioning = false; }
+  },
+  /* Hoàn tác/làm lại: đồng bộ bàn + agent */
+  restore(js) {
+    const p = OfficeNav.desk.parse(js); if (!p) return;
+    const keep = new Set(p.desks.filter(d => { const m = this.meshes.get(d.id); return m && m.key === [d.x, d.z, d.rot].join(); }).map(d => d.id));
+    for (const id of [...this.meshes.keys()]) if (!keep.has(id)) this.removeMesh(id);
+    this.desks = p.desks; this.deskless = p.deskless; this.next = Math.max(this.next, p.next); this._ver++;
+    this.desks.forEach(d => this.buildMesh(d));
+    for (const ag of this.customAgents()) {
+      const d = this.deskOf(ag.id);
+      if (d) { if (!ag.home || ag.home._f160 !== d.id || ag.home !== this.seatOf(d)) this.bind(ag, d, true); }
+      else if (!ag.noDesk) this._detachAgent(ag);
+    }
+    if (!this.deskById(this.selected)) this.selected = null;
+    this.save(); this.renderPanel(); this.drawMarks();
+  },
+  onNavChanged() {
+    const nav = FEAT159.nav; if (!nav) return;
+    let changed = false;
+    for (const d of this.desks) { const r = OfficeNav.pointInRoom(nav, d.x, d.z); if (r !== d.roomId) { d.roomId = r; changed = true; } }
+    if (changed) this.save();
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => {
+      const iss = {};
+      for (const d of this.desks) { const v = OfficeNav.desk.validate(FEAT158.state(), nav, this.desks, { id: d.id, x: d.x, z: d.z, rot: d.rot }); if (!v.ok) iss[d.id] = v.reason; }
+      this.issues = iss; this.renderPanel(); this.drawMarks();
+    }, 250);
+  },
+  drawMarks() {
+    if (!this.mark) { this.mark = new T.Group(); S.add(this.mark); }
+    this.mark.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    while (this.mark.children.length) this.mark.remove(this.mark.children[0]);
+    for (const d of this.desks) {
+      const bad = this.issues[d.id], sel = this.selected === d.id;
+      if (!bad && !sel) continue;
+      const e = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(2.1, 0.9, 1.1)), new T.LineBasicMaterial({ color: bad ? 0xef4444 : 0x22d3ee, depthTest: false }));
+      e.position.set(d.x, 0.45, d.z); e.rotation.y = d.rot * Math.PI / 2; e.renderOrder = 25; this.mark.add(e);
+    }
+    this.mark.visible = !!FP2.active;
+  },
+  renderPanel() {
+    const el = document.getElementById('deskPanel'); if (!el) return;
+    el.style.display = (FP2.active && FP2.mode === 'desk') ? 'block' : 'none';
+    if (el.style.display === 'none') return;
+    const ags = this.customAgents();
+    el.innerHTML = '<div style="font-weight:700;font-size:11px;color:#e8d5a0;margin-bottom:4px;">Bàn làm việc (' + this.desks.length + ')</div>' +
+      '<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">Click sàn: đặt bàn · R: xoay · Click bàn: chọn · Del: xoá</div>' +
+      (this.desks.length ? '' : '<div style="font-size:11px;color:#64748b;">Chưa có bàn.</div>') +
+      this.desks.map(d => {
+        const opts = '<option value="">— chưa gán —</option>' + ags.map(a => { const od = this.deskOf(a.id); return '<option value="' + a.id + '"' + (d.agentId === a.id ? ' selected' : '') + '>' + (a.shortName || a.name) + (od && od !== d ? ' (đang ở ' + od.id + ')' : '') + '</option>'; }).join('');
+        return '<div data-desk="' + d.id + '" style="padding:3px 4px;margin-bottom:3px;border-radius:4px;background:' + (this.selected === d.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)') + ';">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;gap:4px;"><span style="cursor:pointer;" data-dsel="' + d.id + '">' + this.deskLabel(d) + '</span><button data-ddel="' + d.id + '" style="background:#7f1d1d;color:#fecaca;border:none;border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;">✕</button></div>' +
+          '<select data-dasg="' + d.id + '" style="width:100%;font-size:10px;margin-top:2px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:4px;">' + opts + '</select>' +
+          (this.issues[d.id] ? '<div style="color:#fca5a5;font-size:10px;">⚠ ' + this.issues[d.id] + '</div>' : '') + '</div>';
+      }).join('');
+    el.querySelectorAll('[data-dsel]').forEach(b => b.onclick = () => { this.selected = b.dataset.dsel; this.renderPanel(); this.drawMarks(); });
+    el.querySelectorAll('[data-ddel]').forEach(b => b.onclick = () => this.removeDesk(b.dataset.ddel));
+    el.querySelectorAll('select[data-dasg]').forEach(s => s.onchange = () => this.assign(s.dataset.dasg, s.value || null));
+  }
+};
+window.FEAT160 = FEAT160;
+Agent.prototype._followPts = function (pts) {
+  return new Promise(res => {
+    if (!pts || !pts.length) { res(); return; }
+    this.path = pts.map(p => new T.Vector3(p.x, 0, p.z)); this.res = res;
+  });
+};
+(function () {
+  const origWalk = Agent.prototype.walk, origSit = Agent.prototype.sitDown;
+  /* Custom agent: đi theo planRoute (qua cửa, tránh bàn); không có đường thì rơi về A* cũ */
+  Agent.prototype.walk = function (tc) {
+    if (this._f160 && FEAT159.nav) {
+      const to = (this.home && this.home.ap === tc && this.home.apPt) ? this.home.apPt : { x: (tc[0] + 0.5) * CS, z: (tc[1] + 0.5) * CS };
+      const r = FEAT160.route(this, to);
+      if (r.ok) return this._followPts(r.waypoints);
+      console.warn('[FEAT160] planRoute lỗi, dùng A* cũ:', r.reason);
+    }
+    return origWalk.call(this, tc);
+  };
+  Agent.prototype.sitDown = function (s) { if (!s) return Promise.resolve(); return origSit.call(this, s); };
+})();
+FEAT160.init();
+FEAT158.afterRefresh.push(() => FEAT160.onNavChanged());
+FEAT160.onNavChanged();
 // Restore saved custom agents on startup
 getCustomAgentConfigs().forEach(cfg => spawnCustomAgent(cfg));
 
@@ -5333,6 +5743,88 @@ FP2._enter = fp2Enter;
     if(e.key==='n'||e.key==='N'){FEAT158.setDebug(!FEAT158.debug);FEAT158.msg('Debug lưới '+(FEAT158.debug?'BẬT':'TẮT')+' (đỏ=chặn, xanh=ô cửa, xanh dương/cam=front/back)',true);}
   });
 
+  /* ===== FEAT-2026-160 UI: công cụ "Bàn" (ghost, R xoay, click đặt/chọn, Del xoá, phím B) ===== */
+  const deskGhostGroup = new T.Group(); S.add(deskGhostGroup);
+  let deskGhost = null, deskRot = 0, deskPos = null, deskLast = '', deskLastV = null;
+  const deskActive = () => buildActive && FP2.active && FP2.mode === 'desk';
+  function deskGhostHide() { if (deskGhost) deskGhost.visible = false; }
+  function deskGhostShow(x, z, rot, ok) {
+    if (!deskGhost) {
+      deskGhost = new T.Group();
+      const mk = (w, h, d, y) => { const m = new T.Mesh(new T.BoxGeometry(w, h, d), new T.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.5, depthTest: false })); m.position.y = y; m.renderOrder = 24; deskGhost.add(m); return m; };
+      mk(2, 0.78, 1, 0.39); mk(0.56, 0.5, 0.56, 0.25).position.z = 0.75;
+      const ap = new T.Mesh(new T.CircleGeometry(0.18, 16), new T.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8, depthTest: false }));
+      ap.rotation.x = -Math.PI / 2; ap.position.set(0, 0.03, 1.25); ap.renderOrder = 24; deskGhost.add(ap);
+      deskGhostGroup.add(deskGhost);
+    }
+    deskGhost.children.forEach((c, i) => { if (i < 2) c.material.color.setHex(ok ? 0x22c55e : 0xef4444); });
+    deskGhost.position.set(x, 0, z); deskGhost.rotation.y = rot * Math.PI / 2; deskGhost.visible = true;
+  }
+  function deskEval(pt) {
+    const x = OfficeNav.desk.snap(pt.x), z = OfficeNav.desk.snap(pt.z), key = [x, z, deskRot, FEAT160._ver, FEAT159._sig, FP2.wallOpenings ? FP2.wallOpenings.length : 0, FP2.walls.size].join();
+    if (key !== deskLast) { deskLast = key; deskLastV = FEAT160.validate({ x, z, rot: deskRot }); }
+    deskPos = { x, z };
+    deskGhostShow(x, z, deskRot, deskLastV.ok);
+    FEAT158.msg(deskLastV.ok ? 'Bàn hợp lệ — click để đặt (R xoay)' : deskLastV.reason, deskLastV.ok);
+  }
+  function deskHit(pt) {
+    const cell = { cx: pt.x, cz: pt.z, ux: 1, uz: 0, hx: 0.05, hz: 0.05 };
+    return FEAT160.desks.find(d => { const g = OfficeNav.desk.geom(d.x, d.z, d.rot); return OfficeNav.desk.obbOverlap(g.body, cell) || OfficeNav.desk.obbOverlap(g.chair, cell); });
+  }
+  const _deskPrevMove = FP2._onPointerMove;
+  FP2._onPointerMove = function (e) {
+    if (!deskActive()) { deskGhostHide(); return _deskPrevMove ? _deskPrevMove.call(this, e) : undefined; }
+    const pt = buildPointerPoint(e); if (!pt) { deskGhostHide(); return; }
+    try { deskEval(pt); } catch (err) { console.warn('[FEAT160] ghost', err); }
+  };
+  const _deskPrevDown = FP2._onPointerDown;
+  FP2._onPointerDown = function (e) {
+    if (!deskActive() || e.button !== 0) return _deskPrevDown ? _deskPrevDown.call(this, e) : undefined;
+    const pt = buildPointerPoint(e); if (!pt) return;
+    const hit = deskHit(pt);
+    if (hit) { FEAT160.selected = hit.id; FEAT160.renderPanel(); FEAT160.drawMarks(); FEAT158.msg('Đã chọn ' + FEAT160.deskLabel(hit), true); return; }
+    deskEval(pt);
+    const r = FEAT160.place({ x: deskPos.x, z: deskPos.z, rot: deskRot });
+    if (r.ok) { FEAT160.selected = r.desk.id; FEAT160.drawMarks(); FEAT158.msg('Đã đặt ' + FEAT160.deskLabel(r.desk), true); deskLast = ''; }
+    else FEAT158.msg(r.reason, false);
+  };
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !FP2.active) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'b' && buildActive) { const b = toolbar.querySelector('.btool[data-btool="desk"]'); if (b) b.click(); e.preventDefault(); return; }
+    if (!deskActive()) return;
+    if (k === 'r') { deskRot = (deskRot + 1) % 4; deskLast = ''; if (deskPos) deskEval(deskPos); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && FEAT160.selected) { FEAT160.removeDesk(FEAT160.selected); FEAT158.msg('Đã xoá bàn', true); e.preventDefault(); }
+  });
+  let _deskLastMode = null;
+  setInterval(() => {
+    const m = (buildActive && FP2.active) ? FP2.mode : null;
+    if (m === _deskLastMode) return;
+    _deskLastMode = m; FEAT160.renderPanel(); FEAT160.drawMarks();
+    if (m !== 'desk') deskGhostHide(); else FEAT158.msg('Công cụ Bàn: click sàn để đặt, R xoay, Del xoá', true);
+  }, 150);
+  for (const k of ['_enter', '_exit']) { const f = FP2[k]; if (typeof f === 'function') FP2[k] = function () { const r = f.apply(this, arguments); FEAT160.drawMarks(); FEAT160.renderPanel(); return r; }; }
+
+  /* Drawer agent: chọn bàn cho custom agent */
+  window.refreshDrawerDesk = function () {
+    const sec = document.getElementById('dDeskSec'), sel = document.getElementById('dDeskSel'), msg = document.getElementById('dDeskMsg');
+    const ag = selectedAgent;
+    if (!sec || !sel) return;
+    if (!ag || !ag._f160) { sec.style.display = 'none'; return; }
+    sec.style.display = 'block';
+    const cur = FEAT160.deskOf(ag.id);
+    sel.innerHTML = '<option value="">— chưa có bàn —</option>' + FEAT160.desks.map(d => '<option value="' + d.id + '"' + (cur && cur.id === d.id ? ' selected' : '') + '>' + FEAT160.deskLabel(d) + (d.agentId && d.agentId !== ag.id ? ' (đã có ' + ((A[d.agentId] && (A[d.agentId].shortName || A[d.agentId].name)) || d.agentId) + ')' : '') + '</option>').join('');
+    msg.textContent = cur ? 'Đang gán: ' + FEAT160.deskLabel(cur) : 'Chưa có bàn';
+    sel.onchange = () => {
+      if (sel.value) FEAT160.assign(sel.value, ag.id);
+      else if (cur) FEAT160.assign(cur.id, null);
+      refreshDrawerDesk();
+    };
+  };
+  const _openDrawer160 = openAgentDrawer;
+  openAgentDrawer = function (agent) { _openDrawer160(agent); try { refreshDrawerDesk(); } catch (e) { console.warn('[FEAT160] drawer', e); } };
+
   /* ---- Keyboard shortcuts ---- */
   document.addEventListener('keydown',e=>{
     if(!buildActive) return;
@@ -5681,6 +6173,7 @@ ${pcSel}
     const cfgs = getCustomAgentConfigs();
     cfgs.push(cfg);
     saveCustomAgentConfigs(cfgs);
+    FEAT160.autoDeskForSlot(DESK_POOL[cfg.poolIdx]);
     spawnCustomAgent(cfg);
     _ctaSelPoolIdx = null;
     renderCustomTeamPanel();

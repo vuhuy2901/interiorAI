@@ -2,7 +2,7 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Sonnet subagent (pha 2) |
 | Người chấp thuận | Opus (phiên chính) theo `docs/plans/2026-11-22-office-navigation.md` |
@@ -101,18 +101,20 @@ Rollback point: commit `a9d1cab8`; `git revert` commit FEAT-160.
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | 3f493b6f -> commit feat | Khối CORE `OfficeNav.desk`, `FEAT160` (bàn, gán, migrate, undo), công cụ Bàn, panel, drawer agent | Bổ sung trong lúc làm (không đổi phạm vi): kiểm tra lối đi thêm (a) mọi bàn cùng phòng còn tới được cửa, (b) các cửa của phòng còn nối với nhau (A* bị giới hạn trong đa giác phòng, không đi vòng ra ngoài). `useBase` của `FEAT159.planRoute` nay là lưới bàn tự do. Bàn tự động cho agent mới ở slot DESK_POOL chỉ khi hợp lệ, nếu không agent ở trạng thái chưa có bàn. |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| | 2026-11-22 | feat 160 | `node --check` script inline | exit 0 | terminal |
+| 2026-11-22 | feat 160 | `node scripts/tests/office-nav.test.mjs` | 19 pass, 0 fail (158 x4, 159 x8, 160 x7) | terminal |
+| 2026-11-22 | feat 160 | Trình duyệt 8142 (xoá localStorage, 2 custom agent poolIdx 0 và 3): migrate thành D1, D2 giữ agent; thêm cửa tự động; đặt 12 bàn (4/2/4 ở 3 phòng) + 1 bàn bằng click chuột; ghost đỏ "Chồng lên tường", ghost xanh hợp lệ | Gán dp_3 sang bàn D3 phòng 1: đi R5->R3->R2->R1 qua cửa o5,o3,o2, 0 mẫu vị trí trong ô chặn, tới đúng approachPt (1.25, 2), quay facing 3.14; gán 1-1; xoá bàn -> agent chưa có bàn, undo khôi phục; tải lại giữ nguyên 13 bàn và gán agent; 0 lỗi console | `docs/features/evidence/FEAT-2026-160-ghost-red-wall.jpg`, `FEAT-2026-160-ghost-green-valid.jpg`, `FEAT-2026-160-reload-13-desks.jpg` |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
+- Kết quả: đạt AC-01..07.
+- Hạn chế còn lại: 9 agent lõi giữ bàn cố định cũ; không kéo/di chuyển bàn đã đặt (xoá và đặt lại); agent đã gán vẫn bị luồng cũ (Paperclip poll) cho ngồi, animation ngồi thuộc FEAT-161; tường dựng sau có thể làm bàn lệch: chỉ cảnh báo đỏ trong panel và viền đỏ, không tự xoá.
 - Việc chưa hoàn tất:
 - Rollback point: a9d1cab8
 - Trạng thái `CLOSED` bởi:
