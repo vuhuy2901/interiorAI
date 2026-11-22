@@ -148,3 +148,10 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 ## Bổ sung sau nghiệm thu (2026-11-22)
 
 - Sửa lỗi "Đặt vào scene" 404: `place()` giờ ưu tiên `detail_url` thay vì `model_id` khi gọi tool. Đã kiểm qua MCP thật: `detail_url` trả đủ metadata và `glb_url`; `model_id` đơn lẻ vẫn 404.
+
+## Change request CR-157-01 (2026-11-22): gỡ tab FurniMesh khỏi AlterAI
+
+- Lý do: người dùng yêu cầu bỏ phần FurniMesh khỏi `ai-office-standalone/index.html` (trang 8131/8123).
+- Thay đổi: gỡ nút tab "FurniMesh", panel `#fmPanel`, CSS `#fm*` và script `setupFurniMeshTab`. Giữ nguyên bộ nhận `postMessage` (`setupFurniMeshLoader`, origin whitelist) vì nút "Use in Scene" của Paperclip (FEAT-156) cần nó.
+- Kiểm tra: `node --check` các script inline: 0 lỗi; không còn tham chiếu `fmPanel/fmGrid/fmUrl`.
+- Trạng thái AC của FEAT-157 liên quan tab: không còn hiệu lực (đã gỡ theo yêu cầu).

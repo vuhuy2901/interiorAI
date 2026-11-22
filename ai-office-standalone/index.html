@@ -142,16 +142,6 @@ html, body {
   font-weight: 700;
 }
 
-/* FEAT-2026-157 FurniMesh panel */
-#fmPanel{position:fixed;top:64px;right:16px;width:340px;max-height:calc(100vh - 100px);overflow:auto;z-index:60;padding:12px;display:none;font-size:12px;color:var(--ink,#e8e8e8)}
-#fmPanel.open{display:block}
-#fmPanel h4{margin:0 0 8px;font-size:13px}
-#fmPanel input,#fmPanel select{width:100%;box-sizing:border-box;margin:3px 0;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.35);color:inherit;font:inherit}
-#fmPanel button{cursor:pointer;border:none;border-radius:8px;padding:6px 10px;font:inherit;font-weight:600;background:#c5863d;color:#0b0e14}
-#fmPanel button:disabled{opacity:.5;cursor:default}
-#fmStatus{margin:6px 0;min-height:16px}
-#fmStatus.err{color:#ff8a80}#fmStatus.ok{color:#7ee0a0}
-#fmGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:6px}
 .fm-card{background:rgba(255,255,255,.05);border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:4px}
 .fm-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#111}
 .fm-card .nm{font-size:11px;line-height:1.2;max-height:2.4em;overflow:hidden}
@@ -857,18 +847,6 @@ html, body {
     <button class="tab-btn" data-dept="bim">Dựng Hình · BIM</button>
     <button class="tab-btn" data-dept="cost">Kho &amp; Kế Toán</button>
     <button class="tab-btn" data-dept="qa">QA · DevOps</button>
-    <button class="tab-btn" data-dept="furnimesh" id="fmTabBtn">FurniMesh</button>
-  </div>
-
-  <div id="fmPanel" class="glass">
-    <h4>FurniMesh &middot; thư viện GLB</h4>
-    <input id="fmUrl" type="text" value="http://127.0.0.1:3180/mcp" aria-label="URL MCP">
-    <button id="fmConnect">Kết nối</button>
-    <div id="fmStatus">Chưa kết nối.</div>
-    <input id="fmQuery" type="text" placeholder="Tìm kiếm (vd: sofa)" disabled>
-    <select id="fmCat" disabled><option value="">Tất cả danh mục</option></select>
-    <button id="fmSearch" disabled>Tìm</button>
-    <div id="fmGrid"></div>
   </div>
 
   <div id="controlsCluster" class="glass">
@@ -5158,145 +5136,6 @@ setInterval(syncLiveCompanyStatus, 6000);
   });
 })();
 
-/* =========================================================================
-   FEAT-2026-157 — Tab FurniMesh: kết nối MCP, tìm kiếm, đặt vào scene
-   ========================================================================= */
-(function setupFurniMeshTab() {
-  const $ = (id) => document.getElementById(id);
-  const panel = $('fmPanel');
-  if (!panel) return;
-  const statusEl = $('fmStatus');
-  const HEAVY_BYTES = 20 * 1024 * 1024, HEAVY_POLYS = 150000;
-  let rpcId = 0;
-
-  function setStatus(msg, kind) { statusEl.textContent = msg; statusEl.className = kind || ''; }
-
-  document.querySelectorAll('.tab-btn').forEach((b) => {
-    b.addEventListener('click', () => panel.classList.toggle('open', b.dataset.dept === 'furnimesh'));
-  });
-
-  function parseRpc(text) {
-    const t = text.trim();
-    if (t.startsWith('{')) return JSON.parse(t);
-    let last = null;
-    t.split(/\r?\n/).forEach((line) => { if (line.startsWith('data:')) last = line.slice(5).trim(); });
-    if (!last) throw new Error('Phản hồi MCP rỗng hoặc sai định dạng');
-    return JSON.parse(last);
-  }
-
-  async function mcpCall(method, params) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
-    let res;
-    try {
-      res = await fetch($('fmUrl').value.trim(), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'accept': 'application/json, text/event-stream' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: method, params: params || {} }),
-        signal: ctrl.signal
-      });
-    } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('MCP không phản hồi sau 20 giây');
-      throw new Error('Không kết nối được MCP (server tắt, sai URL hoặc bị chặn CORS): ' + (e && e.message || e));
-    } finally { clearTimeout(timer); }
-    if (!res.ok) throw new Error('MCP trả HTTP ' + res.status);
-    const msg = parseRpc(await res.text());
-    if (msg.error) throw new Error('MCP lỗi: ' + (msg.error.message || JSON.stringify(msg.error)));
-    return msg.result;
-  }
-
-  async function callTool(name, args) {
-    const r = await mcpCall('tools/call', { name: name, arguments: args || {} });
-    const txt = r && r.content && r.content[0] && r.content[0].text;
-    if (r && r.isError) throw new Error(txt || 'Tool báo lỗi');
-    try { return JSON.parse(txt); } catch (e) { throw new Error('Kết quả tool không phải JSON'); }
-  }
-
-  async function connect() {
-    const btn = $('fmConnect');
-    btn.disabled = true; setStatus('Đang kết nối...');
-    try {
-      await mcpCall('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'alterai-furnimesh', version: '1.0' } });
-      const tl = await mcpCall('tools/list', {});
-      const n = (tl.tools || []).length;
-      const cats = await callTool('list_furniture_categories', {});
-      const sel = $('fmCat');
-      sel.innerHTML = '<option value="">Tất cả danh mục</option>';
-      (Array.isArray(cats) ? cats : (cats.categories || [])).forEach((c) => {
-        if (!c.category_id) return;
-        const o = document.createElement('option');
-        o.value = c.category_id; o.textContent = c.category_name || c.category_id;
-        sel.appendChild(o);
-      });
-      ['fmQuery', 'fmCat', 'fmSearch'].forEach((id) => { $(id).disabled = false; });
-      setStatus('Đã kết nối: ' + n + ' tool.', 'ok');
-    } catch (e) {
-      ['fmQuery', 'fmCat', 'fmSearch'].forEach((id) => { $(id).disabled = true; });
-      setStatus(e.message, 'err');
-    } finally { btn.disabled = false; }
-  }
-
-  async function search() {
-    const grid = $('fmGrid');
-    grid.textContent = '';
-    setStatus('Đang tìm...');
-    try {
-      const args = { limit: 12 };
-      const q = $('fmQuery').value.trim(), c = $('fmCat').value;
-      if (q) args.query = q;
-      if (c) args.category = c;
-      const out = await callTool('search_furniture', args);
-      const items = Array.isArray(out) ? out : (out.results || []);
-      if (!items.length) { setStatus('Không có kết quả.'); return; }
-      items.forEach((it) => grid.appendChild(card(it)));
-      setStatus(items.length + ' kết quả.', 'ok');
-    } catch (e) { setStatus(e.message, 'err'); }
-  }
-
-  function card(it) {
-    const d = document.createElement('div'); d.className = 'fm-card';
-    if (it.thumbnail_url) {
-      const im = document.createElement('img');
-      im.src = it.thumbnail_url; im.alt = it.name || ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer';
-      im.onerror = () => { im.style.visibility = 'hidden'; };
-      d.appendChild(im);
-    }
-    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = it.name || it.model_id;
-    const b = document.createElement('button'); b.textContent = 'Đặt vào scene';
-    b.onclick = () => place(it, b);
-    d.appendChild(nm); d.appendChild(b);
-    return d;
-  }
-
-  async function place(it, btn) {
-    btn.disabled = true;
-    try {
-      const ref = it.detail_url ? { detail_url: it.detail_url } : { model_id: it.model_id };
-      setStatus('Kiểm tra model...');
-      const det = await callTool('get_furniture_details', ref);
-      const comp = await callTool('check_asset_compatibility', ref);
-      const poly = det && det.technical && det.technical.polycount;
-      const size = comp && comp.file_size_bytes;
-      const warns = [];
-      if (size && size > HEAVY_BYTES) warns.push('dung lượng ' + (size / 1048576).toFixed(1) + ' MB (> 20 MB)');
-      if (poly && poly > HEAVY_POLYS) warns.push(poly + ' polygon (> 150000)');
-      if (comp && comp.compatible === false) throw new Error('Model không tương thích (quá nặng hoặc GLB không truy cập được)');
-      if (warns.length && !window.confirm('Model nặng: ' + warns.join(', ') + '. Vẫn nạp vào scene?')) { setStatus('Đã huỷ nạp model nặng.'); return; }
-      const g = await callTool('get_model_glb_url', ref);
-      if (!g.glb_url) throw new Error('Model không có GLB công khai');
-      setStatus('Đang nạp GLB...');
-      await new Promise((resolve, reject) => {
-        window.__furniMeshLoad({ glb_url: g.glb_url, name: it.name }, (err) => err ? reject(new Error('Tải GLB lỗi: ' + (err.message || err))) : resolve());
-      });
-      setStatus('Đã đặt "' + (it.name || it.model_id) + '" vào scene.', 'ok');
-    } catch (e) { setStatus(e.message, 'err'); }
-    finally { btn.disabled = false; }
-  }
-
-  $('fmConnect').addEventListener('click', connect);
-  $('fmSearch').addEventListener('click', search);
-  $('fmQuery').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
-})();
 
 /* ===== CUSTOM TEAM PANEL UI v2 ===== */
 let _ctaSelPoolIdx = null;
