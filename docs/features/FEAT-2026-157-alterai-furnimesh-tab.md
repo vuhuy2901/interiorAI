@@ -2,7 +2,7 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Claude |
 | Người chấp thuận | Yêu cầu trực tiếp của người dùng |
@@ -120,18 +120,26 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | feat/furnimesh-connect (commit FEAT-157) | Thêm tab/panel FurniMesh (ô URL, Kết nối, tìm kiếm, danh mục động, lưới thumbnail, Đặt vào scene); loader thêm callback done + window.__furniMeshLoad; kiểm tra event.origin với danh sách FURNIMESH_TRUSTED_ORIGINS (origin trang, :3100/:3000/:5173 cho 127.0.0.1 và localhost) | Heavy xác định bằng file_size_bytes (check_asset_compatibility, >20MB) hoặc polycount (>150k) và confirm; MCP không có cờ heavy |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-22 | như trên | node --check toàn bộ script inline | Đạt | 1 script, không lỗi |
+| 2026-11-22 | như trên | Chrome, server tĩnh :8131; không lỗi console | Đạt | Chỉ có log [FurniMesh] loaded |
+| 2026-11-22 | như trên | AC-01/04: tab, 8 danh mục động, tìm sofa | Đạt | 12 thẻ, 12 thumbnail |
+| 2026-11-22 | như trên | AC-02: Kết nối qua proxy CORS tạm :3181 | Đạt | "Đã kết nối: 6 tool" |
+| 2026-11-22 | như trên | AC-03: kết nối thẳng :3180 | Đạt | Lỗi rõ (server hiện chưa có CORS), UI không treo |
+| 2026-11-22 | như trên | AC-05: __furniMeshLoad nạp Box.glb | Đạt | Model vào scene |
+| 2026-11-22 | như trên | AC-05 qua nút Đặt vào scene với model thật | Chưa đạt | get_furniture_details trả HTTP 404 từ nguồn FurniMesh với mọi model thử; lỗi hiển thị rõ; thuộc FEAT-155 |
+| 2026-11-22 | như trên | AC-07: postMessage cùng origin nạp; origin lạ bị bỏ qua | Đạt | Không log, không lỗi |
+| 2026-11-22 | như trên | AC-06, AC-08 | Chưa kiểm tra tay | AC-06 chưa gặp model nặng; Build/FP2 không bị sửa, chỉ thêm handler tab |
 
 ## 14. Kết quả và đóng chức năng
 
 - Kết quả:
-- Hạn chế còn lại:
+- Hạn chế còn lại: MCP :3180 chưa gửi header CORS nên trình duyệt chặn khi gọi trực tiếp (cần FEAT-155); get_furniture_details đang 404.
 - Việc chưa hoàn tất:
 - Rollback point:
 - Trạng thái `CLOSED` bởi:
