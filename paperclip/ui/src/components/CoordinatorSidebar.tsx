@@ -173,6 +173,7 @@ export function CoordinatorSidebar({ children }: { children?: ReactNode }) {
           <SidebarNavItem className="design-sidebar-item" to="/control-center" label="Agent Control / Workflow" icon={Cpu} textBadge="14 Nodes" />
           <SidebarNavItem className="design-sidebar-item" to="/skills" label="Skills / Skill Studio" icon={Boxes} />
           <SidebarNavItem className="design-sidebar-item" to="/apps" label="Kết nối AI / MCP" icon={Unplug} />
+          <SidebarNavItem className="design-sidebar-item" to="/furnimesh" label="FurniMesh 3D" icon={Boxes} />
           <SidebarNavItem className="design-sidebar-item" to="/design-studio" label="Không gian thiết kế 2D/3D" icon={Boxes} textBadge="3D" />
           <SidebarNavItem className="design-sidebar-item" to="/inventory-bom" label="Danh mục nội thất" icon={Boxes} />
           <SidebarNavItem className="design-sidebar-item" to="/cost-estimation" label="Dự toán" icon={FolderOpen} />

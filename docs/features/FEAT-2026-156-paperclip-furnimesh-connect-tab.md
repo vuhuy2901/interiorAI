@@ -147,3 +147,9 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 - Thêm `paperclip/ui/src/pages/apps/FurniMeshConnect.tsx` (trang /furnimesh: nút Kết nối tạo application + connection `mcp_remote`, không tạo trùng; 4 trạng thái; Kiểm tra kết nối timeout 5 giây; hướng dẫn 3 bước; nhúng FurniMeshLibraryPanel), `furnimesh-config.ts` (URL scene đọc từ localStorage, mặc định `http://localhost:8123/`), route `furnimesh` trong `App.tsx`, mục sidebar "FurniMesh 3D" trong `Sidebar.tsx`, panel đọc URL scene từ cấu hình.
 - `tsc --noEmit` (ui): 18 dòng lỗi có sẵn ở file khác, 0 lỗi ở file thuộc FEAT-156. Token gate: 0 vi phạm ở file thuộc FEAT-156.
 - Chưa kiểm: chạy thật trên Paperclip (cổng 3100 đang tắt) — sẽ nghiệm thu bằng Chrome ở bước tích hợp; chưa có test tự động cho trang.
+
+## Bổ sung sau nghiệm thu trên trình duyệt (2026-11-22)
+
+- Chạy Paperclip từ worktree ở cổng 3100 và kiểm trên Chrome: trang `/ATL/furnimesh` hiển thị đúng (trạng thái "Chưa kết nối", ô địa chỉ MCP, nút Kết nối / Kiểm tra kết nối, ô địa chỉ scene, hướng dẫn 3 bước), không có lỗi console.
+- Sửa 2 lỗi phát hiện khi chạy thật: (1) `furnimesh` chưa nằm trong `BOARD_ROUTE_ROOTS` (`ui/src/lib/company-routes.ts`) nên URL bị hiểu thành tiền tố công ty; (2) sidebar đang dùng thực tế là `CoordinatorSidebar.tsx`, đã thêm mục "FurniMesh 3D" ở đó (cùng `Sidebar.tsx`).
+- Chưa bấm nút Kết nối trên dữ liệu thật của người dùng (tạo connection là cấu hình lâu dài) — để người dùng tự bấm.
