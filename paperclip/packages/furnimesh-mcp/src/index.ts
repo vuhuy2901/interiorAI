@@ -26,6 +26,55 @@ export type Furniture = {
 
 export class FurniMeshSourceError extends Error {}
 
+export const PARENT_CATEGORY_SLUGS: Record<string, string[]> = {
+  "Seating": ["chair", "armchair", "stool", "bench"],
+  "Sofas": ["sofa"],
+  "Tables": ["dining-table", "coffee-table", "side-table", "desk"],
+  "Beds": ["bed"],
+  "Storage": ["cabinet", "shelf", "wardrobe"],
+  "Lighting": ["floor-lamp", "table-lamp", "ceiling-lamp"],
+  "Bathroom": ["bathtub", "sink", "toilet"],
+  "Decor": ["vase", "plant", "rug"],
+  "Kitchen": ["kitchen"],
+  "Architecture": ["door", "window"],
+  "Appliances": ["appliance"],
+  "Other Furniture": ["furniture"],
+};
+const MAX_PARENT_SLUGS = 4;
+export const HEAVY_BYTES = 20 * 1024 * 1024;
+export const HEAVY_POLYCOUNT = 150_000;
+
+export class UnknownCategoryError extends FurniMeshSourceError {
+  code = "unknown_category" as const;
+  suggestions: string[];
+  constructor(input: string) {
+    const suggestions = Object.keys(PARENT_CATEGORY_SLUGS);
+    super(`unknown_category: "${input}". Try one of: ${suggestions.join(", ")}`);
+    this.suggestions = suggestions;
+  }
+}
+
+function normSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/** Resolve a parent name or child slug to the child slugs to query. Empty array = all. */
+export function resolveCategory(input?: string): string[] {
+  const slug = normSlug(input ?? "");
+  if (!slug) return [];
+  for (const [parent, slugs] of Object.entries(PARENT_CATEGORY_SLUGS)) {
+    if (normSlug(parent) === slug) return slugs.slice(0, MAX_PARENT_SLUGS);
+  }
+  for (const slugs of Object.values(PARENT_CATEGORY_SLUGS)) {
+    if (slugs.includes(slug)) return [slug];
+  }
+  throw new UnknownCategoryError(input ?? "");
+}
+
+export function isHeavy(bytes: number | null | undefined, polycount: number | null | undefined): boolean {
+  return (typeof bytes === "number" && bytes > HEAVY_BYTES) || (typeof polycount === "number" && polycount > HEAVY_POLYCOUNT);
+}
+
 async function rejectPrivateHost(hostname: string): Promise<void> {
   const addresses = await dns.lookup(hostname, { all: true });
   for (const entry of addresses) {
@@ -124,11 +173,21 @@ export async function getFurnitureDetails(input: { model_id?: string; detail_url
 export async function searchFurniture(input: { query?: string; category?: string; style?: string; color?: string; limit?: number; page?: number }): Promise<Furniture[]> {
   const limit = Math.max(1, Math.min(input.limit ?? 12, 50));
   const page = Math.max(1, Math.min(input.page ?? 1, MAX_PAGES));
-  const category = (input.category ?? "").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
-  const path = category ? `/library/format/glb/${category}/` : "/library/format/glb/";
-  const response = await fetchText(`https://furnimesh.com${path}?page=${page}`);
+  const slugs = resolveCategory(input.category);
   const terms = [input.query, input.style, input.color].filter(Boolean).map((term) => term!.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).filter(Boolean);
-  const shells = parseListing(response.text, response.url)
+  const targets = slugs.length ? slugs : [""];
+  const merged = new Map<string, Furniture>();
+  for (const slug of targets) {
+    const path = slug ? `/library/format/glb/${slug}/` : "/library/format/glb/";
+    let response: { text: string; url: string };
+    try { response = await fetchText(`https://furnimesh.com${path}?page=${page}`); }
+    catch (error) {
+      if (targets.length > 1 && error instanceof FurniMeshSourceError && /HTTP 404/.test(error.message)) continue;
+      throw error;
+    }
+    for (const item of parseListing(response.text, response.url)) if (!merged.has(item.model_id)) merged.set(item.model_id, item);
+  }
+  const shells = [...merged.values()]
     .filter((item) => !terms.length || terms.every((term) => item.name.toLowerCase().includes(term)))
     .slice(0, Math.min(limit * 2, 50));
   const enriched: Furniture[] = [];
@@ -162,18 +221,24 @@ async function headAsset(rawUrl: string): Promise<{ response: Response; url: str
 export function createFurniMeshMcpServer(): McpServer {
   const server = new McpServer({ name: "furnimesh", version: "0.1.0" });
   const modelInput = { model_id: z.string().min(3).max(200).optional(), detail_url: z.string().url().optional() };
-  server.tool("list_furniture_categories", "List categories visible in FurniMesh's public GLB library.", {}, async () => {
-    const page = await fetchText("https://furnimesh.com/library/format/glb/");
-    const categories = [...page.text.matchAll(/href=["'](\/library\/[^"']+\/)["'][^>]*>([^<]+)</gi)]
-      .map((m) => ({ category_id: m[1]!.split("/").filter(Boolean).at(-1), category_name: textFromHtml(m[2]!), category_url: absolute(m[1]!, page.url) }))
-      .filter((item) => {
-        const pathParts = new URL(item.category_url).pathname.split("/").filter(Boolean);
-        return pathParts.length === 3 && item.category_id && item.category_name && !item.category_url.includes("/format/");
-      });
+  server.tool("list_furniture_categories", "List the 12 parent categories accepted by search_furniture, with their child slugs.", {}, async () => {
+    const categories = Object.entries(PARENT_CATEGORY_SLUGS).map(([name, slugs]) => ({ category_id: normSlug(name), category_name: name, slugs }));
     return { content: [{ type: "text", text: JSON.stringify({ categories }, null, 2) }] };
   });
-  server.tool("search_furniture", "Search public FurniMesh GLB listing pages on demand; no full-catalog sync.", { query: z.string().optional(), category: z.string().optional(), style: z.string().optional(), color: z.string().optional(), limit: z.number().int().min(1).max(50).optional(), page: z.number().int().min(1).max(MAX_PAGES).optional() }, async (input) => ({ content: [{ type: "text", text: JSON.stringify(await searchFurniture(input), null, 2) }] }));
-  server.tool("get_furniture_details", "Read one public FurniMesh detail page and its published metadata.", modelInput, async (input) => ({ content: [{ type: "text", text: JSON.stringify(await getFurnitureDetails(input), null, 2) }] }));
+  server.tool("search_furniture", "Search public FurniMesh GLB listing pages on demand; no full-catalog sync.", { query: z.string().optional(), category: z.string().optional(), style: z.string().optional(), color: z.string().optional(), limit: z.number().int().min(1).max(50).optional(), page: z.number().int().min(1).max(MAX_PAGES).optional() }, async (input) => {
+    try { return { content: [{ type: "text", text: JSON.stringify({ ok: true, results: await searchFurniture(input) }, null, 2) }] }; }
+    catch (error) {
+      if (error instanceof UnknownCategoryError) return { isError: true, content: [{ type: "text", text: JSON.stringify({ ok: false, error: "unknown_category", message: error.message, suggestions: error.suggestions }, null, 2) }] };
+      throw error;
+    }
+  });
+  server.tool("get_furniture_details", "Read one public FurniMesh detail page and its published metadata.", modelInput, async (input) => {
+    const details = await getFurnitureDetails(input);
+    let size: number | null = null;
+    if (details.glb_url) { try { size = Number((await headAsset(details.glb_url)).response.headers.get("content-length") ?? 0) || null; } catch { size = null; } }
+    const polycount = typeof details.technical.polycount === "number" ? details.technical.polycount : null;
+    return { content: [{ type: "text", text: JSON.stringify({ ...details, file_size_bytes: size, heavy: isHeavy(size, polycount) }, null, 2) }] };
+  });
   server.tool("get_model_glb_url", "Return a validated public GLB URL for a selected FurniMesh model.", modelInput, async (input) => {
     const details = await getFurnitureDetails(input);
     if (!details.glb_url) throw new FurniMeshSourceError("Selected FurniMesh model has no public GLB");
@@ -186,7 +251,7 @@ export function createFurniMeshMcpServer(): McpServer {
     const { response, url } = await headAsset(details.glb_url);
     const size = Number(response.headers.get("content-length") ?? 0) || null;
     const maxBytes = input.max_bytes ?? 300 * 1024 * 1024;
-    return { content: [{ type: "text", text: JSON.stringify({ model_id: details.model_id, glb_url: details.glb_url, compatible: response.ok && (!size || size <= maxBytes), content_type: response.headers.get("content-type"), file_size_bytes: size, redirected_url: url, analysis: "remote-header-only; geometry analysis deferred until selected asset is provided" }, null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify({ model_id: details.model_id, glb_url: details.glb_url, compatible: response.ok && (!size || size <= maxBytes), content_type: response.headers.get("content-type"), file_size_bytes: size, polycount: typeof details.technical.polycount === "number" ? details.technical.polycount : null, heavy: isHeavy(size, typeof details.technical.polycount === "number" ? details.technical.polycount : null), redirected_url: url, analysis: "remote-header-only; geometry analysis deferred until selected asset is provided" }, null, 2) }] };
   });
   return server;
 }

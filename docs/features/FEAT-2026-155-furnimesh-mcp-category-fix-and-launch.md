@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Claude |
 | Người chấp thuận | Yêu cầu trực tiếp của người dùng |
 | Ngày tạo | 2026-11-22 |
 | Frozen at | 2026-11-22 (thời điểm tạo file, ICT) |
-| Revision bắt đầu | Chưa có |
-| Revision cuối | Chưa có |
+| Revision bắt đầu | 7f14c779 |
+| Revision cuối | commit "feat(FEAT-2026-155)" trên feat/furnimesh-connect (hash ghi trong git log) |
 
 ## 1. Bối cảnh
 
@@ -122,18 +122,23 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | 7f14c779 + commit FEAT-155 | (a) PARENT_CATEGORY_SLUGS, resolveCategory, UnknownCategoryError, gộp slug con theo model_id, bỏ qua slug con 404 khi gộp; (b) hàm Start-FurniMeshMcp trong 2 script; (c) panel lấy danh mục từ list_furniture_categories, hiển thị cảnh báo heavy; (d) cờ heavy | list_furniture_categories trả 12 danh mục cha từ bảng ánh xạ (không gọi mạng). search_furniture trả {ok:true,results}. Slug con ngoài sofa/chair/dining-table/bed/floor-lamp là suy đoán, chưa kiểm chứng mạng. http.ts không cần sửa (đã đọc FURNIMESH_MCP_PORT). |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-22 | FEAT-155 | `npx vitest run` (furnimesh-mcp) | PASS 2 file, 7 test, fetch mock (AC-01,02,03,04,07,08) | console vitest |
+| 2026-11-22 | FEAT-155 | `npx tsc --noEmit` / `tsc -p` (furnimesh-mcp), build lại dist | PASS, không lỗi | console |
+| 2026-11-22 | FEAT-155 | Cú pháp PowerShell 2 script (Parser.ParseFile) | PASS | console |
+| 2026-11-22 | FEAT-155 | `node scripts/check-token-gates.mjs` | 0 vi phạm ở FurniMeshLibraryPanel.tsx (vi phạm có sẵn ở file khác) | console |
+| 2026-11-22 | FEAT-155 | `tsc --noEmit` ui | Không chạy được: worktree thiếu node_modules ui (không tìm thấy react/@paperclipai/shared) | console |
+| 2026-11-22 | FEAT-155 | Chạy thực script khởi động (AC-05, AC-06) | Chưa chạy thực, chỉ kiểm cú pháp | - |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
+- Kết quả: AC-01..04, 07, 08 đạt qua vitest; AC-05/06 mới kiểm cú pháp.
+- Hạn chế còn lại: slug con ngoài danh sách đã biết là suy đoán (404 khi gộp sẽ bị bỏ qua); UI chưa typecheck/build được trong worktree.
 - Việc chưa hoàn tất:
 - Rollback point:
 - Trạng thái `CLOSED` bởi:
