@@ -257,7 +257,17 @@ export function createFurniMeshMcpServer(): McpServer {
 }
 
 export async function startHttpServer(port = Number(process.env.FURNIMESH_MCP_PORT ?? 3180)): Promise<http.Server> {
+  const allowedOrigins = new Set((process.env.FURNIMESH_MCP_ALLOWED_ORIGINS ?? "http://127.0.0.1:8123,http://localhost:8123,http://127.0.0.1:3100,http://localhost:3100").split(",").map((o) => o.trim()).filter(Boolean));
   const server = http.createServer(async (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "content-type, accept, mcp-session-id, mcp-protocol-version");
+      res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+    }
+    if (req.method === "OPTIONS" && req.url === "/mcp") { res.statusCode = 204; res.end(); return; }
     if (req.url !== "/mcp" || !["POST", "GET", "DELETE"].includes(req.method ?? "")) { res.statusCode = 404; res.end("Not found"); return; }
     try {
       const body = req.method === "POST" ? await new Promise<string>((resolve, reject) => { let raw = ""; req.on("data", (chunk) => { raw += chunk; if (raw.length > 1024 * 1024) reject(new Error("MCP request too large")); }); req.on("end", () => resolve(raw)); req.on("error", reject); }) : undefined;

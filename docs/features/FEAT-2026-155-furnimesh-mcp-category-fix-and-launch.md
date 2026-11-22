@@ -143,3 +143,8 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 - Rollback point:
 - Trạng thái `CLOSED` bởi:
 - Thời điểm:
+
+## Bổ sung sau nghiệm thu (2026-11-22)
+
+- `http.ts`/`startHttpServer` thêm CORS cho origin trong `FURNIMESH_MCP_ALLOWED_ORIGINS` (mặc định 127.0.0.1/localhost cổng 8123 và 3100) và trả 204 cho OPTIONS `/mcp`; trước đó trình duyệt chặn AlterAI gọi thẳng MCP. Đã kiểm: OPTIONS trả đúng header; vitest 12/12 pass.
+- Ghi nhận: `get_furniture_details` chỉ với `model_id` trả HTTP 404 vì đường dẫn thật có phân cấp (`/library/<cha>/<con>/<id>/`); client phải gửi `detail_url` (lấy từ kết quả tìm kiếm).

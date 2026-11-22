@@ -144,3 +144,7 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 - Rollback point:
 - Trạng thái `CLOSED` bởi:
 - Thời điểm:
+
+## Bổ sung sau nghiệm thu (2026-11-22)
+
+- Sửa lỗi "Đặt vào scene" 404: `place()` giờ ưu tiên `detail_url` thay vì `model_id` khi gọi tool. Đã kiểm qua MCP thật: `detail_url` trả đủ metadata và `glb_url`; `model_id` đơn lẻ vẫn 404.
