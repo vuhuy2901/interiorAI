@@ -73,7 +73,10 @@ export function FurniMeshConnect() {
     enabled: !!connection,
   });
 
-  useEffect(() => { if (!connection) setStatus("disconnected"); }, [connection]);
+  useEffect(() => {
+    if (!connection) setStatus("disconnected");
+    else setStatus((current) => (current === "disconnected" ? (connection.healthStatus === "ok" ? "connected" : "checking") : current));
+  }, [connection]);
 
   const check = async (connectionId: string) => {
     setStatus("checking");
@@ -109,8 +112,9 @@ export function FurniMeshConnect() {
       return toolsApi.createConnection(selectedCompanyId, {
         applicationId: application.id,
         name: "FurniMesh MCP",
+        status: "active",
         transport: "mcp_remote",
-        config: { serverUrl: mcpUrl.trim() || FURNIMESH_DEFAULT_MCP_URL, sourceTemplateKey: "furnimesh", connectionMethodKey: "mcp" },
+        config: { url: mcpUrl.trim() || FURNIMESH_DEFAULT_MCP_URL, serverUrl: mcpUrl.trim() || FURNIMESH_DEFAULT_MCP_URL, sourceTemplateKey: "furnimesh", connectionMethodKey: "mcp" },
         enabled: true,
       });
     },

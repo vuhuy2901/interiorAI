@@ -25,6 +25,13 @@ function readCategoryNames(value: unknown): string[] {
       .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).category_name : null))
       .filter((name): name is string => typeof name === "string" && name.length > 0);
   }
+  if (typeof record.content === "string") {
+    try {
+      return readResults(JSON.parse(record.content));
+    } catch {
+      return [];
+    }
+  }
   if (Array.isArray(record.content)) {
     const text = record.content.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text");
     const raw = text && typeof text === "object" ? (text as Record<string, unknown>).text : null;
@@ -41,6 +48,9 @@ function readResults(value: unknown): FurniMeshResult[] {
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.results)) return readResults(record.results);
   if (Array.isArray(record.items)) return readResults(record.items);
+  if (typeof record.content === "string") {
+    try { return readResults(JSON.parse(record.content)); } catch { return []; }
+  }
   if (Array.isArray(record.content)) {
     const text = record.content.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text");
     const raw = text && typeof text === "object" ? (text as Record<string, unknown>).text : null;

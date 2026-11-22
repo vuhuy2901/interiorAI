@@ -153,3 +153,10 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 - Chạy Paperclip từ worktree ở cổng 3100 và kiểm trên Chrome: trang `/ATL/furnimesh` hiển thị đúng (trạng thái "Chưa kết nối", ô địa chỉ MCP, nút Kết nối / Kiểm tra kết nối, ô địa chỉ scene, hướng dẫn 3 bước), không có lỗi console.
 - Sửa 2 lỗi phát hiện khi chạy thật: (1) `furnimesh` chưa nằm trong `BOARD_ROUTE_ROOTS` (`ui/src/lib/company-routes.ts`) nên URL bị hiểu thành tiền tố công ty; (2) sidebar đang dùng thực tế là `CoordinatorSidebar.tsx`, đã thêm mục "FurniMesh 3D" ở đó (cùng `Sidebar.tsx`).
 - Chưa bấm nút Kết nối trên dữ liệu thật của người dùng (tạo connection là cấu hình lâu dài) — để người dùng tự bấm.
+
+## Nghiệm thu luồng thật trên Paperclip (2026-11-22)
+
+- Bấm Kết nối trên trang `/ATL/furnimesh` tạo connection thật. Ba lỗi phát hiện và đã sửa: (1) transport `mcp_remote` cần `config.url` (không chỉ `serverUrl`); (2) connection phải tạo với `status: "active"` — nếu là `draft` thì gateway báo `Tool "search_furniture" not found`; (3) kết quả test-call trả `result.content` là chuỗi JSON, panel đã parse thêm trường hợp này.
+- Đã kiểm trên Chrome: tìm "sofa" ra lưới mẫu có thumbnail và nút Use in Scene. Gọi gateway bằng API với agent Furniture Planner trả `decision: allowed` và dữ liệu sofa thật.
+- Trạng thái ban đầu của trang giờ lấy từ `healthStatus` của connection.
+- Chưa kiểm: nút Use in Scene (cần scene AlterAI ở cổng 8123 đang chạy).
