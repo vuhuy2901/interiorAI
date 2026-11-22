@@ -2707,6 +2707,274 @@ const OfficeNav = (function () {
 })();
 /* ===== FEAT-2026-158 CORE END ===== */
 
+/* ===== FEAT-2026-159 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const OUT_ID = 'OUT', VERT_TOL = 0.08;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  /* Split walls at T-junctions / crossings, return planar segments over merged vertices. */
+  function planarize(state) {
+    const verts = [];
+    const vid = (x, z) => {
+      for (let i = 0; i < verts.length; i++) if (Math.hypot(verts[i].x - x, verts[i].z - z) < VERT_TOL) return i;
+      verts.push({ x, z }); return verts.length - 1;
+    };
+    const ws = [];
+    for (const w of state.walls.values()) { const g = Nav.wallGeom(state, w); if (g) ws.push({ w, g }); }
+    const segs = [];
+    for (const { w, g } of ws) {
+      const cuts = [{ s: 0, x: g.n0.x, z: g.n0.z }, { s: g.len, x: g.n1.x, z: g.n1.z }];
+      for (const n of state.nodes.values()) {
+        const px = n.x - g.n0.x, pz = n.z - g.n0.z, s = px * g.ux + pz * g.uz, d = Math.abs(px * g.nx + pz * g.nz);
+        if (d < 0.06 && s > 0.05 && s < g.len - 0.05) cuts.push({ s, x: n.x, z: n.z });
+      }
+      for (const { w: w2, g: g2 } of ws) {
+        if (w2 === w) continue;
+        const den = g.ux * g2.uz - g.uz * g2.ux; if (Math.abs(den) < 1e-9) continue;
+        const qx = g2.n0.x - g.n0.x, qz = g2.n0.z - g.n0.z;
+        const s = (qx * g2.uz - qz * g2.ux) / den, u = (qx * g.uz - qz * g.ux) / den;
+        if (s > 0.05 && s < g.len - 0.05 && u > -0.05 && u < g2.len + 0.05) cuts.push({ s, x: g.n0.x + g.ux * s, z: g.n0.z + g.uz * s });
+      }
+      cuts.sort((a, b) => a.s - b.s);
+      const uniq = [];
+      for (const c of cuts) if (!uniq.length || c.s - uniq[uniq.length - 1].s > 0.05) uniq.push(c);
+      for (let i = 0; i + 1 < uniq.length; i++) {
+        const a = vid(uniq[i].x, uniq[i].z), b = vid(uniq[i + 1].x, uniq[i + 1].z);
+        if (a !== b) segs.push({ wallId: w.id, a, b, s0: uniq[i].s, s1: uniq[i + 1].s });
+      }
+    }
+    return { verts, segs };
+  }
+
+  function pointInPoly(poly, x, z) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+
+  function detectRooms(state) {
+    const { verts, segs } = planarize(state);
+    const edges = [], out = verts.map(() => []);
+    segs.forEach((s, i) => {
+      edges[2 * i] = { from: s.a, to: s.b, seg: i };
+      edges[2 * i + 1] = { from: s.b, to: s.a, seg: i };
+      for (const e of [2 * i, 2 * i + 1]) {
+        const f = verts[edges[e].from], t = verts[edges[e].to];
+        edges[e].ang = Math.atan2(t.z - f.z, t.x - f.x); out[edges[e].from].push(e);
+      }
+    });
+    out.forEach(l => l.sort((p, q) => edges[p].ang - edges[q].ang));
+    const next = e => { const l = out[edges[e].to], k = l.indexOf(e ^ 1); return l[(k - 1 + l.length) % l.length]; };
+    const faceOf = new Map(), faces = [];
+    for (let e = 0; e < edges.length; e++) {
+      if (!edges[e] || faceOf.has(e)) continue;
+      const loop = []; let cur = e, guard = 0;
+      while (!faceOf.has(cur) && guard++ < 100000) { faceOf.set(cur, faces.length); loop.push(cur); cur = next(cur); }
+      faces.push(loop);
+    }
+    const rooms = [];
+    faces.forEach((loop, fi) => {
+      const pts = loop.map(e => verts[edges[e].from]);
+      let a2 = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a2 += pts[j].x * pts[i].z - pts[i].x * pts[j].z;
+      const area = a2 / 2;
+      if (!(area > 0.5)) return; // mặt ngoài (âm) hoặc quá nhỏ
+      const bound = [];
+      for (const e of loop) {
+        const tf = faceOf.get(e ^ 1);
+        if (tf === fi) continue; // đoạn thò (spur)
+        const s = segs[edges[e].seg];
+        bound.push({ seg: edges[e].seg, wallId: s.wallId, s0: s.s0, s1: s.s1, len: s.s1 - s.s0 });
+      }
+      let cx = 0, cz = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const f = pts[j].x * pts[i].z - pts[i].x * pts[j].z; cx += (pts[j].x + pts[i].x) * f; cz += (pts[j].z + pts[i].z) * f;
+      }
+      let centroid = { x: cx / (6 * area), z: cz / (6 * area) };
+      if (!pointInPoly(pts, centroid.x, centroid.z)) {
+        // điểm trong đa giác: thử trung điểm các đỉnh lệch vào trong
+        let best = null;
+        for (let i = 0; i < pts.length && !best; i++) {
+          const p = pts[i], q = pts[(i + 2) % pts.length], m = { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 };
+          if (pointInPoly(pts, m.x, m.z)) best = m;
+        }
+        centroid = best || pts[0];
+      }
+      const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+      rooms.push({ poly: pts.map(p => ({ x: p.x, z: p.z })), area, edges: bound, centroid, minx: Math.min(...xs), minz: Math.min(...zs) });
+    });
+    rooms.sort((a, b) => a.minx - b.minx || a.minz - b.minz);
+    rooms.forEach((r, i) => { r.id = 'R' + (i + 1); r.name = 'Phòng ' + (i + 1); });
+    return rooms;
+  }
+
+  function pointInRoom(nav, x, z) {
+    let best = null;
+    for (const r of nav.rooms) if (pointInPoly(r.poly, x, z) && (!best || r.area < best.area)) best = r;
+    return best ? best.id : OUT_ID;
+  }
+
+  function buildNav(state, cfg) {
+    const { blocked, doors } = Nav.buildDoorGrid(state, cfg);
+    const rooms = detectRooms(state);
+    const nav = { cfg, blocked, doors, rooms, roomById: {}, edges: [], noDoor: [], components: [] };
+    rooms.forEach(r => { nav.roomById[r.id] = r; });
+    for (const d of doors) {
+      if (!d.pass) continue;
+      d.roomA = pointInRoom(nav, d.frontPt.x, d.frontPt.z);
+      d.roomB = pointInRoom(nav, d.backPt.x, d.backPt.z);
+      if (d.roomA === d.roomB) continue;
+      const ca = d.roomA === OUT_ID ? d.center : nav.roomById[d.roomA].centroid, cb = d.roomB === OUT_ID ? d.center : nav.roomById[d.roomB].centroid;
+      nav.edges.push({ door: d.id, a: d.roomA, b: d.roomB, w: dist(ca, cb), open: d.open });
+    }
+    for (const r of rooms) if (!nav.edges.some(e => e.a === r.id || e.b === r.id)) nav.noDoor.push(r.id);
+    return nav;
+  }
+
+  /* Phòng "tới được" = có ít nhất 1 cửa đang mở nối sang phòng/ngoài khác. */
+  function isRoomReachable(nav, roomId) {
+    if (roomId === OUT_ID) return true;
+    return nav.edges.some(e => e.open && (e.a === roomId || e.b === roomId));
+  }
+
+  function lineOfSight(grid, cfg, a, b) {
+    const L = dist(a, b), n = Math.max(1, Math.ceil(L / (cfg.CS / 4)));
+    const ux = L > 0 ? (b.x - a.x) / L : 0, uz = L > 0 ? (b.z - a.z) / L : 0;
+    for (let i = 0; i <= n; i++) {
+      const x = a.x + (b.x - a.x) * i / n, z = a.z + (b.z - a.z) * i / n;
+      for (const o of [0, 0.15, -0.15]) {
+        const px = x - uz * o, pz = z + ux * o;
+        if (Nav.cellBlocked(grid, cfg.W, cfg.H, cfg.base, Nav.worldToCell(cfg.CS, px), Nav.worldToCell(cfg.CS, pz))) return false;
+      }
+    }
+    return true;
+  }
+
+  function smoothPath(grid, cfg, pts) {
+    if (!pts || pts.length < 3) return pts;
+    const res = [pts[0]]; let i = 0;
+    while (i < pts.length - 1) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !lineOfSight(grid, cfg, pts[i], pts[j])) j--;
+      res.push(pts[j]); i = j;
+    }
+    return res;
+  }
+
+  /* Tìm đường từ a tới b trên lưới + làm mượt; null nếu không có. */
+  function pathSegment(nav, a, b) {
+    const raw = Nav.astarPoints(nav.blocked, nav.cfg, a, b);
+    return raw ? smoothPath(nav.blocked, nav.cfg, raw) : null;
+  }
+
+  function roomName(nav, id) { return id === OUT_ID ? 'Ngoài trời' : ((nav.roomById[id] && nav.roomById[id].name) || id); }
+
+  function exitsOf(nav, room, allowClosed) {
+    const res = [];
+    for (const d of nav.doors) {
+      if (!d.pass || d.roomA === d.roomB || (!d.open && !allowClosed)) continue;
+      if (d.roomA === room) res.push({ d, dir: 'f', fromPt: d.frontPt, toPt: d.backPt, next: d.roomB });
+      else if (d.roomB === room) res.push({ d, dir: 'b', fromPt: d.backPt, toPt: d.frontPt, next: d.roomA });
+    }
+    return res;
+  }
+
+  /* Dijkstra trên trạng thái (cửa, hướng). Trả về chuỗi exits hoặc null. */
+  function doorChain(nav, rs, re, from, to, allowClosed) {
+    const best = new Map(), prev = new Map(), pq = [];
+    const push = (cost, key, room, pt) => pq.push({ cost, key, room, pt });
+    let endCost = Infinity, endPrev = null;
+    const relaxExits = (room, pt, base, fromKey) => {
+      for (const e of exitsOf(nav, room, allowClosed)) {
+        const key = e.d.id + ':' + e.dir, c = base + dist(pt, e.fromPt) + dist(e.fromPt, e.toPt);
+        if (c < (best.has(key) ? best.get(key) : Infinity)) { best.set(key, c); prev.set(key, { fromKey, e }); push(c, key, e.next, e.toPt); }
+      }
+    };
+    relaxExits(rs, from, 0, null);
+    while (pq.length) {
+      let bi = 0; for (let i = 1; i < pq.length; i++) if (pq[i].cost < pq[bi].cost) bi = i;
+      const cur = pq.splice(bi, 1)[0];
+      if (cur.cost > best.get(cur.key)) continue;
+      if (cur.room === re) { const c = cur.cost + dist(cur.pt, to); if (c < endCost) { endCost = c; endPrev = cur.key; } }
+      relaxExits(cur.room, cur.pt, cur.cost, cur.key);
+    }
+    if (endPrev === null) return null;
+    const chain = []; let k = endPrev;
+    while (k) { const p = prev.get(k); chain.unshift(p.e); k = p.fromKey; }
+    return { chain, cost: endCost };
+  }
+
+  function planRoute(nav, from, to) {
+    const rs = pointInRoom(nav, from.x, from.z), re = pointInRoom(nav, to.x, to.z);
+    const fail = reason => ({ ok: false, reason });
+    let chain = [];
+    if (rs !== re) {
+      const r = doorChain(nav, rs, re, from, to, false);
+      if (!r) {
+        const hasNoDoor = id => id !== OUT_ID && nav.noDoor.includes(id);
+        if (hasNoDoor(rs)) return fail(roomName(nav, rs) + ' chưa có cửa');
+        if (hasNoDoor(re)) return fail(roomName(nav, re) + ' chưa có cửa');
+        const r2 = doorChain(nav, rs, re, from, to, true);
+        if (r2) {
+          const closed = r2.chain.filter(e => !e.d.open).map(e => 'Cửa ' + e.d.id);
+          return fail([...new Set(closed)].join(', ') + ' đang đóng');
+        }
+        return fail('Không có đường nối giữa ' + roomName(nav, rs) + ' và ' + roomName(nav, re));
+      }
+      chain = r.chain;
+    }
+    const waypoints = []; let cur = { x: from.x, z: from.z };
+    const addSeg = (a, b) => {
+      const seg = pathSegment(nav, a, b);
+      if (!seg) return false;
+      seg.forEach((p, i) => { if (waypoints.length && i === 0 && dist(waypoints[waypoints.length - 1], p) < 1e-6) return; waypoints.push({ x: p.x, z: p.z }); });
+      return true;
+    };
+    for (const e of chain) {
+      if (!addSeg(cur, e.fromPt)) return fail('Không có đường trong ' + roomName(nav, e.dir === 'f' ? e.d.roomA : e.d.roomB) + ' tới cửa ' + e.d.id + ' (bị chặn)');
+      waypoints[waypoints.length - 1].door = e.d.id; waypoints[waypoints.length - 1].kind = 'front';
+      waypoints.push({ x: e.toPt.x, z: e.toPt.z, door: e.d.id, kind: 'back' });
+      cur = e.toPt;
+    }
+    if (!addSeg(cur, to)) return fail('Không có đường tới đích trong ' + roomName(nav, re) + ' (bị chặn)');
+    let length = 0; for (let i = 0; i + 1 < waypoints.length; i++) length += dist(waypoints[i], waypoints[i + 1]);
+    return { ok: true, waypoints, doors: chain.map(e => e.d.id), rooms: [rs, ...chain.map(e => e.next)], length };
+  }
+
+  /* Gợi ý cửa 0.9 m cho phòng: đặt giữa đoạn tường dài nhất hợp lệ, một bên là phòng này, bên kia là phòng khác/ngoài. */
+  function suggestDoor(state, nav, roomId) {
+    const room = nav.roomById[roomId];
+    if (!room) return { ok: false, reason: 'Không tìm thấy phòng' };
+    const w = Nav.defaultWidth('door');
+    const hasDoor = id => id !== OUT_ID && !nav.noDoor.includes(id);
+    const sideRoom = e => { // phòng ở phía bên kia đoạn tường (điểm lệch 0.6 m về cả hai phía tại giữa đoạn)
+      const g = Nav.wallGeom(state, state.walls.get(e.wallId)), m = (e.s0 + e.s1) / 2;
+      const cx = g.n0.x + g.ux * m, cz = g.n0.z + g.uz * m;
+      const p = pointInRoom(nav, cx + g.nx * 0.6, cz + g.nz * 0.6), q = pointInRoom(nav, cx - g.nx * 0.6, cz - g.nz * 0.6);
+      return p === roomId ? q : p;
+    };
+    // ưu tiên tường giáp phòng khác đã có cửa (nối vào mạng sẵn có), rồi tới ngoài/phòng khác; trong cùng nhóm lấy tường dài nhất
+    const rank = e => { const o = sideRoom(e); return hasDoor(o) ? 0 : (o === OUT_ID ? 1 : 2); };
+    const cands = room.edges.map(e => ({ e, k: rank(e) })).sort((a, b) => a.k - b.k || b.e.len - a.e.len).map(x => x.e);
+    for (const e of cands) {
+      if (e.len < w + 2 * Nav.EDGE_MARGIN) continue;
+      const center = (e.s0 + e.s1) / 2, v = Nav.validateOpening(state, e.wallId, center, 'door', w);
+      if (!v.ok || v.snapped && Math.abs(v.offset - center) > 0.3) continue;
+      if (v.offset - w / 2 < e.s0 - 1e-6 || v.offset + w / 2 > e.s1 + 1e-6) continue;
+      const d = Nav.doorInfo(state, { id: 'tmp', wallId: e.wallId, offset: v.offset, type: 'door', width: w });
+      const a = pointInRoom(nav, d.frontPt.x, d.frontPt.z), b = pointInRoom(nav, d.backPt.x, d.backPt.z);
+      if ((a === roomId) !== (b === roomId)) return { ok: true, wallId: e.wallId, offset: v.offset, width: w };
+    }
+    return { ok: false, reason: 'Không tìm được đoạn tường hợp lệ để đặt cửa cho ' + room.name };
+  }
+
+  Object.assign(Nav, { OUT_ID, planarize, pointInPoly, detectRooms, pointInRoom, buildNav, isRoomReachable, lineOfSight, smoothPath, pathSegment, planRoute, suggestDoor });
+})(OfficeNav);
+/* ===== FEAT-2026-159 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -3199,6 +3467,79 @@ const FEAT158={
     }
   }
 };
+
+/* ===== FEAT-2026-159 PAGE INTEGRATION: đồ thị phòng-cửa, cảnh báo "Chưa có cửa" ===== */
+const FEAT159={
+  nav:null, _sig:'', group:null,
+  roomName(id){return OfficeNav.OUT_ID===id?'Ngoài trời':((this.nav&&this.nav.roomById[id]&&this.nav.roomById[id].name)||id);},
+  update(){
+    const nav=OfficeNav.buildNav(FEAT158.state(),{CS,W,H,base:null});
+    const used=new Set();
+    nav.rooms.forEach((r,i)=>{
+      let nm=null,bestA=Infinity;
+      for(const d of(FP2.detectedRooms||[])){
+        const pts=(d.wallLoop||[]).map(n=>FP2.wallNodes.get(n)).filter(Boolean);if(pts.length<3)continue;
+        const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length,cz=pts.reduce((s,p)=>s+p.z,0)/pts.length;
+        if(d.area<bestA&&OfficeNav.pointInPoly(r.poly,cx,cz)){bestA=d.area;nm=d.name;}
+      }
+      nm=nm||('Phòng '+(i+1));
+      if(used.has(nm))nm=nm+' ('+r.id+')';
+      used.add(nm);r.name=nm;
+    });
+    this.nav=nav;
+    const byId=new Map(nav.doors.map(d=>[d.id,d]));
+    for(const op of FP2.wallOpenings||[]){const d=byId.get(op.id);if(d&&d.pass){op.roomA=d.roomA;op.roomB=d.roomB;}else{op.roomA=null;op.roomB=null;}}
+    const sig=nav.noDoor.map(id=>id+':'+nav.roomById[id].name).join('|');
+    if(sig!==this._sig){this._sig=sig;this.drawWarnings();}
+    this.renderPanel();
+  },
+  syncVisibility(){if(this.group)this.group.visible=!!FP2.active;},
+  drawWarnings(){
+    if(!this.group){this.group=new T.Group();S.add(this.group);}
+    this.group.traverse(o=>{if(o.material){if(o.material.map)o.material.map.dispose();o.material.dispose();}});
+    while(this.group.children.length)this.group.remove(this.group.children[0]);
+    for(const id of this.nav.noDoor){
+      const r=this.nav.roomById[id];
+      const cv2=document.createElement('canvas');cv2.width=320;cv2.height=96;const ctx=cv2.getContext('2d');if(!ctx)continue;
+      ctx.fillStyle='rgba(185,28,28,0.92)';ctx.beginPath();ctx.roundRect?ctx.roundRect(4,4,312,88,14):ctx.rect(4,4,312,88);ctx.fill();
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 28px sans-serif';ctx.fillText('Chưa có cửa',160,44);
+      ctx.font='20px sans-serif';ctx.fillText(r.name,160,74);
+      const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(cv2),transparent:true,depthTest:false}));
+      sp.scale.set(2.8,0.84,1);sp.position.set(r.centroid.x,0.9,r.centroid.z);sp.renderOrder=30;sp.userData.noDoorRoom=id;this.group.add(sp);
+    }
+    this.syncVisibility();
+  },
+  renderPanel(){
+    const el=document.getElementById('navWarn');if(!el)return;
+    const nd=this.nav.noDoor;
+    if(!nd.length){el.style.display='none';el.innerHTML='';return;}
+    el.style.display='block';
+    el.innerHTML='<div style="color:#fca5a5;font-weight:700;font-size:11px;margin-bottom:3px;">⚠ Phòng chưa có cửa ('+nd.length+')</div>'+
+      nd.map(id=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px;"><span>${this.nav.roomById[id].name}</span><button data-nav-add="${id}" style="background:#7f1d1d;color:#fecaca;border:none;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:10px;">Thêm cửa tự động</button></div>`).join('')+
+      (nd.length>1?'<button data-nav-add="*" style="width:100%;background:#991b1b;color:#fff;border:none;border-radius:4px;padding:3px;cursor:pointer;font-size:10px;margin-top:2px;">Thêm cửa cho tất cả</button>':'');
+    el.querySelectorAll('button[data-nav-add]').forEach(b=>b.onclick=()=>{const id=b.dataset.navAdd;if(id==='*')this.addDoorForAll();else this.addDoorFor(id);});
+  },
+  addDoorFor(roomId){
+    const nm=this.roomName(roomId),s=OfficeNav.suggestDoor(FEAT158.state(),this.nav,roomId);
+    if(!s.ok){FEAT158.msg(s.reason,false);return false;}
+    fp2Snapshot();WG.addOpening(s.wallId,s.offset,'door',s.width);WG.buildMeshes();fp2Save();
+    FEAT158.msg('Đã thêm cửa cho '+nm,true);return true;
+  },
+  addDoorForAll(){let guard=0;while(this.nav.noDoor.length&&guard++<30){if(!this.addDoorFor(this.nav.noDoor[0]))break;}},
+  canAssign(roomId){
+    if(!this.nav||!this.nav.roomById[roomId])return{ok:false,reason:'Phòng không tồn tại'};
+    if(this.nav.noDoor.includes(roomId))return{ok:false,reason:this.roomName(roomId)+' chưa có cửa'};
+    if(!OfficeNav.isRoomReachable(this.nav,roomId))return{ok:false,reason:this.roomName(roomId)+' chưa tới được (mọi cửa đang đóng)'};
+    return{ok:true};
+  },
+  planRoute(from,to,opts){
+    const nav=this.nav;if(!nav)return{ok:false,reason:'Chưa dựng đồ thị phòng'};
+    nav.cfg.base=(opts&&opts.useBase)?blocked:null;
+    return OfficeNav.planRoute(nav,from,to);
+  }
+};
+FEAT158.afterRefresh.push(()=>FEAT159.update());
+setInterval(()=>{try{FEAT159.syncVisibility();}catch(e){}},300); // nhãn cảnh báo chỉ hiện khi đang ở Build/FP2
 
 /* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
 function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}
@@ -4985,6 +5326,7 @@ FP2._enter = fp2Enter;
   const _navPrevMove=FP2._onPointerMove;
   FP2._onPointerMove=function(e){try{navGhostUpdate(e);}catch(err){console.warn('[FEAT158] ghost',err);}return _navPrevMove?_navPrevMove.call(this,e):undefined;};
   FP2._navGhostHide=navGhostHide;
+  for(const k of['_enter','_exit']){const f=FP2[k];if(typeof f==='function')FP2[k]=function(){const r=f.apply(this,arguments);if(window.FEAT159)FEAT159.syncVisibility();return r;};}
   document.addEventListener('keydown',e=>{
     if(!FP2.active||e.ctrlKey||e.metaKey||e.altKey)return;
     if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;

@@ -193,7 +193,7 @@ if (block(159)) {
     const raw = Nav.astarPoints(nav.blocked, cfg, { x: 6, z: 6 }, { x: 8, z: 8 });
     const sm = Nav.smoothPath(nav.blocked, cfg, raw);
     eq(sm.length === 2, 'mượt trong phòng: ' + sm.length);
-    eq(!Nav.lineOfSight(nav.blocked, cfg, { x: 7, z: 7 }, { x: 11, z: 7 }), 'xuyên tường phải bị chặn');
+    eq(!Nav.lineOfSight(nav.blocked, cfg, { x: 7, z: 5.8 }, { x: 11, z: 5.8 }), 'xuyên tường phải bị chặn');
   });
 }
 

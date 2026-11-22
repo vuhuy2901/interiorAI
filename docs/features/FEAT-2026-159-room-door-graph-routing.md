@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Sonnet subagent (pha 1) |
 | Người chấp thuận | Opus (phiên chính) theo `docs/plans/2026-11-22-office-navigation.md` |
 | Ngày tạo | 2026-11-22 |
 | Frozen at | 2026-11-22 |
 | Revision bắt đầu | a0c8622c (FEAT-2026-158) |
-| Revision cuối | Chưa có |
+| Revision cuối | xem commit feat(FEAT-2026-159) |
 
 ## 1. Bối cảnh
 
@@ -57,13 +57,13 @@ Sau FEAT-158 mỗi cửa có `frontPt/backPt` và lưới đi qua cửa mở. Ch
 
 ## 7. Acceptance criteria
 
-- [ ] AC-01: Mặt bằng 3 phòng nối tiếp (tường chữ T chưa tách): phát hiện đúng 3 phòng, `planRoute` phòng 1 -> 3 qua đúng 2 cửa, đoạn ngoài khung cửa không cắt ô chặn.
-- [ ] AC-02: Cửa đóng -> `planRoute` trả `ok:false` và lý do nêu cửa đang đóng.
-- [ ] AC-03: Xoá cửa duy nhất của một phòng -> phòng nằm trong `noDoor`, nhãn đỏ + panel hiển thị, route lỗi "chưa có cửa".
-- [ ] AC-04: "Thêm cửa tự động" làm phòng tới được lại và route thành công; auto-add lặp lại làm mọi phòng có cửa.
-- [ ] AC-05: `pointInRoom` ưu tiên phòng nhỏ nhất khi lồng nhau; ngoài mọi vòng tường = `OUT`.
-- [ ] AC-06: `smoothPath` bỏ điểm thừa, không cắt ô chặn.
-- [ ] AC-07: Trình duyệt: cảnh báo đỏ + nút hiển thị, bấm nút khắc phục được, 0 lỗi console; `node --check` pass; test Node pass.
+- [x] AC-01: Mặt bằng 3 phòng nối tiếp (tường chữ T chưa tách): phát hiện đúng 3 phòng, `planRoute` phòng 1 -> 3 qua đúng 2 cửa, đoạn ngoài khung cửa không cắt ô chặn.
+- [x] AC-02: Cửa đóng -> `planRoute` trả `ok:false` và lý do nêu cửa đang đóng.
+- [x] AC-03: Xoá cửa duy nhất của một phòng -> phòng nằm trong `noDoor`, nhãn đỏ + panel hiển thị, route lỗi "chưa có cửa".
+- [x] AC-04: "Thêm cửa tự động" làm phòng tới được lại và route thành công; auto-add lặp lại làm mọi phòng có cửa.
+- [x] AC-05: `pointInRoom` ưu tiên phòng nhỏ nhất khi lồng nhau; ngoài mọi vòng tường = `OUT`.
+- [x] AC-06: `smoothPath` bỏ điểm thừa, không cắt ô chặn.
+- [x] AC-07: Trình duyệt: cảnh báo đỏ + nút hiển thị, bấm nút khắc phục được, 0 lỗi console; `node --check` pass; test Node pass.
 
 ## 8. Verification plan
 
@@ -102,18 +102,20 @@ Rollback point: commit `a0c8622c`; rollback bằng `git revert` commit của FEA
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | 5428cc8d -> commit feat | Khối OfficeNav 159, FEAT159 (nhãn đỏ, panel, auto-add, canAssign, planRoute), test Node | Làm rõ: "tới được" = có >= 1 cửa mở nối sang phòng/ngoài khác. suggestDoor ưu tiên tường giáp phòng đã có cửa (nối vào mạng sẵn có), rồi ngoài, rồi phòng khác; mỗi nhóm lấy tường dài nhất. Nhãn cảnh báo bật/tắt theo FP2.active bằng setInterval 300 ms. `FEAT159.planRoute` mặc định chỉ xét tường (opts.useBase để thêm vật cản tĩnh) |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-22 | feat 159 | `node --check` script inline | exit 0 | terminal |
+| 2026-11-22 | feat 159 | `node scripts/tests/office-nav.test.mjs` | 12 pass, 0 fail (158 x4, 159 x8) | terminal |
+| 2026-11-22 | feat 159 | Trình duyệt 8141: mặt bằng mặc định 8 phòng, 6 phòng thiếu cửa -> nhãn đỏ + panel; bấm "Thêm cửa tự động" rồi "tất cả" | noDoor 5 -> 0; route phòng đầu tới phòng cuối qua 6 cửa, ok; canAssign true cho mọi phòng; 0 lỗi console | `docs/features/evidence/FEAT-2026-159-no-door-warning.jpg`, `FEAT-2026-159-after-auto-door.jpg` |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
+- Kết quả: đạt AC-01..07.
+- Hạn chế còn lại: tên phòng mượn từ `detectRooms()` cũ có thể trùng (thêm hậu tố id); vật cản tĩnh (đồ đạc) chưa tính trong planRoute mặc định (FEAT-160); phòng không khép kín hoàn toàn không được nhận diện.
 - Việc chưa hoàn tất:
 - Rollback point: a0c8622c
 - Trạng thái `CLOSED` bởi:
