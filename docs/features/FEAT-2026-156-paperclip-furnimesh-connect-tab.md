@@ -2,7 +2,7 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Claude |
 | Người chấp thuận | Yêu cầu trực tiếp của người dùng |
@@ -141,3 +141,9 @@ Rollback point và cách rollback: revert commit triển khai của FEAT-2026-15
 - Rollback point:
 - Trạng thái `CLOSED` bởi:
 - Thời điểm:
+
+## Evidence (2026-11-22)
+
+- Thêm `paperclip/ui/src/pages/apps/FurniMeshConnect.tsx` (trang /furnimesh: nút Kết nối tạo application + connection `mcp_remote`, không tạo trùng; 4 trạng thái; Kiểm tra kết nối timeout 5 giây; hướng dẫn 3 bước; nhúng FurniMeshLibraryPanel), `furnimesh-config.ts` (URL scene đọc từ localStorage, mặc định `http://localhost:8123/`), route `furnimesh` trong `App.tsx`, mục sidebar "FurniMesh 3D" trong `Sidebar.tsx`, panel đọc URL scene từ cấu hình.
+- `tsc --noEmit` (ui): 18 dòng lỗi có sẵn ở file khác, 0 lỗi ở file thuộc FEAT-156. Token gate: 0 vi phạm ở file thuộc FEAT-156.
+- Chưa kiểm: chạy thật trên Paperclip (cổng 3100 đang tắt) — sẽ nghiệm thu bằng Chrome ở bước tích hợp; chưa có test tự động cho trang.

@@ -165,6 +165,7 @@ const ChatEndpointSetup = lazy(() => import("./pages/apps/chat/ChatEndpointSetup
 const ChatEndpointDetail = lazy(() => import("./pages/apps/chat/ChatEndpointDetail").then((module) => ({ default: module.ChatEndpointDetail })));
 const AppsReview = lazy(() => import("./pages/apps/AppsReview").then((module) => ({ default: module.AppsReview })));
 const AppDetail = lazy(() => import("./pages/apps/AppDetail").then((module) => ({ default: module.AppDetail })));
+const FurniMeshConnect = lazy(() => import("./pages/apps/FurniMeshConnect").then((module) => ({ default: module.FurniMeshConnect })));
 const AppNotConnected = lazy(() => import("./pages/apps/AppNotConnected").then((module) => ({ default: module.AppNotConnected })));
 const GatewaysList = lazy(() => import("./pages/apps/gateways/GatewaysList").then((module) => ({ default: module.GatewaysList })));
 const GatewayDetail = lazy(() => import("./pages/apps/gateways/GatewayDetail").then((module) => ({ default: module.GatewayDetail })));
@@ -250,6 +251,7 @@ function boardRoutes(streamlinedUiEnabled: boolean, combinedInboxTasksEnabled: b
       <Route path="company/settings/tools/:tab" element={<LegacyToolsSettingsRedirect />} />
       <Route path="tools" element={<LegacyToolsRedirect />} />
       <Route path="tools/:tab" element={<LegacyToolsRedirect />} />
+      <Route path="furnimesh" element={<FurniMeshConnect />} />
       <Route path="apps" element={<Browse />} />
       <Route path="apps/assistant-connection" element={<AssistantConnection />} />
       <Route path="apps/browse" element={<Navigate to="/apps" replace />} />

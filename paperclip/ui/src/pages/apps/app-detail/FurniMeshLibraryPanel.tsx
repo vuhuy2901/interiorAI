@@ -3,6 +3,7 @@ import type { ToolCatalogEntry } from "@paperclipai/shared";
 import { toolsApi } from "@/api/tools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { readFurniMeshSceneUrl } from "../furnimesh-config";
 
 type FurniMeshResult = {
   model_id?: string;
@@ -70,7 +71,7 @@ export function FurniMeshLibraryPanel({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const sceneWinRef = useRef<Window | null>(null);
-  const SCENE_URL = "http://localhost:8123/";
+  const SCENE_URL = readFurniMeshSceneUrl();
 
   const addToScene = (item: FurniMeshResult) => {
     if (!item.glb_url) return;

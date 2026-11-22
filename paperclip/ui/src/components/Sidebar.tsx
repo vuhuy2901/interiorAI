@@ -192,6 +192,7 @@ function ClassicSidebar({ children }: { children?: ReactNode }) {
           <SidebarNavItem to="/control-center" label="Agent Control / Workflow" icon={Cpu} textBadge="14 Nodes" />
           <SidebarNavItem to="/skills" label="Skills / Skill Studio" icon={Boxes} />
           <SidebarNavItem to="/apps" label="Kết nối AI / MCP" icon={Unplug} />
+          <SidebarNavItem to="/furnimesh" label="FurniMesh 3D" icon={Boxes} />
         </div>
 
         <SidebarSection
