@@ -3466,6 +3466,115 @@ const OfficeNav = (function () {
 })(OfficeNav);
 /* ===== FEAT-2026-161 CORE END ===== */
 
+/* ===== FEAT-2026-162 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const STATES = ['no_desk', 'idle', 'walking', 'waiting_door', 'blocked', 'sitting', 'working', 'meeting', 'leaving'];
+  const TRANSITIONS = {
+    no_desk: ['idle', 'walking', 'blocked', 'meeting', 'leaving'],
+    idle: ['no_desk', 'walking', 'sitting', 'working', 'blocked', 'meeting', 'leaving'],
+    walking: ['idle', 'waiting_door', 'blocked', 'sitting', 'working', 'meeting', 'leaving', 'no_desk'],
+    waiting_door: ['walking', 'blocked', 'idle'],
+    blocked: ['idle', 'walking', 'no_desk', 'sitting', 'working', 'leaving'],
+    sitting: ['idle', 'working', 'walking', 'meeting', 'leaving', 'blocked', 'no_desk'],
+    working: ['sitting', 'idle', 'walking', 'blocked', 'meeting', 'leaving', 'no_desk'],
+    meeting: ['idle', 'walking', 'sitting', 'working', 'leaving'],
+    leaving: ['walking', 'idle', 'no_desk', 'blocked']
+  };
+  const LOG_MAX = 40, SPEED = 1.2;
+  const canTransition = (from, to) => from === to ? STATES.indexOf(to) >= 0 : !!(TRANSITIONS[from] && TRANSITIONS[from].indexOf(to) >= 0);
+  /* đường chuyển ngắn nhất (BFS) từ from tới to chỉ gồm chuyển hợp lệ; trả về các trạng thái SAU from, [] nếu from===to, null nếu không có */
+  function path(from, to) {
+    if (STATES.indexOf(from) < 0 || STATES.indexOf(to) < 0) return null;
+    if (from === to) return [];
+    const prev = { [from]: null }, q = [from];
+    while (q.length) {
+      const s = q.shift();
+      for (const n of TRANSITIONS[s]) if (!(n in prev)) { prev[n] = s; if (n === to) { const r = []; let c = to; while (c !== from) { r.unshift(c); c = prev[c]; } return r; } q.push(n); }
+    }
+    return null;
+  }
+  function createMachine(initial) { return { state: initial || 'idle', target: null, reason: null, task: null, since: 0, log: [], rejected: 0 }; }
+  const pushLog = (m, e) => { m.log.push(e); if (m.log.length > LOG_MAX) m.log.splice(0, m.log.length - LOG_MAX); };
+  /* Đổi trạng thái: kiểm tra hợp lệ; blocked cần reason. info = {target, reason, task}. Cùng trạng thái chỉ cập nhật thông tin (không log, trừ khi lý do chặn đổi). */
+  function setState(m, to, info, now) {
+    info = info || {};
+    if (STATES.indexOf(to) < 0) { m.rejected++; return { ok: false, from: m.state, to, reason: 'Trạng thái không tồn tại' }; }
+    if (to === 'blocked' && !(info.reason && String(info.reason).trim())) { m.rejected++; return { ok: false, from: m.state, to, reason: 'blocked cần lý do' }; }
+    const from = m.state;
+    if (!canTransition(from, to)) { m.rejected++; return { ok: false, from, to, reason: 'Chuyển ' + from + ' -> ' + to + ' không hợp lệ' }; }
+    const changed = from !== to, oldReason = m.reason;
+    if (changed) { m.state = to; m.since = now || 0; }
+    m.target = info.target === undefined ? (changed ? null : m.target) : info.target;
+    m.reason = (to === 'blocked' || to === 'waiting_door') ? (info.reason || null) : null;
+    m.task = info.task === undefined ? (changed && to !== 'working' ? null : m.task) : info.task;
+    if (changed || (to === 'blocked' && m.reason !== oldReason)) pushLog(m, { t: +(now || 0).toFixed(1), from, to, why: m.reason || m.task || m.target || '' });
+    return { ok: true, from, to, changed };
+  }
+  /* Đặt trạng thái đích; nếu chuyển trực tiếp không hợp lệ thì đi qua các bước trung gian hợp lệ */
+  function goTo(m, to, info, now) {
+    if (canTransition(m.state, to)) return setState(m, to, info, now);
+    const p = path(m.state, to); if (!p) return setState(m, to, info, now);
+    let r = null;
+    for (let i = 0; i < p.length; i++) r = setState(m, p[i], i === p.length - 1 ? info : (p[i] === 'blocked' ? { reason: 'chuyển tiếp' } : {}), now);
+    return r;
+  }
+  const etaSeconds = (remaining, speed) => Math.max(0, remaining || 0) / (speed > 0 ? speed : SPEED);
+
+  /* Suy ra trạng thái máy từ quan sát (cờ vật lý + trạng thái kinh doanh). Trả {state, info} hoặc null = giữ nguyên (đang chuyển cảnh). */
+  function deriveFromNav(o) {
+    if (o.leaving) return { state: 'leaving', info: { target: o.target || null } };
+    if (o.blockReason) return { state: 'blocked', info: { reason: o.blockReason, target: o.target || null } };
+    if (o.moving) {
+      if (o.doorWait) return { state: 'waiting_door', info: { reason: 'Chờ cửa ' + (o.doorId || ''), target: o.target || null } };
+      return { state: 'walking', info: { target: o.target || null } };
+    }
+    if (o.transitioning) return null;
+    if (o.business === 'error') return { state: 'blocked', info: { reason: o.task || 'Task tạm dừng' } };
+    if (o.sitting) {
+      if (o.business === 'meeting') return { state: 'meeting', info: {} };
+      if ((o.business === 'working' || o.business === 'thinking') && o.atHome) return { state: 'working', info: { task: o.task || null } };
+      return { state: 'sitting', info: {} };
+    }
+    if (o.business === 'meeting') return { state: 'meeting', info: {} };
+    if (!o.hasDesk) return { state: 'no_desk', info: {} };
+    return { state: 'idle', info: {} };
+  }
+  function statusText(m) {
+    switch (m.state) {
+      case 'no_desk': return 'Chưa có bàn làm việc';
+      case 'idle': return 'Đang rảnh (sẵn sàng nhận nhiệm vụ)';
+      case 'walking': return 'Đang đi' + (m.target ? ' tới ' + m.target : '');
+      case 'waiting_door': return 'Đang chờ cửa' + (m.reason ? ' (' + m.reason + ')' : '');
+      case 'blocked': return 'Bị chặn: ' + (m.reason || 'không rõ lý do');
+      case 'sitting': return 'Đang ngồi';
+      case 'working': return 'Đang làm việc' + (m.task ? ': ' + m.task : '');
+      case 'meeting': return 'Đang họp tại Phòng Họp Kiến Trúc';
+      case 'leaving': return 'Đang rời chỗ ngồi';
+    }
+    return m.state;
+  }
+  function tagText(m, eta) {
+    switch (m.state) {
+      case 'walking': return '→ ' + (m.target || '') + (eta != null ? ' ' + Math.max(0, Math.round(eta)) + 's' : '');
+      case 'waiting_door': return 'chờ cửa';
+      case 'blocked': return '⚠ ' + String(m.reason || '').slice(0, 28);
+      case 'working': return 'làm việc' + (m.task ? ' ' + String(m.task).slice(0, 14) : '');
+      case 'sitting': return 'ngồi';
+      case 'meeting': return 'họp';
+      case 'leaving': return 'rời bàn';
+      case 'no_desk': return 'chưa có bàn';
+      default: return 'rảnh';
+    }
+  }
+  /* Kết quả poll Paperclip -> ý định. api = {ok, agentFound, task}. null = không đổi (API lỗi/tắt/không thấy agent). */
+  function paperclipIntent(api) {
+    if (!api || !api.ok || !api.agentFound) return null;
+    return api.task ? { state: 'working', task: api.task } : { state: 'idle', task: null };
+  }
+  Nav.state = { STATES, TRANSITIONS, LOG_MAX, SPEED, canTransition, path, createMachine, setState, goTo, etaSeconds, deriveFromNav, statusText, tagText, paperclipIntent };
+})(OfficeNav);
+/* ===== FEAT-2026-162 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -4916,6 +5025,87 @@ FEAT160.init();
 FEAT158.afterRefresh.push(() => FEAT160.onNavChanged());
 FEAT160.onNavChanged();
 try { FEAT161.seedLegacyDoors(); } catch (e) { console.warn('[FEAT161] seed', e); }
+/* ===== FEAT-2026-162 PAGE INTEGRATION: máy trạng thái agent, panel, nhãn, đồng bộ Paperclip ===== */
+const FEAT162 = {
+  S: OfficeNav.state, api: { ok: null, at: 0 },
+  ms(ag) { if (!ag.ms) ag.ms = this.S.createMachine(ag.noDesk ? 'no_desk' : 'idle'); return ag.ms; },
+  /* ĐƯỜNG DUY NHẤT đổi trạng thái agent: kiểm tra hợp lệ, log vòng ngắn (không console) */
+  setAgentState(ag, st, info) { return this.S.goTo(this.ms(ag), st, info, sim.t); },
+  roomOf(x, z) { const nav = FEAT159.nav; if (!nav) return null; try { return FEAT159.roomName(OfficeNav.pointInRoom(nav, x, z)); } catch (e) { return null; } },
+  targetName(ag) {
+    const to = ag._navTarget; if (!to) return '';
+    let tag = '';
+    if (ag.home) { const ap = FEAT161.apPt(ag.home); if (Math.hypot(ap.x - to.x, ap.z - to.z) < 0.4) tag = 'bàn làm việc'; }
+    const room = this.roomOf(to.x, to.z);
+    return tag ? (tag + (room ? ' · ' + room : '')) : (room || 'vị trí đã chọn');
+  },
+  observe(ag) {
+    const m = FEAT161.movers.get(ag.id), moving = !!(m && m.pts);
+    const cr = moving && m.crossings ? m.crossings[m.ci] : null;
+    return {
+      moving, doorWait: moving && m.state === 'waiting_door', doorId: cr ? cr.door : '',
+      blockReason: (ag.navBlock && ag.navState === 'blocked') ? ag.navBlock.reason : null,
+      target: moving ? this.targetName(ag) : (ag.navBlock && ag.navBlock.to ? this.targetName({ home: ag.home, _navTarget: ag.navBlock.to }) : ''),
+      sitting: !!ag.sitting, atHome: !!ag.home && ag.seat === ag.home, hasDesk: !ag.noDesk,
+      business: ag.state, task: ag.taskName, transitioning: !!ag.isTransitioning, leaving: !!ag._f162leaving
+    };
+  },
+  eta(ag) { const m = FEAT161.movers.get(ag.id); return (m && m.pts) ? this.S.etaSeconds(m.L - m.s, FEAT161.M.P.V) : null; },
+  deskText(ag) {
+    if (ag.noDesk) return 'Chưa có bàn';
+    const d = (FEAT160.desks || []).find(x => x.agentId === ag.id);
+    return d ? FEAT160.deskLabel(d) : ('Bàn của ' + (ag.shortName || ag.name));
+  },
+  /* dữ liệu cho panel + nhãn */
+  info(ag) {
+    const m = this.ms(ag), p = ag.g.position, eta = this.eta(ag);
+    return {
+      state: m.state, text: this.S.statusText(m), room: this.roomOf(p.x, p.z) || '—', target: m.target || '', eta,
+      desk: this.deskText(ag), task: (m.state === 'working' && m.task) ? m.task : (ag.activeTaskIdentifier ? ag.taskName : ''), reason: m.state === 'blocked' ? (m.reason || '') : (m.state === 'waiting_door' ? (m.reason || '') : ''),
+      tag: this.S.tagText(m, eta)
+    };
+  },
+  statusText(ag) { return this.S.statusText(this.ms(ag)); },
+  ensureTag(ag) {
+    if (!ag.lb) return null;
+    if (!ag._f162tag || ag._f162tag.parentNode !== ag.lb) { const s = document.createElement('span'); s.className = 'f162-tag'; s.style.cssText = 'font-size:9px;color:#94a3b8;font-weight:600;margin-left:4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;'; ag.lb.appendChild(s); ag._f162tag = s; }
+    return ag._f162tag;
+  },
+  updateTag(ag) { const s = this.ensureTag(ag); if (!s) return; const t = this.info(ag).tag; if (s.textContent !== t) s.textContent = t; },
+  tick(ag, force) {
+    const t = performance.now();
+    if (!force && t - (ag._f162t || 0) < 250) return;
+    ag._f162t = t;
+    const d = this.S.deriveFromNav(this.observe(ag));
+    if (d) this.setAgentState(ag, d.state, d.info);
+    if (force || t - (ag._f162u || 0) >= 500) {
+      ag._f162u = t; this.updateTag(ag);
+      try { if (typeof selectedAgent !== 'undefined' && selectedAgent === ag && drawer.style.display !== 'none') openAgentDrawer(ag); } catch (e) {}
+    }
+  },
+  /* panel agent: các dòng thêm cho dTerm */
+  panelLines(ag) {
+    const i = this.info(ag), apiTxt = this.api.ok === false ? 'mất kết nối (giữ trạng thái cục bộ)' : (this.api.ok ? 'đang đồng bộ' : 'chưa đồng bộ');
+    return `> Trạng thái: ${i.text}<br>> Phòng hiện tại: ${i.room}<br>> Đích đến: ${i.target || '—'}${i.eta != null ? ' · ETA ' + i.eta.toFixed(1) + ' s' : ''}<br>> Bàn: ${i.desk}<br>> Task: ${i.task || '—'}<br>> Lý do bị chặn: ${i.state === 'blocked' ? (i.reason || '—') : '—'}<br>> Paperclip: ${apiTxt}<br>`;
+  },
+  /* kết quả poll Paperclip (dữ liệu của luồng poll cũ, không thêm request) */
+  notePoll(ok) { this.api = { ok: !!ok, at: Date.now() }; },
+  dump(id) { const ag = A[id]; return ag && ag.ms ? ag.ms.log.slice() : []; }
+};
+window.FEAT162 = FEAT162;
+window.setAgentState = (ag, st, info) => FEAT162.setAgentState(ag, st, info);
+FEAT161.onBlocked.push((ag, nb) => { try { FEAT162.setAgentState(ag, 'blocked', { reason: nb.reason, target: FEAT162.targetName({ home: ag.home, _navTarget: nb.to }) }); FEAT162.tick(ag, true); } catch (e) {} });
+(function () {
+  const origUpdate = Agent.prototype.update;
+  Agent.prototype.update = function (dt) { origUpdate.call(this, dt); try { FEAT162.tick(this, false); } catch (e) {} };
+  const origSetStatus = Agent.prototype.setStatus;
+  Agent.prototype.setStatus = function () { const r = origSetStatus.apply(this, arguments); try { if (this.g) FEAT162.tick(this, true); } catch (e) {} return r; };
+  const origStand = Agent.prototype.standUp;
+  Agent.prototype.standUp = async function () {
+    this._f162leaving = true; try { FEAT162.setAgentState(this, 'leaving', { target: '' }); } catch (e) {}
+    try { return await origStand.apply(this, arguments); } finally { this._f162leaving = false; try { FEAT162.tick(this, true); } catch (e) {} }
+  };
+})();
 // Restore saved custom agents on startup
 getCustomAgentConfigs().forEach(cfg => spawnCustomAgent(cfg));
 
@@ -5197,6 +5387,8 @@ async function syncLiveCompanyStatus() {
 
     // 6. Ánh xạ trạng thái thực của từng Agent từ Paperclip DB vào mô hình 3D
     const liveAgents = Array.isArray(agentsData) ? agentsData : [];
+    const apiOk = Array.isArray(agentsData) && Array.isArray(issuesData); /* FEAT-2026-162: API lỗi/tắt -> giữ trạng thái cục bộ */
+    FEAT162.notePoll(apiOk);
 
     const LOUNGE_ACTIVITY_LIST = [
       { seatId: 'l_bar1', act: 'coffee', say: 'Thưởng thức Espresso thơm tại quầy bar ☕' },
@@ -5209,7 +5401,7 @@ async function syncLiveCompanyStatus() {
       { seatId: 'l_sofa2', act: 'sofa', say: 'Nghỉ ngơi thư giãn trên sofa nỉ 🛋️' }
     ];
 
-    AGENT_MAPPINGS.forEach((mapping, agentIndex) => {
+    (apiOk ? AGENT_MAPPINGS : []).forEach((mapping, agentIndex) => {
       const agent3D = A[mapping.id];
       if (!agent3D) return;
 
@@ -5403,7 +5595,7 @@ function openAgentDrawer(agent) {
   document.getElementById('dName').textContent = agent.name;
   document.getElementById('dRole').textContent = agent.role;
   const isBusy = agent.state !== 'idle';
-  const stText = agent.state === 'meeting' ? 'Đang họp tại Phòng Họp Kiến Trúc' : isBusy ? `Đang bận: ${agent.taskName || 'Đang xử lý chuyên môn'}` : 'Đang rảnh (Sẵn sàng nhận nhiệm vụ)';
+  const stText = FEAT162.statusText(agent); /* FEAT-2026-162: nguồn trạng thái mới */
   document.getElementById('dStatusTxt').textContent = stText;
   document.getElementById('dTerm').innerHTML = `
     $ ${agent.id}.getAgentStatus()<br>
@@ -5411,7 +5603,8 @@ function openAgentDrawer(agent) {
     > Chuyên môn: ${agent.role}<br>
     > Tình trạng: ${isBusy ? 'BUSY / WORKING' : 'IDLE / READY'}<br>
     > Nhiệm vụ hiện tại: ${agent.taskName || agent.bio}<br>
-    > Workstation: [${agent.cell.join(', ')}]
+    > Workstation: [${agent.cell.join(', ')}]<br>
+    ${FEAT162.panelLines(agent)}
   `;
   document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('selected'));
   if (agent.lb) agent.lb.classList.add('selected');

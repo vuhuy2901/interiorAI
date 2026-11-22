@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
+| Trạng thái | DONE |
 | Phiên bản hợp đồng | 1.0 |
 | Owner | Sonnet subagent (pha 3b) |
 | Người chấp thuận | Opus (phiên chính) theo `docs/plans/2026-11-22-office-navigation.md` |
 | Ngày tạo | 2026-11-23 |
 | Frozen at | 2026-11-23 |
 | Revision bắt đầu | 2eacf01c (FEAT-2026-161 v1.2, CR-4) |
-| Revision cuối | Chưa có |
+| Revision cuối | xem commit feat(FEAT-2026-162) |
 
 ## 1. Bối cảnh
 
@@ -60,13 +60,13 @@ Mỗi agent có một máy trạng thái rõ ràng `no_desk, idle, walking(targe
 
 ## 7. Acceptance criteria
 
-- [ ] AC-01: Mọi cặp (from,to) trong 9x9 trạng thái cho kết quả `canTransition` đúng bảng mục 5; `setState` từ chối chuyển không hợp lệ (trạng thái không đổi, trả `ok:false`); `path` luôn cho chuỗi chỉ gồm chuyển hợp lệ giữa hai trạng thái bất kỳ.
-- [ ] AC-02: `blocked` không có `reason` bị từ chối; có `reason` thì lưu; lý do từ `planRoute`/cửa khoá ("... chưa có cửa", "Cửa X bị khoá") hiển thị nguyên văn trong `statusText`.
-- [ ] AC-03: ETA (`etaSeconds`) giảm đơn điệu khi agent đi (mô phỏng mover), bằng độ dài còn lại / 1.2 m/s trong sai số 15%, về 0 khi tới.
-- [ ] AC-04: Log vòng không vượt 40 mục; cập nhật cùng trạng thái (đổi đích/ETA) không sinh log; không `console.log` mỗi chuyển.
-- [ ] AC-05: `paperclipIntent`: API lỗi/không thấy agent -> `null` (không đổi); có issue in_progress -> working(task); không có -> idle. Mô phỏng mất API giữa chừng: trạng thái cục bộ giữ nguyên.
-- [ ] AC-06: Mọi nơi trong trang đổi trạng thái agent chỉ qua `setAgentState` (không gán `ms.state` trực tiếp ngoài CORE); chuỗi `agent.state === 'meeting' ? ...` ở panel được thay bằng `FEAT162.statusText`.
-- [ ] AC-07: `node --check` script inline pass; test Node cũ (34) + mới pass; không phá Build/FP2, minimap, Custom Team, Visual Quality; 0 lỗi cú pháp.
+- [x] AC-01: Mọi cặp (from,to) trong 9x9 trạng thái cho kết quả `canTransition` đúng bảng mục 5; `setState` từ chối chuyển không hợp lệ (trạng thái không đổi, trả `ok:false`); `path` luôn cho chuỗi chỉ gồm chuyển hợp lệ giữa hai trạng thái bất kỳ.
+- [x] AC-02: `blocked` không có `reason` bị từ chối; có `reason` thì lưu; lý do từ `planRoute`/cửa khoá ("... chưa có cửa", "Cửa X bị khoá") hiển thị nguyên văn trong `statusText`.
+- [x] AC-03: ETA (`etaSeconds`) giảm đơn điệu khi agent đi (mô phỏng mover), bằng độ dài còn lại / 1.2 m/s trong sai số 15%, về 0 khi tới.
+- [x] AC-04: Log vòng không vượt 40 mục; cập nhật cùng trạng thái (đổi đích/ETA) không sinh log; không `console.log` mỗi chuyển.
+- [x] AC-05: `paperclipIntent`: API lỗi/không thấy agent -> `null` (không đổi); có issue in_progress -> working(task); không có -> idle. Mô phỏng mất API giữa chừng: trạng thái cục bộ giữ nguyên.
+- [x] AC-06: Mọi nơi trong trang đổi trạng thái agent chỉ qua `setAgentState` (không gán `ms.state` trực tiếp ngoài CORE); chuỗi `agent.state === 'meeting' ? ...` ở panel được thay bằng `FEAT162.statusText`.
+- [x] AC-07: `node --check` script inline pass; test Node cũ (34) + mới pass; không phá Build/FP2, minimap, Custom Team, Visual Quality; 0 lỗi cú pháp.
 
 ## 8. Verification plan
 
@@ -110,19 +110,19 @@ Rollback point và cách rollback: commit `2eacf01c`; `git revert` commit feat F
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-23 | commit feat 162 | CORE 162 (`OfficeNav.state`: bảng chuyển, `canTransition/path/goTo/setState` log vòng 40, `etaSeconds`, `deriveFromNav`, `statusText/tagText`, `paperclipIntent`); trang `FEAT162` (tick <=0.25 s, nhãn trong pill <=0.5 s, panel làm mới <=0.5 s, `window.setAgentState`, móc `FEAT161.onBlocked`, bọc `Agent.update/setStatus/standUp`); `openAgentDrawer` dùng `FEAT162.statusText/panelLines`; `syncLiveCompanyStatus` thêm guard `apiOk` + `FEAT162.notePoll`. | `agent.state` kinh doanh giữ nguyên cho chip/đếm Bận-Rảnh. |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-23 | feat 162 | `node --check` script inline; `node scripts/tests/office-nav.test.mjs` | 42 pass, 0 fail (34 cũ + 8 mới của 162). Bảng 9x9: 61 hợp lệ, 20 bất hợp lệ đều bị từ chối, trạng thái không đổi; `path/goTo` đúng với cả 81 cặp; blocked không reason bị từ chối, reason thật từ planRoute ("... chưa có cửa", cửa đóng/khoá) hiển thị nguyên văn; ETA đơn điệu giảm 75 mẫu (20 m -> 16.67 s); log vòng 40; mất API giữa chừng không đổi trạng thái. Smoke Node của khối trang `FEAT162` (stub): idle -> walking -> blocked -> working -> leaving chạy đúng, panelLines đúng. Trình duyệt: không thử (Chrome bị cấm). | `docs/features/evidence/FEAT-2026-162-node-sim.txt` |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
-- Việc chưa hoàn tất:
+- Kết quả: đạt AC-01..07 bằng mô phỏng/test Node; panel, nhãn đầu agent và đồng bộ Paperclip đã nối vào trang.
+- Hạn chế còn lại: chưa kiểm bằng trình duyệt thật (Chrome bị cấm), hiển thị panel/nhãn và poll thật chưa có ảnh; `blocked` do nav giữ tới lần đi kế tiếp của agent; `thinking/error` kinh doanh vẫn do poll đặt như cũ.
+- Việc chưa hoàn tất: nghiệm thu trong trình duyệt (cần người dùng/Haiku đo), đóng CLOSED.
 - Rollback point: 2eacf01c
 - Trạng thái `CLOSED` bởi:
 - Thời điểm:

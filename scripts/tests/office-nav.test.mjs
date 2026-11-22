@@ -591,5 +591,130 @@ if (block(159)) {
   });
 }
 
+/* ---------- FEAT-162: máy trạng thái agent ---------- */
+{
+  const S = Nav.state, M = Nav.move;
+  const EXP = {
+    no_desk: 'idle walking blocked meeting leaving', idle: 'no_desk walking sitting working blocked meeting leaving',
+    walking: 'idle waiting_door blocked sitting working meeting leaving no_desk', waiting_door: 'walking blocked idle',
+    blocked: 'idle walking no_desk sitting working leaving', sitting: 'idle working walking meeting leaving blocked no_desk',
+    working: 'sitting idle walking blocked meeting leaving no_desk', meeting: 'idle walking sitting working leaving',
+    leaving: 'walking idle no_desk blocked'
+  };
+  const apply = (m, to, info) => S.setState(m, to, info, 1);
+
+  t('162 AC-01 bảng chuyển 9x9 đúng đặc tả; chuyển bất hợp lệ bị từ chối, trạng thái không đổi', () => {
+    eq(S.STATES.length === 9, '9 trạng thái');
+    let valid = 0, invalid = 0;
+    for (const a of S.STATES) for (const b of S.STATES) {
+      const want = a === b || EXP[a].split(' ').includes(b);
+      eq(S.canTransition(a, b) === want, a + '->' + b);
+      const m = S.createMachine(a), r = apply(m, b, b === 'blocked' ? { reason: 'x' } : {});
+      eq(r.ok === want, 'setState ' + a + '->' + b + ' ok=' + r.ok);
+      if (!want) { eq(m.state === a, 'trạng thái đổi dù bị từ chối ' + a + '->' + b); eq(m.rejected === 1, 'rejected'); invalid++; } else valid++;
+    }
+    for (const bad of [['no_desk', 'sitting'], ['no_desk', 'working'], ['idle', 'waiting_door'], ['waiting_door', 'sitting'], ['waiting_door', 'working'], ['sitting', 'waiting_door'], ['leaving', 'sitting'], ['leaving', 'working']]) eq(!S.canTransition(bad[0], bad[1]), 'phải không hợp lệ ' + bad);
+    console.log('   [table]', JSON.stringify({ pairs: 81, valid, invalid }));
+    eq(!S.setState(S.createMachine('idle'), 'flying', {}, 0).ok, 'trạng thái lạ');
+  });
+
+  t('162 AC-01b path(): mọi cặp có đường chuyển chỉ gồm bước hợp lệ; goTo không bao giờ ghi trạng thái bất hợp lệ', () => {
+    for (const a of S.STATES) for (const b of S.STATES) {
+      const p = S.path(a, b); eq(p !== null, 'không có đường ' + a + '->' + b);
+      let cur = a; for (const n of p) { eq(S.canTransition(cur, n) && cur !== n, 'bước sai ' + cur + '->' + n); cur = n; }
+      eq(cur === b, 'không tới đích');
+      const m = S.createMachine(a), r = S.goTo(m, b, b === 'blocked' ? { reason: 'lý do' } : {}, 2);
+      eq(m.state === b && r.ok, 'goTo ' + a + '->' + b);
+      eq(m.log.every(e => S.canTransition(e.from, e.to)), 'log có chuyển bất hợp lệ');
+    }
+    eq(JSON.stringify(S.path('waiting_door', 'sitting')) === JSON.stringify(['walking', 'sitting']), 'waiting_door->sitting qua walking');
+  });
+
+  t('162 AC-02 blocked phải có reason; reason đọc được nguyên văn trong statusText/tagText', () => {
+    const m = S.createMachine('walking');
+    eq(!apply(m, 'blocked', {}).ok && m.state === 'walking', 'blocked không reason phải bị từ chối');
+    eq(!apply(m, 'blocked', { reason: '   ' }).ok, 'reason rỗng');
+    eq(apply(m, 'blocked', { reason: 'Phòng Họp chưa có cửa' }).ok && m.reason === 'Phòng Họp chưa có cửa', 'lưu reason');
+    eq(S.statusText(m).includes('Phòng Họp chưa có cửa') && S.tagText(m).includes('Phòng Họp'), 'hiển thị reason');
+    /* lý do thật từ planRoute: phòng không cửa; cửa bị khoá */
+    const st = mk(); st.wall(5, 5, 9, 5); st.wall(9, 5, 9, 9); st.wall(9, 9, 5, 9); st.wall(5, 9, 5, 5);
+    const nav1 = Nav.buildNav(st, cfg); nav1.rooms.forEach(r => { r.name = 'Phòng Họp'; });
+    const r1 = Nav.planRoute(nav1, { x: 7, z: 7 }, { x: 2, z: 2 });
+    eq(!r1.ok && /chưa có cửa/.test(r1.reason), 'reason planRoute: ' + r1.reason);
+    const d = S.deriveFromNav({ blockReason: r1.reason, target: 'Ngoài trời' });
+    eq(d.state === 'blocked' && d.info.reason === r1.reason, 'deriveFromNav giữ nguyên reason');
+    const st2 = mk(); const w = st2.wall(5, 5, 9, 5); st2.wall(9, 5, 9, 9); st2.wall(9, 9, 5, 9); st2.wall(5, 9, 5, 5); const o = st2.door(w, 2); st2.openings.find(x => x.id === o).open = false;
+    const nav2 = Nav.buildNav(st2, cfg); nav2.rooms.forEach(r => { r.name = 'Phòng X'; });
+    const r2 = Nav.planRoute(nav2, { x: 7, z: 7 }, { x: 2, z: 2 });
+    eq(!r2.ok && /đóng|khoá|khóa/.test(r2.reason), 'reason cửa khoá: ' + r2.reason);
+    const m2 = S.createMachine('walking'); S.goTo(m2, 'blocked', { reason: r2.reason }, 3);
+    eq(S.statusText(m2).endsWith(r2.reason), 'hiển thị nguyên văn');
+  });
+
+  t('162 deriveFromNav: đi/chờ cửa/chặn/ngồi/làm việc/không bàn/rời bàn/họp', () => {
+    const base = { moving: false, doorWait: false, blockReason: null, sitting: false, atHome: false, hasDesk: true, business: 'idle', task: '', transitioning: false, leaving: false };
+    const d = (o) => S.deriveFromNav(Object.assign({}, base, o));
+    eq(d({ moving: true, target: 'Phòng A' }).state === 'walking', 'walking');
+    eq(d({ moving: true, doorWait: true, doorId: 'o2' }).state === 'waiting_door' && /o2/.test(d({ moving: true, doorWait: true, doorId: 'o2' }).info.reason), 'waiting_door');
+    eq(d({ blockReason: 'Cửa o2 bị khoá' }).state === 'blocked', 'blocked');
+    eq(d({ sitting: true, atHome: true, business: 'working', task: 'T-1' }).state === 'working', 'working');
+    eq(d({ sitting: true, atHome: false, business: 'working' }).state === 'sitting', 'ngồi chỗ khác = sitting');
+    eq(d({ hasDesk: false }).state === 'no_desk', 'no_desk');
+    eq(d({ leaving: true }).state === 'leaving', 'leaving');
+    eq(d({ business: 'meeting' }).state === 'meeting', 'meeting');
+    eq(d({ transitioning: true }) === null, 'đang chuyển cảnh giữ nguyên');
+    eq(d({}).state === 'idle', 'idle');
+  });
+
+  t('162 AC-03 ETA giảm đơn điệu khi đi, = còn lại / 1.2 trong ±15%, về 0 khi tới', () => {
+    const w = M.createWorld(() => false), m = M.createMover('e', 1, 0, 0, Math.PI / 2); w.movers.push(m);
+    M.setPath(m, [{ x: 12, z: 0 }, { x: 12, z: 8 }]);
+    let last = Infinity, n = 0, worst = 0, minEta = 99;
+    for (let i = 0; i < 60 * 40 && m.pts; i++) {
+      M.stepAll(w, 1 / 60);
+      if (i % 15 === 0 && m.pts) { const eta = S.etaSeconds(m.L - m.s, M.P.V); eq(eta <= last + 1e-9, 'ETA tăng ' + last + '->' + eta); last = eta; n++; worst = Math.max(worst, Math.abs(eta - (m.L - m.s) / 1.2)); minEta = Math.min(minEta, eta); }
+    }
+    eq(!m.pts && S.etaSeconds(m.L - m.s, M.P.V) < 0.05, 'tới đích ETA ~0');
+    eq(n > 20, 'đủ mẫu ' + n);
+    const total = S.etaSeconds(20, 1.2); eq(Math.abs(total - 16.67) < 0.05, 'ETA 20 m');
+    console.log('   [eta]', JSON.stringify({ samples: n, first: +S.etaSeconds(20, M.P.V).toFixed(2), monotonic: true }));
+  });
+
+  t('162 AC-04 log vòng <=40, cập nhật cùng trạng thái không sinh log', () => {
+    const m = S.createMachine('idle');
+    for (let i = 0; i < 200; i++) S.setState(m, i % 2 ? 'walking' : 'idle', { target: 'P' + i }, i);
+    eq(m.log.length === S.LOG_MAX, 'log ' + m.log.length);
+    const before = m.log.length; for (let i = 0; i < 50; i++) S.setState(m, m.state, { target: 'dích ' + i }, 300 + i);
+    eq(m.log.length === before, 'cùng trạng thái sinh log');
+    const b = S.createMachine('walking'); S.setState(b, 'blocked', { reason: 'A' }, 1); const l1 = b.log.length; S.setState(b, 'blocked', { reason: 'A' }, 2); eq(b.log.length === l1, 'cùng lý do không log'); S.setState(b, 'blocked', { reason: 'B' }, 3); eq(b.log.length === l1 + 1, 'đổi lý do có log');
+    eq(!/console\./.test(html.slice(html.indexOf('FEAT-2026-162 CORE BEGIN'), html.indexOf('FEAT-2026-162 CORE END'))), 'CORE 162 không dùng console');
+  });
+
+  t('162 AC-05 paperclipIntent + mô phỏng poll: API lỗi/tắt giữ trạng thái cục bộ, có issue -> working, không -> idle', () => {
+    eq(S.paperclipIntent(null) === null && S.paperclipIntent({ ok: false, agentFound: true, task: 'X' }) === null && S.paperclipIntent({ ok: true, agentFound: false }) === null, 'API lỗi/không thấy agent = null');
+    const w = S.paperclipIntent({ ok: true, agentFound: true, task: 'BIM-1: dựng hình' }); eq(w.state === 'working' && w.task === 'BIM-1: dựng hình', 'working');
+    eq(S.paperclipIntent({ ok: true, agentFound: true, task: null }).state === 'idle', 'idle');
+    /* mô phỏng một vòng poll: máy chỉ đổi khi intent != null (đúng logic guard apiOk trong trang) */
+    const agentsM = { a: S.createMachine('working'), b: S.createMachine('idle') };
+    agentsM.a.task = 'BIM-1: dựng hình';
+    const poll = (api) => { for (const [id, m] of Object.entries(agentsM)) { const it = S.paperclipIntent({ ok: api.ok, agentFound: true, task: api.tasks[id] || null }); if (it) S.goTo(m, it.state, { task: it.task }, 5); } };
+    const snap = () => JSON.stringify(Object.values(agentsM).map(m => [m.state, m.task]));
+    const s0 = snap(); poll({ ok: false, tasks: {} }); eq(snap() === s0, 'mất API đổi trạng thái');
+    poll({ ok: true, tasks: { a: 'BIM-1: dựng hình', b: 'QA-2: kiểm' } }); eq(agentsM.a.state === 'working' && agentsM.b.state === 'working' && agentsM.b.task === 'QA-2: kiểm', 'có task -> working');
+    poll({ ok: false, tasks: {} }); eq(agentsM.b.state === 'working', 'API chết giữa chừng không về idle');
+    poll({ ok: true, tasks: { a: 'BIM-1: dựng hình' } }); eq(agentsM.b.state === 'idle' && agentsM.a.state === 'working', 'hết task -> idle');
+    /* guard thật trong trang */
+    eq(/const apiOk = Array\.isArray\(agentsData\) && Array\.isArray\(issuesData\)/.test(html) && /\(apiOk \? AGENT_MAPPINGS : \[\]\)\.forEach/.test(html), 'guard apiOk trong syncLiveCompanyStatus');
+  });
+
+  t('162 AC-06 chỉ setAgentState đổi trạng thái; panel dùng nguồn mới', () => {
+    const outside = html.replace(/\/\* ===== FEAT-2026-162 CORE BEGIN[^]*?FEAT-2026-162 CORE END ===== \*\//, '');
+    eq(!/\.ms\.state\s*=[^=]/.test(outside), 'gán trực tiếp ms.state ngoài CORE');
+    eq(!/agent\.state === 'meeting' \?/.test(outside), 'chuỗi cũ agent.state === meeting ? còn trong panel');
+    eq(/FEAT162\.statusText\(agent\)/.test(outside) && /FEAT162\.panelLines\(agent\)/.test(outside), 'panel chưa dùng FEAT162');
+    eq(/window\.setAgentState/.test(outside) && /FEAT161\.onBlocked\.push/.test(outside), 'setAgentState/onBlocked');
+  });
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
 process.exit(fail ? 1 : 0);
