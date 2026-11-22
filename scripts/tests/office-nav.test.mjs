@@ -13,7 +13,7 @@ function block(n) {
   if (a < 0 || b < 0) return '';
   return html.slice(a, b + e.length);
 }
-const code = block(158) + '\n' + block(159) + '\n' + block(160) + '\n' + block(161) + '\nreturn OfficeNav;';
+const code = block(158) + '\n' + block(159) + '\n' + block(160) + '\n' + block(161) + '\n' + block(162) + '\nreturn OfficeNav;';
 const Nav = new Function(code)();
 
 let pass = 0, fail = 0;
@@ -468,7 +468,126 @@ if (block(159)) {
     }
     console.log('   [rand90]', JSON.stringify({ bad: bad.length, overlapRuns, ghostRuns, worstStuck: +worstStuck.toFixed(2), maxT: +maxT.toFixed(1) }));
     eq(bad.length === 0, 'kịch bản lỗi ' + JSON.stringify(bad.slice(0, 3)));
-    eq(overlapRuns <= 9, 'chồng nhau ' + overlapRuns + '/90');
+    eq(overlapRuns <= 3, 'chồng nhau ' + overlapRuns + '/90 (CR-4: trước 7/90)');
+  });
+}
+
+/* ---------- FEAT-161 CR-4: mặt bằng mặc định, gieo cửa từ khe lưới cũ, mọi agent đi bằng planRoute ---------- */
+{
+  const M = Nav.move, hyp = Math.hypot, W2 = 60, H2 = 64;
+  /* mặt bằng FP2 mặc định: trích từ fp2SeedDefaultWalls */
+  const segSrc = html.match(/fp2SeedDefaultWalls\(\)\{[^]*?const segs=(\[\[[^]*?\]\]);/)[1].replace(/T2/g, '0.15').replace(/H2/g, '2.6');
+  const segs = eval(segSrc);
+  const defaultState = () => { const st = mk(); for (const [x0, z0, x1, z1] of segs) st.wall(x0, z0, x1, z1); return st; };
+  /* lưới cũ xấp xỉ: tường phòng (trừ khe d), hành lang, các khối blk() cấp cao nhất, 9 bàn lõi, cánh nam bị chặn */
+  const legacy = new Uint8Array(W2 * H2);
+  const B = (c, r) => { if (c >= 0 && r >= 0 && c < W2 && r < H2) legacy[r * W2 + c] = 1; };
+  const blk = (a, b, c, d) => { for (let i = a; i <= c; i++) for (let j = b; j <= d; j++) B(i, j); };
+  for (let r = 40; r < H2; r++) for (let c = 0; c < W2; c++) legacy[r * W2 + c] = 1;
+  const roomsSrc = html.slice(html.indexOf('const rooms = ['), html.indexOf('function customFloor'));
+  const wallSet = new Set(), rms = [...roomsSrc.matchAll(/r: \[(\d+), (\d+), (\d+), (\d+)\][^}]*?d: \[(\d+), (\d+)\]/g)].map(m => m.slice(1).map(Number));
+  for (const [c0, r0, c1, r1] of rms) for (let c = c0; c < c1; c++) for (let r = r0; r < r1; r++) if (c === c0 || c === c1 - 1 || r === r0 || r === r1 - 1) wallSet.add(c + ',' + r);
+  for (let r = 16; r < 22; r++) { wallSet.add('0,' + r); wallSet.add('59,' + r); }
+  for (const [, , , , d0, d1] of rms) for (let i = 0; i < 4; i++) wallSet.delete((d0 + i) + ',' + d1);
+  for (const k of wallSet) { const [c, r] = k.split(',').map(Number); B(c, r); }
+  for (const m of html.matchAll(/^blk\((\d+), (\d+), (\d+), (\d+)\);/gm)) blk(+m[1], +m[2], +m[3], +m[4]);
+  const AGsrc = html.slice(html.indexOf('const AG = ['), html.indexOf('AG.forEach(([id, , , , c, r'));
+  const core = [...AGsrc.matchAll(/\['(\w+)', '[^']*', '[^']*', 0x\w+, (\d+), (\d+),/g)].map(m => ({ id: m[1], c: +m[2], r: +m[3] }));
+  for (const a of core) blk(a.c, a.r, a.c + 3, a.r + 1);
+  const walkLegacy = (x, z) => { const c = Math.floor(x / CS), r = Math.floor(z / CS); return c >= 0 && r >= 0 && c < W2 && r < H2 && !legacy[r * W2 + c]; };
+  const nameRooms = nav => nav.rooms.forEach((r, i) => { r.name = 'Phòng ' + (i + 1); });
+  const seeded = () => {
+    const st = defaultState(); let nav = Nav.buildNav(st, cfg);
+    const before = { rooms: nav.rooms.length, doors: nav.doors.filter(d => d.pass).length, noDoor: nav.noDoor.length };
+    const specs = Nav.seed.legacyDoorSpecs(st, walkLegacy);
+    for (const sp of specs) st.door(sp.wallId, sp.offset, sp.type, sp.width);
+    nav = Nav.buildNav(st, cfg); nameRooms(nav);
+    const afterSeed = nav.noDoor.length; let auto = 0;
+    for (let g = 0; g < 30 && nav.noDoor.length; g++) { const sg = Nav.suggestDoor(st, nav, nav.noDoor[0]); if (!sg.ok) break; st.door(sg.wallId, sg.offset, 'door', sg.width); auto++; nav = Nav.buildNav(st, cfg); nameRooms(nav); }
+    return { st, nav, before, specs, afterSeed, auto };
+  };
+  const baseCore = () => new Uint8Array(legacy);
+  const nearestFree = (nav, base, pt) => {
+    const c0 = Math.floor(pt.x / CS), r0 = Math.floor(pt.z / CS);
+    for (let rad = 0; rad <= 5; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) { if (Math.max(Math.abs(dc), Math.abs(dr)) !== rad) continue; if (!Nav.cellBlocked(nav.blocked, W2, H2, base, c0 + dc, r0 + dr)) return rad === 0 ? pt : { x: (c0 + dc + 0.5) * CS, z: (r0 + dr + 0.5) * CS }; }
+    return pt;
+  };
+  const apOf = a => ({ x: (a.c + 1 + 0.5) * CS, z: (a.r + 3 + 0.5) * CS });
+
+  t('161 CR-4 mặt bằng mặc định: 8 phòng, 0 cửa FP2 -> gieo từ khe lưới cũ -> 0 phòng thiếu cửa', () => {
+    const r = seeded();
+    console.log('   [seed]', JSON.stringify({ before: r.before, seeded: r.specs.length, noDoorAfterSeed: r.afterSeed, autoAdd: r.auto, noDoorFinal: r.nav.noDoor.length }));
+    eq(r.before.rooms === 8 && r.before.doors === 0 && r.before.noDoor === 8, 'trạng thái đầu ' + JSON.stringify(r.before));
+    eq(r.specs.length >= 7, 'gieo ' + r.specs.length + ' cửa');
+    eq(r.nav.noDoor.length === 0, 'còn phòng thiếu cửa ' + r.nav.noDoor);
+    const fresh = Nav.buildNav(defaultState(), cfg);
+    eq(Nav.seed.needSeed(false, fresh) && !Nav.seed.needSeed(true, fresh), 'needSeed theo cờ');
+    eq(!Nav.seed.needSeed(false, r.nav), 'đã có cửa thì không gieo lại');
+  });
+
+  t('161 CR-4 cửa gieo nằm đúng khe lối đi cũ (không ở chỗ tường đặc của lưới cũ)', () => {
+    const r = seeded();
+    for (const op of r.st.openings) {
+      const d = Nav.doorInfo(r.st, op);
+      eq(walkLegacy(d.center.x, d.center.z) && walkLegacy(d.frontPt.x, d.frontPt.z) && walkLegacy(d.backPt.x, d.backPt.z), 'cửa ' + op.id + ' lệch khe cũ');
+    }
+  });
+
+  t('161 CR-4 9 agent lõi: mọi bàn tới được mọi bàn khác qua planRoute (72 cặp)', () => {
+    const { nav } = seeded(), base = baseCore(); let n = 0; const bad = [];
+    eq(core.length === 9, 'số agent lõi ' + core.length);
+    nav.cfg.base = base;
+    for (const a of core) for (const b of core) {
+      if (a === b) continue;
+      const r = Nav.planRoute(nav, nearestFree(nav, base, apOf(a)), nearestFree(nav, base, apOf(b))); n++;
+      if (!r.ok) bad.push(a.id + '->' + b.id + ':' + r.reason);
+    }
+    nav.cfg.base = null;
+    console.log('   [reach]', JSON.stringify({ pairs: n, fail: bad.length }));
+    eq(bad.length === 0, bad.length + '/' + n + ' lỗi: ' + bad.slice(0, 4));
+  });
+
+  t('161 CR-4 mô phỏng 9 agent lõi đi chéo giữa các bàn: tới đích, 0 mẫu trong ô tường, không xuyên bàn', () => {
+    const { nav } = seeded(), base = baseCore();
+    const blockedAt = (x, z) => Nav.cellBlocked(nav.blocked, W2, H2, base, Math.floor(x / CS), Math.floor(z / CS));
+    const wallAt = (x, z) => { const c = Math.floor(x / CS), r = Math.floor(z / CS); return c < 0 || r < 0 || c >= W2 || r >= H2 || nav.blocked[r * W2 + c] === 1; };
+    let seed = 5; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    let wallHits = 0, deskHits = 0, arrived = 0, total = 0, rounds = 0, maxStuck = 0, samples = 0;
+    for (let round = 0; round < 6; round++) {
+      const w = M.createWorld(blockedAt);
+      for (const d of nav.doors) if (d.pass) M.addDoor(w, { id: d.id, center: d.center, normal: d.normal, width: d.width, locked: !d.open });
+      const perm = core.map((_, i) => i).sort(() => rnd() - 0.5), ms = [];
+      core.forEach((a, i) => {
+        let tgt = core[perm[i]]; if (tgt === a) tgt = core[(perm[i] + 1) % core.length];
+        const from = nearestFree(nav, base, apOf(a)), to = nearestFree(nav, base, apOf(tgt));
+        nav.cfg.base = base; const r = Nav.planRoute(nav, from, to); nav.cfg.base = null;
+        eq(r.ok, 'route ' + a.id + ': ' + r.reason);
+        const m = M.createMover(a.id, i + 1, from.x, from.z, 0); m.arr = false; m.done = () => { m.arr = true; }; w.movers.push(m); ms.push(m); M.setPath(m, r.waypoints.slice(1)); total++;
+      });
+      for (let k = 0; k < 60 * 120 && !ms.every(m => m.arr); k++) {
+        M.stepAll(w, 1 / 60);
+        for (const m of ms) { samples++; if (wallAt(m.x, m.z)) wallHits++; else if (blockedAt(m.x, m.z)) deskHits++; }
+      }
+      arrived += ms.filter(m => m.arr).length; maxStuck = Math.max(maxStuck, ...ms.map(m => m.maxStuck)); rounds++;
+    }
+    console.log('   [core9]', JSON.stringify({ rounds, agents: total, arrived, samples, wallHits, deskHits, maxStuck: +maxStuck.toFixed(2) }));
+    eq(arrived === total, 'tới đích ' + arrived + '/' + total);
+    eq(wallHits === 0, 'mẫu trong ô tường ' + wallHits);
+    eq(deskHits === 0, 'mẫu trong ô bàn/đồ ' + deskHits);
+  });
+
+  t('161 CR-4 ghost: không bao giờ xuyên tường/bàn; chỉ sau kẹt >=4 s, tối đa 1 s, giữ >=0.3 m giữa agent', () => {
+    eq(M.P.GHOST_AFTER >= 4 && M.P.GHOST_MAX <= 1.0, 'tham số ghost');
+    /* hành lang hẹp 1.0 m, một agent đứng yên chặn lối: agent đi tới không bao giờ vào ô tường */
+    const wallC = (x, z) => Math.abs(z - 5) > 0.5;
+    const w = M.createWorld(wallC), blk2 = M.createMover('s', 9, 6, 5, Math.PI / 2), a = M.createMover('a', 1, 0, 5, Math.PI / 2);
+    w.movers.push(blk2, a); a.done = () => { a.arr = 1; }; M.setPath(a, [{ x: 12, z: 5 }]);
+    let hits = 0, ghostT = 0, firstGhost = -1, minD = 9;
+    for (let i = 0; i < 60 * 40; i++) { M.stepAll(w, 1 / 60); if (wallC(a.x, a.z)) hits++; if (a.ghostT > 0) { ghostT += 1 / 60; if (firstGhost < 0) firstGhost = i / 60; } minD = Math.min(minD, hyp(a.x - blk2.x, a.z - blk2.z)); }
+    console.log('   [ghost]', JSON.stringify({ wallHits: hits, firstGhost: +firstGhost.toFixed(2), ghostSeconds: +ghostT.toFixed(2), minD: +minD.toFixed(2) }));
+    eq(hits === 0, 'xuyên tường ' + hits);
+    eq(firstGhost < 0 || firstGhost >= 4.0, 'ghost sớm ' + firstGhost);
+    eq(minD >= 0.29, 'chồng agent ' + minD);
   });
 }
 

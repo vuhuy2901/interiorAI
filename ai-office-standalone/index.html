@@ -3163,7 +3163,7 @@ const OfficeNav = (function () {
 
 /* ===== FEAT-2026-161 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
 (function (Nav) {
-  const P = { V: 1.2, ACC: 1.5, DEC: 1.8, BRAKE: 3.6, TURN: 4.2, WAIT_OFF: 0.65, ZONE: 1.6, ZONE_IN: 1.9, REQ_RANGE: 4.0, R: 0.25, GAP: 0.6, VDOOR: 0.8, OPEN_R: 1.2, CLOSE_DELAY: 1.5, OPEN_TIME: 0.45, FRAME: 0.45, REQ_D: 1.2, LAT: 0.6, LOOK: 0.4, SUB: 0.05, SEP: 0.42 };
+  const P = { V: 1.2, ACC: 1.5, DEC: 1.8, BRAKE: 3.6, TURN: 4.2, WAIT_OFF: 0.65, ZONE: 1.6, ZONE_IN: 1.9, REQ_RANGE: 4.0, R: 0.25, GAP: 0.6, VDOOR: 0.8, OPEN_R: 1.2, CLOSE_DELAY: 1.5, OPEN_TIME: 0.45, FRAME: 0.45, REQ_D: 1.2, LAT: 0.6, LOOK: 0.4, SUB: 0.05, SEP: 0.42, GHOST_AFTER: 4.0, GHOST_MAX: 1.0, GHOST_SEP: 0.34 };
   const TAU = Math.PI * 2, hyp = Math.hypot;
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
@@ -3388,7 +3388,9 @@ const OfficeNav = (function () {
     if (m.stuckT > 2.0 && m.sideT <= 0 && m.stuckT < 2.0 + dt * 2) m.sideT = 1.5;
     if (m.stuckT > 3.2 && !m.replanned) { m.needReplan = true; m.replanned = true; }
     if (m.stuckT === 0) m.replanned = false;
-    if (m.stuckT > 4.2 && m.ghostT <= 0) { m.ghostT = 1.5; m.sideT = 0; }
+    /* CR-4: ghost chỉ bỏ va chạm với AGENT khác (tường/bàn luôn kiểm ô chặn), sau khi kẹt >=4.0 s và đã thử lệch phải + đổi lượt + tính lại đường, tối đa 1.0 s */
+    if (m.stuckT >= P.GHOST_AFTER && m.replanned && m.ghostT <= 0 && !m.ghostUsed) { m.ghostT = P.GHOST_MAX; m.sideT = 0; m.ghostUsed = true; m.ghostCount = (m.ghostCount || 0) + 1; }
+    if (m.stuckT === 0 && m.ghostT <= 0) m.ghostUsed = false;
     /* tới đích */
     if (m.L - m.s < 0.012) {
       const e = m.pts[n - 1]; m.x = e.x; m.z = e.z; m.s = m.L; m.v = 0; m.ox = 0; m.oz = 0; m.vx = 0; m.vz = 0; m.pts = null; m.state = 'idle'; m.stuckT = 0; m.stillT = 0;
@@ -3418,11 +3420,12 @@ const OfficeNav = (function () {
     /* tách mềm: hai agent không bao giờ chồng lên nhau (bán kính 0.25 m), chỉ đẩy phần lệch của agent đang đi */
     for (let i = 0; i < w.movers.length; i++) for (let j = i + 1; j < w.movers.length; j++) {
       const a = w.movers[i], b = w.movers[j];
-      if (a.ignore || b.ignore || a.ghostT > 0 || b.ghostT > 0) continue;
+      if (a.ignore || b.ignore) continue;
+      const sep = (a.ghostT > 0 || b.ghostT > 0) ? P.GHOST_SEP : P.SEP; /* CR-4: ghost chỉ nới khoảng tách xuống 0.34 m, không chồng hẳn */
       let dx = b.x - a.x, dz = b.z - a.z, d = hyp(dx, dz);
-      if (d >= P.SEP) continue;
+      if (d >= sep) continue;
       if (d < 1e-6) { dx = 1; dz = 0; d = 1; }
-      const push = Math.min(P.SEP - d, 4 * dt), ux = dx / d, uz = dz / d;
+      const push = Math.min(sep - d, (d < 0.36 ? 10 : 4) * dt), ux = dx / d, uz = dz / d;
       /* agent ưu tiên thấp hơn bị đẩy ra; agent đứng yên (không có đường) không bị đẩy */
       const ca = !!a.pts, cb = !!b.pts, lowA = a.eff < b.eff;
       const mv = (m, sx, sz) => { if (w.blocked(m.x + sx, m.z + sz)) return false; m.x += sx; m.z += sz; m.ox += sx; m.oz += sz; return true; };
@@ -3433,6 +3436,33 @@ const OfficeNav = (function () {
   function stepAll(w, dt) { const n = Math.max(1, Math.ceil(dt / P.SUB)); for (let i = 0; i < n; i++) stepOnce(w, dt / n); }
 
   Nav.move = { P, angDiff, smoothAngle, cornerSpeed, stopSpeed, Reservations, pickDoorTurn, doorTick, inFrame, doorLocal, createWorld, addDoor, createMover, setPath, stepAll };
+})(OfficeNav);
+/* CR-4: gieo cửa FP2 từ khe lối đi của lưới cũ (pure). walk(x,z) = ô lưới cũ có đi được không. */
+(function (Nav) {
+  const KEY = 'atelier_fp2_legacydoors_v1', STEP = 0.1, SIDE = 0.6, MIN_RUN = 1.0, MAX_W = 1.2;
+  function legacyDoorSpecs(state, walk) {
+    const openings = (state.openings || []).slice(), st = { nodes: state.nodes, walls: state.walls, openings }, specs = [];
+    for (const wall of [...state.walls.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+      const g = Nav.wallGeom(state, wall); if (!g) continue;
+      const ok = o => { const x = g.n0.x + g.ux * o, z = g.n0.z + g.uz * o; return walk(x, z) && walk(x + g.nx * SIDE, z + g.nz * SIDE) && walk(x - g.nx * SIDE, z - g.nz * SIDE); };
+      let a = null;
+      const flush = b => {
+        if (a == null) return; const len = b - a + STEP, c = (a + b) / 2; a = null;
+        if (len < MIN_RUN) return;
+        const w = Math.min(MAX_W, len - 0.1), v = Nav.validateOpening(st, wall.id, c, 'door', w);
+        if (!v.ok) return;
+        const sp = { wallId: wall.id, offset: v.offset, type: 'door', width: v.width }; specs.push(sp);
+        openings.push({ id: '_seed' + specs.length, wallId: wall.id, offset: sp.offset, type: 'door', width: sp.width, open: true });
+      };
+      let last = 0;
+      for (let o = STEP; o < g.len; o += STEP) { if (ok(o)) { if (a == null) a = o; last = o; } else if (a != null) flush(last); }
+      if (a != null) flush(last);
+    }
+    return specs;
+  }
+  /* Chạy một lần: cần gieo khi có phòng nhưng chưa có cửa đi nào và cờ chưa đặt */
+  const needSeed = (flag, nav) => !flag && !!nav && nav.rooms.length > 0 && !nav.doors.some(d => d.pass);
+  Nav.seed = { KEY, legacyDoorSpecs, needSeed };
 })(OfficeNav);
 /* ===== FEAT-2026-161 CORE END ===== */
 
@@ -4688,7 +4718,22 @@ const FEAT161 = {
     for (const id of [...this.movers.keys()]) if (!keep.has(id)) { const m = this.movers.get(id); if (m.abort) m.abort(); this.movers.delete(id); this.world.movers = this.world.movers.filter(x => x !== m); }
   },
   /* có wall graph -> planRoute qua cửa; chưa có dữ liệu FP2 -> A* cũ (đã làm mượt) */
-  graphMode(ag) { const n = FEAT159.nav; return !!n && (!!ag._f160 || n.doors.some(d => d.pass)); }, /* CR-1: văn phòng mặc định có tường FP2 nhưng 0 cửa (cửa cũ là khe lưới cũ) -> lõi dùng A* cũ tới khi có cửa FP2 đầu tiên */
+  graphMode(ag) { const n = FEAT159.nav; return !!n && (!!ag._f160 || (!!window.FP2 && !!FP2.walls && FP2.walls.size > 0)); }, /* CR-4: có tường FP2 -> MỌI agent đi bằng planRoute; A* cũ chỉ khi không có tường FP2 nào */
+  /* CR-4: gieo cửa FP2 một lần từ khe lối đi của lưới cũ (mặt bằng có phòng nhưng 0 cửa), rồi auto-add FEAT-159 cho phòng còn thiếu. Cờ localStorage: không gieo lại khi người dùng đã xoá cửa. */
+  seedLegacyDoors() {
+    const Sd = OfficeNav.seed; let flag = null; try { flag = localStorage.getItem(Sd.KEY); } catch (e) {}
+    if (!FEAT159.nav) FEAT158.refresh();
+    const nav = FEAT159.nav; let added = 0, auto = 0;
+    if (!Sd.needSeed(flag, nav)) { if (!flag && nav && nav.doors.some(d => d.pass)) try { localStorage.setItem(Sd.KEY, '1'); } catch (e) {} return { seeded: 0, auto: 0 }; }
+    const specs = Sd.legacyDoorSpecs(FEAT158.state(), (x, z) => { const c = Math.floor(x / CS), r = Math.floor(z / CS); return c >= 0 && r >= 0 && c < W && r < H && !blocked[r * W + c]; });
+    for (const sp of specs) { WG.addOpening(sp.wallId, sp.offset, sp.type, sp.width); added++; }
+    if (added) WG.buildMeshes();
+    let guard = 0; while (FEAT159.nav && FEAT159.nav.noDoor.length && guard++ < 30) { if (!FEAT159.addDoorFor(FEAT159.nav.noDoor[0])) break; auto++; }
+    try { fp2Save(); } catch (e) {}
+    try { localStorage.setItem(Sd.KEY, '1'); } catch (e) {}
+    console.info('[FEAT161] gieo cửa từ khe lưới cũ:', added, 'tự thêm:', auto);
+    return { seeded: added, auto };
+  },
   baseFor(ag) {
     const d = FEAT160.baseGrid();
     if (ag._f160) return d;
@@ -4870,6 +4915,7 @@ FEAT158.afterRefresh.push(() => FEAT161.onNavChanged());
 FEAT160.init();
 FEAT158.afterRefresh.push(() => FEAT160.onNavChanged());
 FEAT160.onNavChanged();
+try { FEAT161.seedLegacyDoors(); } catch (e) { console.warn('[FEAT161] seed', e); }
 // Restore saved custom agents on startup
 getCustomAgentConfigs().forEach(cfg => spawnCustomAgent(cfg));
 
