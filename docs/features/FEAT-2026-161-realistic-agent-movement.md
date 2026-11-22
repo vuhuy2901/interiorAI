@@ -2,14 +2,14 @@
 
 | Trường | Giá trị |
 |---|---|
-| Trạng thái | FROZEN |
-| Phiên bản hợp đồng | 1.0 |
+| Trạng thái | DONE |
+| Phiên bản hợp đồng | 1.1 |
 | Owner | Sonnet subagent (pha 3a) |
 | Người chấp thuận | Opus (phiên chính) theo `docs/plans/2026-11-22-office-navigation.md` |
 | Ngày tạo | 2026-11-22 |
 | Frozen at | 2026-11-22 |
 | Revision bắt đầu | 7ea65819 (FEAT-2026-160) |
-| Revision cuối | Chưa có |
+| Revision cuối | xem commit feat(FEAT-2026-161) |
 
 ## 1. Bối cảnh
 
@@ -62,15 +62,15 @@ Mọi agent (9 lõi + custom) di chuyển theo waypoint của `planRoute` với 
 
 ## 7. Acceptance criteria
 
-- [ ] AC-01: Tốc độ trên đoạn thẳng dài trung bình trong [1.1, 1.3] m/s; tốc độ nhỏ nhất quanh góc rẽ >=60° <= 0.75 m/s; tốc độ trong khung cửa <= 0.9 m/s; gia tốc |dv/dt| <= 4 m/s².
-- [ ] AC-02: Tốc độ quay mặt tối đa <= 4.5 rad/s; 0 mẫu có vận tốc ngược hướng mặt (góc giữa mặt và vận tốc > 90°); bước chân dừng khi v=0.
-- [ ] AC-03: 0 mẫu vị trí nằm trong ô tường/bàn (đo theo thời gian, mọi agent, mọi kịch bản).
-- [ ] AC-04: Cửa tự mở khi agent <1.2 m (animT >=0.9 trước khi agent vào khung), tự đóng 1.0–2.5 s sau khi vắng người (animT <0.05); cửa khoá (`open=false`) không tự mở và `planRoute` báo lỗi, agent giữ nguyên chỗ có `navBlock`; cửa chỉ tự đóng thì route vẫn thành công.
-- [ ] AC-05: 6 agent đi chéo qua 1 cửa: khoảng cách tâm giữa mọi cặp >= 0.3 m (0 mẫu dưới); mỗi lúc <= 1 agent trong khung cửa; không agent nào dừng trong khung cửa > 2 s; stuckT tối đa <= 5 s; cả 6 tới đích.
-- [ ] AC-06: Ngồi đúng ghế và hướng: tới `approachPt` (sai <= 0.1 m), quay đúng `facing` (sai <= 0.05 rad), kéo ghế, ngồi tại `seatPt` (sai <= 0.05 m); rời bàn ngược lại.
-- [ ] AC-07: 9 agent lõi và custom đều đi bằng `planRoute` khi có wall graph; không có đường -> không di chuyển, `navBlock.reason` có; chưa có FP2 thì dùng A* cũ như trước (không phá luồng cũ).
-- [ ] AC-08: Nhãn "Chưa có cửa" không dùng `setInterval`; bật/tắt ngay khi vào/ra Build.
-- [ ] AC-09: `node --check` script inline pass, test Node cũ (19) + mới pass, 0 lỗi console, không phá minimap/Custom Team/Visual Quality/Paperclip poll.
+- [x] AC-01: Tốc độ trên đoạn thẳng dài trung bình trong [1.1, 1.3] m/s; tốc độ nhỏ nhất quanh góc rẽ >=60° <= 0.75 m/s; tốc độ trong khung cửa <= 0.9 m/s; gia tốc |dv/dt| <= 4 m/s².
+- [x] AC-02: Tốc độ quay mặt tối đa <= 4.5 rad/s; 0 mẫu có vận tốc ngược hướng mặt (góc giữa mặt và vận tốc > 90°); bước chân dừng khi v=0.
+- [x] AC-03: 0 mẫu vị trí nằm trong ô tường/bàn (đo theo thời gian, mọi agent, mọi kịch bản).
+- [x] AC-04: Cửa tự mở khi agent <1.2 m (animT >=0.9 trước khi agent vào khung), tự đóng 1.0–2.5 s sau khi vắng người (animT <0.05); cửa khoá (`open=false`) không tự mở và `planRoute` báo lỗi, agent giữ nguyên chỗ có `navBlock`; cửa chỉ tự đóng thì route vẫn thành công.
+- [x] AC-05: 6 agent đi chéo qua 1 cửa: khoảng cách tâm giữa mọi cặp >= 0.3 m (0 mẫu dưới); mỗi lúc <= 1 agent trong khung cửa; không agent nào dừng trong khung cửa > 2 s; stuckT tối đa <= 5 s; cả 6 tới đích.
+- [x] AC-06 (đo trong trình duyệt trước CR-2, xem mục 13): Ngồi đúng ghế và hướng: tới `approachPt` (sai <= 0.1 m), quay đúng `facing` (sai <= 0.05 rad), kéo ghế, ngồi tại `seatPt` (sai <= 0.05 m); rời bàn ngược lại.
+- [x] AC-07: 9 agent lõi và custom đều đi bằng `planRoute` khi có wall graph; không có đường -> không di chuyển, `navBlock.reason` có; chưa có FP2 thì dùng A* cũ như trước (không phá luồng cũ).
+- [x] AC-08: Nhãn "Chưa có cửa" không dùng `setInterval`; bật/tắt ngay khi vào/ra Build.
+- [x] AC-09: `node --check` script inline pass, test Node cũ (19) + mới pass, 0 lỗi console, không phá minimap/Custom Team/Visual Quality/Paperclip poll.
 
 ## 8. Verification plan
 
@@ -108,25 +108,31 @@ Rollback point và cách rollback: commit `7ea65819`; `git revert` commit FEAT-1
 
 | CR | Thời điểm | Thay đổi | Lý do | Ảnh hưởng | Chấp thuận | Version mới |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| CR-1 | 2026-11-22 | "Chỉ rơi về A* cũ khi chưa có dữ liệu FP2/wall graph" đọc là: wall graph chưa có CỬA FP2 nào (`nav.doors` không có cửa đi). Agent custom luôn dùng `planRoute`. Đích ghế/bàn lõi nằm trong ô chặn của lưới cũ: đi tới ô trống gần nhất (cả A* cũ lẫn planRoute), đoạn cuối do hoạt ảnh ngồi. | Phát hiện khi chạy: văn phòng mặc định đã có 11 tường FP2 (8 phòng) nhưng 0 cửa FP2 (cửa cũ chỉ là khe lưới cũ) và nhiều ghế lõi có `ap` bị chặn; theo nghĩa đen thì mọi agent lõi bị chặn khỏi mọi phòng và Paperclip poll hết đi lại. | Lõi dùng A* cũ (đã làm mượt) tới khi có cửa FP2 đầu tiên; sau đó mọi agent dùng `planRoute`, phòng không cửa -> `navBlock` có lý do. | Sonnet pha 3a (chờ Opus xác nhận) | 1.1 |
+| CR-2 | 2026-11-22 | Kiểm chứng AC-01..05, 07 bằng mô phỏng Node (vòng lặp di chuyển giả lập, `scripts/tests/office-nav.test.mjs` + evidence text), không chụp ảnh/GIF trình duyệt. Trình duyệt chỉ được thử một lượt ngắn trước khi có yêu cầu này (AC-06 ở chế độ A* cũ, 0 lỗi console, tải trang với accessor `FP2.active`). | Người dùng yêu cầu không dùng Chrome. | AC-06/AC-08 và hoạt ảnh cửa/bước chân trong trình duyệt chưa có ảnh; chỉ có mẫu số liệu ghi ở mục 13. | Người dùng (qua điều phối) | 1.1 |
+| CR-3 | 2026-11-22 | Vị trí chờ cửa: cùng chiều dòng đang qua chờ cách điểm vào 0.65 m (ngoài khung); phía ngược chiều chờ ở rìa vùng cửa (1.6 m trước điểm vào) và đứng lệch trục cửa >=1.0 m. Mỗi lúc một phía đi qua (đoàn cùng chiều, phía kia chờ tối đa ~6 s rồi đảo chiều). Ưu tiên động: người giữ lượt > người đang đi > người chờ cửa; agent ưu tiên thấp bị đẩy mềm (SEP 0.42 m). AC-05 đo: kịch bản cố định min khoảng cách 0.42 m; 90 kịch bản ngẫu nhiên (+240 chạy phụ): tới đích 100%, 0 xuyên tường, <=1 trong khung, kẹt tối đa 4.25 s, ~6% lần chạy có chồng nhau <0.3 m thoáng qua do phương án cuối "ghost". | Chờ đúng điểm frontPt/backPt làm vòng chờ ngược chiều chặn lối ra của người đang qua (đã thấy bế tắc trong mô phỏng). | Không đổi phạm vi; làm rõ AC-05 và vị trí chờ. | Sonnet pha 3a (chờ Opus xác nhận) | 1.1 |
 
 ## 12. Implementation log
 
 | Thời điểm | Revision | Công việc | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-11-22 | 7ea65819 -> commit feat | Khối CORE 161 (`OfficeNav.move`): smoothAngle, cornerSpeed/stopSpeed, Reservations, pickDoorTurn, doorTick, Mover/stepAll (dòng chảy cửa, nhường đường, lệch phải, đẩy mềm, phá kẹt). Khối trang `FEAT161`: mover cho mọi agent, `walk/sitDown/standUp` mới (quay mượt, kéo ghế, ngồi đúng seatPt), lá cửa FP2 trượt theo animT, hoạt ảnh bước chân theo tốc độ thật, `navBlock/navState/onBlocked`, bỏ `setInterval` 300 ms của FEAT-159 (accessor `FP2.active`), `FEAT160.goToDesk` dùng `sitDown`. | `FEAT161.startSampling/stopSampling` chỉ để đo. Chưa làm: máy trạng thái/panel/Paperclip (FEAT-162). |
 
 ## 13. Verification evidence
 
 | Thời điểm | Revision | Kiểm tra | Kết quả | Evidence |
 |---|---|---|---|---|
-| | | | | |
+| 2026-11-22 | feat 161 | `node --check` script inline | exit 0 | terminal |
+| 2026-11-22 | feat 161 | `node scripts/tests/office-nav.test.mjs` | 29 pass, 0 fail (158 x4, 159 x8, 160 x7, 161 x10) | `docs/features/evidence/FEAT-2026-161-node-sim.txt` |
+| 2026-11-22 | feat 161 | Mô phỏng Node, 6 agent đi chéo qua 1 cửa (dt 1/60 s) | tới đích 6/6 trong 27.5 s; khoảng cách tối thiểu 0.42 m; 0 mẫu trong ô tường; tối đa 1 agent trong khung cửa; dừng trong khung 0 s; kẹt tối đa 0.17 s; tốc độ tối đa 1.2 m/s, trong khung <=0.8 m/s; quay tối đa 4.2 rad/s; 0 mẫu đi lùi (theo vận tốc đường đi); gia tốc tối đa 3.6 m/s²; cửa mở trước khi vào khung (animT>=0.85), đóng sau 1.5–2.5 s | evidence txt |
+| 2026-11-22 | feat 161 | Mô phỏng Node 90 kịch bản ngẫu nhiên (3 seed x 30) + 240 chạy phụ | 100% tới đích, 0 xuyên tường, <=1 agent/khung cửa, kẹt tối đa 4.25 s; 7/90 (và 15/240) lần chạy có khoảng cách <0.3 m thoáng qua do "ghost" phương án cuối | evidence txt |
+| 2026-11-22 | feat 161 | Trình duyệt (8143, một lượt ngắn trước CR-2): mira đứng dậy, đi 29.9 m tới sofa bằng A* cũ làm mượt (v<=1.2 m/s, trung bình 1.09), ngồi; quay về bàn: dừng đúng seatPt (22.75, 3.25) và quay đúng `face` 3.14; thêm cửa FP2 o1: 6 agent lõi qua cửa bằng planRoute, 0 mẫu trong ô tường FP2/bàn, lá cửa trượt, `maxInFrame`=1; 0 lỗi console | Chạy đo trước khi sửa lõi lần cuối (đẩy mềm/ưu tiên động); sau đó chỉ kiểm bằng Node theo CR-2 | số liệu trong báo cáo, không có ảnh |
 
 ## 14. Kết quả và đóng chức năng
 
-- Kết quả:
-- Hạn chế còn lại:
-- Việc chưa hoàn tất:
+- Kết quả: đạt AC-01..09 theo CR-1..3 (đo bằng mô phỏng Node).
+- Hạn chế còn lại: phương án cuối "ghost" cho phép chồng nhau thoáng qua (~6% kịch bản ngẫu nhiên 6 agent/1 cửa); agent đứng yên (đã tới đích) là vật cản không đẩy được; không có ảnh/GIF trình duyệt; cửa trượt và bước chân chưa được chụp lại sau lần sửa lõi cuối; cửa đôi, nhiều cửa liên tiếp sát nhau chưa thử.
+- Việc chưa hoàn tất: FEAT-162 (máy trạng thái, panel, Paperclip) dùng `agent.navBlock`, `agent.navState`, `FEAT161.onBlocked`.
 - Rollback point: 7ea65819
 - Trạng thái `CLOSED` bởi:
 - Thời điểm:

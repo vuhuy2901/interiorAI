@@ -3161,6 +3161,281 @@ const OfficeNav = (function () {
 })(OfficeNav);
 /* ===== FEAT-2026-160 CORE END ===== */
 
+/* ===== FEAT-2026-161 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const P = { V: 1.2, ACC: 1.5, DEC: 1.8, BRAKE: 3.6, TURN: 4.2, WAIT_OFF: 0.65, ZONE: 1.6, ZONE_IN: 1.9, REQ_RANGE: 4.0, R: 0.25, GAP: 0.6, VDOOR: 0.8, OPEN_R: 1.2, CLOSE_DELAY: 1.5, OPEN_TIME: 0.45, FRAME: 0.45, REQ_D: 1.2, LAT: 0.6, LOOK: 0.4, SUB: 0.05, SEP: 0.42 };
+  const TAU = Math.PI * 2, hyp = Math.hypot;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+  /* Quay mượt có giới hạn tốc độ quay (rad/s) */
+  function smoothAngle(cur, target, dt, maxRate) {
+    const d = angDiff(cur, target), lim = Math.min(maxRate || P.TURN, Math.abs(d) * 10 + 0.3) * dt;
+    return cur + Math.sign(d) * Math.min(Math.abs(d), lim);
+  }
+  /* Tốc độ tại góc rẽ (ang = góc đổi hướng, rad) */
+  const cornerSpeed = ang => Math.max(0.3, 1.2 * (1 - 1.35 * Math.min(ang, Math.PI) / Math.PI));
+  /* Tốc độ tối đa để còn dừng được sau d mét (giảm tốc DEC) */
+  const stopSpeed = d => Math.sqrt(2 * P.DEC * Math.max(0, d));
+
+  /* Đặt trước ô theo cửa sổ thời gian ngắn */
+  class Reservations {
+    constructor(CS) { this.CS = CS || 0.5; this.map = new Map(); }
+    clear() { this.map.clear(); }
+    add(id, x, z, t) { const k = Math.floor(x / this.CS) + ',' + Math.floor(z / this.CS); let a = this.map.get(k); if (!a) this.map.set(k, a = []); a.push({ id, x, z, t }); }
+    conflict(id, x, z, t, win, dist) {
+      win = win == null ? 0.4 : win; dist = dist == null ? 0.55 : dist;
+      const c = Math.floor(x / this.CS), r = Math.floor(z / this.CS);
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+        const a = this.map.get((c + dc) + ',' + (r + dr)); if (!a) continue;
+        for (const e of a) if (e.id !== id && Math.abs(e.t - t) <= win && hyp(e.x - x, e.z - z) < dist) return e.id;
+      }
+      return null;
+    }
+  }
+
+  /* Chọn lượt qua cửa: người đang giữ lượt giữ tiếp; không thì người chờ lâu nhất, hoà: gần hơn, rồi ưu tiên cao hơn. */
+  function pickDoorTurn(reqs, holder, lastSide) {
+    if (holder != null && reqs.some(r => r.id === holder)) return holder;
+    if (!reqs.length) return null;
+    const cmp = (a, b) => (b.wait - a.wait) || (a.dist - b.dist) || (b.prio - a.prio);
+    let pool = reqs;
+    /* giữ dòng người cùng chiều (đoàn) trừ khi phía đối diện đã chờ quá 6 s (chống bỏ đói) */
+    if (lastSide != null) {
+      const same = reqs.filter(r => r.side === lastSide), opp = reqs.filter(r => r.side !== lastSide);
+      if (same.length && !(opp.length && Math.max(...opp.map(r => r.wait)) > 6)) pool = same;
+    }
+    return pool.slice().sort(cmp)[0].id;
+  }
+
+  /* Cửa tự động: mở khi có người <OPEN_R, đóng sau CLOSE_DELAY khi vắng; cửa khoá (locked) không tự mở. */
+  function doorTick(d, anyNear, now, dt) {
+    if (d.locked) d.target = 0;
+    else if (anyNear) { d.target = 1; d.lastPresent = now; }
+    else if (now - d.lastPresent >= P.CLOSE_DELAY) d.target = 0;
+    d.animT += clamp(d.target - d.animT, -dt / P.OPEN_TIME, dt / P.OPEN_TIME);
+  }
+  const doorLocal = (D, x, z) => { const dx = x - D.center.x, dz = z - D.center.z; return { n: dx * D.normal.x + dz * D.normal.z, t: dx * -D.normal.z + dz * D.normal.x }; };
+  const inFrame = (D, x, z) => { const l = doorLocal(D, x, z); return Math.abs(l.n) < P.FRAME && Math.abs(l.t) < D.width / 2 + 0.25; };
+
+  function createWorld(blocked) { return { now: 0, movers: [], doors: new Map(), blocked: blocked || (() => false), res: new Reservations(0.5) }; }
+  function addDoor(w, info) {
+    const old = w.doors.get(info.id);
+    const D = { id: info.id, center: info.center, normal: info.normal, width: info.width, locked: !!info.locked, animT: old ? old.animT : 0, target: old ? old.target : 0, lastPresent: old ? old.lastPresent : -1e9, holder: old ? old.holder : null, since: old ? old.since : new Map(), flowSide: old ? old.flowSide : null, closing: false, flowUntil: old ? old.flowUntil : -1e9 };
+    w.doors.set(info.id, D); return D;
+  }
+  function createMover(id, prio, x, z, yaw) {
+    return { id, prio, x, z, yaw: yaw || 0, v: 0, s: 0, L: 0, pts: null, cum: null, ox: 0, oz: 0, vx: 0, vz: 0, stuckT: 0, stillT: 0, ghostT: 0, sideT: 0, needReplan: false, state: 'idle', ignore: false, crossings: [], ci: 0, hx: 0, hz: 1, done: null, maxStill: 0, maxStuck: 0, blockedHits: 0 };
+  }
+  function setPath(m, pts) {
+    const a = [];
+    const push = p => { if (!a.length || hyp(a[a.length - 1].x - p.x, a[a.length - 1].z - p.z) > 1e-3) a.push({ x: p.x, z: p.z, door: p.door, kind: p.kind }); else if (p.kind) { const q = a[a.length - 1]; q.door = p.door; q.kind = p.kind; } };
+    push({ x: m.x, z: m.z }); for (const p of pts || []) push(p);
+    m.ox = 0; m.oz = 0; m.s = 0; m.ci = 0; m.crossings = []; m.stuckT = 0; m.needReplan = false;
+    if (a.length < 2) { m.pts = null; m.cum = null; m.L = 0; m.state = 'idle'; return false; }
+    const cum = [0]; for (let i = 1; i < a.length; i++) cum.push(cum[i - 1] + hyp(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z));
+    for (let i = 0; i + 1 < a.length; i++) if (a[i].kind === 'front' && a[i + 1].kind === 'back' && a[i].door === a[i + 1].door) m.crossings.push({ door: a[i].door, e: cum[i], x: cum[i + 1], ex: a[i].x, ez: a[i].z });
+    m.pts = a; m.cum = cum; m.L = cum[cum.length - 1]; m.state = 'walking'; return true;
+  }
+  function segAt(m, s) {
+    let i = 0; while (i < m.pts.length - 2 && m.cum[i + 1] <= s) i++;
+    const len = m.cum[i + 1] - m.cum[i] || 1, a = m.pts[i], b = m.pts[i + 1], u = clamp((s - m.cum[i]) / len, 0, 1);
+    return { i, x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u, fx: (b.x - a.x) / len, fz: (b.z - a.z) / len };
+  }
+  const headingOf = (m, i) => Math.atan2(m.pts[i + 1].x - m.pts[i].x, m.pts[i + 1].z - m.pts[i].z);
+
+  function arbitrate(w) {
+    for (const D of w.doors.values()) {
+      const reqs = [], seen = new Set();
+      for (const m of w.movers) {
+        const cr = m.pts && m.crossings[m.ci];
+        if (!cr || cr.door !== D.id || cr.e - m.s >= P.REQ_RANGE) continue;
+        if (!D.since.has(m.id)) D.since.set(m.id, w.now);
+        seen.add(m.id);
+        reqs.push({ id: m.id, wait: w.now - D.since.get(m.id), dist: Math.max(0, cr.e - m.s), prio: m.prio, side: Math.sign(doorLocal(D, cr.ex, cr.ez).n), ex: cr.ex, ez: cr.ez });
+      }
+      for (const id of [...D.since.keys()]) if (!seen.has(id)) D.since.delete(id);
+      if (D.holder != null) {
+        const h = w.movers.find(x => x.id === D.holder), cr = h && h.pts && h.crossings[h.ci];
+        if (!cr || cr.door !== D.id) D.holder = null;
+      }
+      D.reqCount = reqs.length;
+      /* dòng chảy: mỗi lúc chỉ một phía đi qua (đoàn cùng chiều); phía kia chờ ở rìa vùng cửa, không vây quanh lối ra */
+      const act = reqs.filter(q => q.side === D.flowSide && q.dist < P.ZONE_IN + 0.6);
+      const clear = !w.movers.some(o => !o.ignore && hyp(o.x - D.center.x, o.z - D.center.z) < 1.7);
+      if (D.holder == null && reqs.length && (D.flowSide == null || clear) && (D.flowSide == null || !act.length || (D.closing && !reqs.some(q => q.side === D.flowSide && q.dist < P.ZONE_IN)))) {
+        D.flowSide = reqs.slice().sort((a, b) => (b.wait - a.wait) || (a.dist - b.dist) || (b.prio - a.prio))[0].side; D.closing = false;
+      }
+      if (D.flowSide != null && reqs.some(q => q.side !== D.flowSide && q.wait > 6)) D.closing = true;
+      if (D.holder == null && reqs.length) {
+        const busy = w.movers.some(o => !o.ignore && inFrame(D, o.x, o.z));
+        const free = reqs.filter(q => q.side === D.flowSide && q.dist < P.ZONE_IN + 0.6 && !w.movers.some(o => o.id !== q.id && !o.ignore && hyp(o.x - q.ex, o.z - q.ez) < 0.5));
+        const pick = busy ? null : pickDoorTurn(free, null, D.flowSide);
+        if (pick != null) D.holder = pick;
+      }
+    }
+  }
+
+  function stepMover(w, m, dt) {
+    if (!m.pts) { m.v = 0; m.stuckT = 0; m.stillT = 0; return; }
+    const sg = segAt(m, m.s), f = { x: sg.fx, z: sg.fz }, r = { x: -f.z, z: f.x }, n = m.pts.length;
+    let vT = P.V;
+    vT = Math.min(vT, stopSpeed(m.L - m.s), 2 * (m.L - m.s) + 0.02);
+    for (let i = sg.i + 1; i < n - 1; i++) {
+      const dd = m.cum[i] - m.s; if (dd > 3) break;
+      const ang = Math.abs(angDiff(headingOf(m, i - 1), headingOf(m, i)));
+      if (ang >= 0.35) vT = Math.min(vT, Math.sqrt(cornerSpeed(ang) ** 2 + 2 * P.DEC * dd));
+    }
+    /* cửa */
+    const cr = m.crossings[m.ci], D = cr && w.doors.get(cr.door);
+    let waitingDoor = false, legit = false, noLat = false, waitOff = null;
+    if (cr && D) {
+      const dEntry = cr.e - m.s;
+      if (dEntry < 1.5) noLat = true;
+      if (D.holder === m.id) {
+        if (D.animT >= 0.9) { if (m.s > cr.e - 0.5) vT = Math.min(vT, P.VDOOR); if (hyp(m.ox, m.oz) > 0.15 && dEntry < 0.6) vT = Math.min(vT, 0.25); }
+        else if (dEntry > -0.01) vT = Math.min(vT, stopSpeed(dEntry - 0.03));
+      } else if (dEntry > -0.01) {
+        const mySide = Math.sign(doorLocal(D, cr.ex, cr.ez).n), notMine = D.flowSide != null && mySide !== D.flowSide;
+        if (notMine || (D.closing && dEntry > P.ZONE_IN)) {
+          /* phía kia đang qua: chờ ở rìa vùng cửa (ZONE trước điểm vào) để không chặn lối ra */
+          vT = Math.min(vT, stopSpeed(dEntry - P.ZONE - 0.03));
+          /* đứng lệch sang bên trục cửa (>=1.0 m) để chừa lối đi cho dòng đang qua */
+          if (dEntry < P.ZONE + 1.8) {
+            const tx0 = -D.normal.z, tz0 = D.normal.x, l = (sg.x - D.center.x) * tx0 + (sg.z - D.center.z) * tz0, sd = Math.abs(l) > 0.2 ? Math.sign(l) : (m.prio % 2 ? 1 : -1);
+            if (Math.abs(l) < 1.0) waitOff = { x: tx0 * sd * (1.0 - Math.abs(l)), z: tz0 * sd * (1.0 - Math.abs(l)) };
+          }
+          if (dEntry < P.ZONE + 0.35) { waitingDoor = true; legit = true; }
+        } else {
+          /* cùng chiều: dừng ở vùng chờ WAIT_OFF trước điểm vào (frontPt/backPt), ngoài khung cửa */
+          vT = Math.min(vT, stopSpeed(dEntry - P.WAIT_OFF - 0.03));
+          if (dEntry < P.WAIT_OFF + 0.35) { waitingDoor = true; legit = D.holder != null; }
+        }
+      }
+    }
+    if (cr && m.s > cr.e - 0.5) noLat = true;
+    /* tránh nhau */
+    let headOn = false, obstacleSide = 0, qLegit = false;
+    for (const o of w.movers) {
+      if (o === m || o.ignore) continue;
+      const dx = o.x - m.x, dz = o.z - m.z, dist = hyp(dx, dz);
+      if (dist > 2.6 || dist < 1e-6) continue;
+      const fwd = dx * f.x + dz * f.z, lat = dx * r.x + dz * r.z;
+      if (fwd <= 0 && dist > P.GAP * 0.9) continue;
+      const oMoving = !!o.pts && o.v > 0.15, oActive = !!o.pts && o.state !== 'waiting_door', cosH = oActive ? o.hx * f.x + o.hz * f.z : 1;
+      const inLane = Math.abs(lat) < 0.45;
+      if (oActive && cosH < -0.5 && fwd > 0 && fwd < 2.5 && Math.abs(lat) < 0.8) headOn = true;
+      if (m.ghostT > 0) continue;
+      if (fwd > 0 && inLane && fwd < 1.6) {
+        if (headOn && oActive && dist > 0.9) { /* lệch phải xử lý */ }
+        else if (!o.pts || o.eff > m.eff) { vT = Math.min(vT, Math.max(0, fwd - P.GAP) * 1.8); if (o.legit) qLegit = true; }
+      }
+      if (!oMoving && o.state !== 'waiting_door' && inLane && fwd > 0 && fwd < 1.8) obstacleSide = lat > 0 ? -1 : 1;
+    }
+    /* đặt trước ô: nhường agent ưu tiên cao hơn đang di chuyển */
+    if (m.ghostT <= 0 && !headOn) for (let k = 2; k <= 5; k++) {
+      const p = segAt(m, Math.min(m.L, m.s + m.v * 0.2 * k)), c = w.res.conflict(m.id, p.x, p.z, w.now + 0.2 * k);
+      if (c != null) { const o = w.movers.find(x => x.id === c); if (o && o.pts && o.v > 0.15 && o.eff > m.eff) { vT = Math.min(vT, k <= 3 ? 0 : 0.3); break; } }
+    }
+    /* độ lệch phải */
+    let tx = 0, tz = 0, rate = 0.9 * clamp(0.25 + m.v / 0.6, 0, 1);
+    if (m.sideT > 0) { const sgn = obstacleSide || 1; tx = r.x * sgn * P.LAT; tz = r.z * sgn * P.LAT; m.sideT -= dt; rate = Math.max(rate, 0.5); } else if (headOn) { tx = r.x * P.LAT; tz = r.z * P.LAT; rate = Math.max(rate, 0.4); } else if (obstacleSide) { tx = r.x * obstacleSide * P.LAT; tz = r.z * obstacleSide * P.LAT; rate = Math.max(rate, 0.4); }
+    if (noLat || m.cum[sg.i + 1] - m.s < 1.0 || m.s - m.cum[sg.i] < 0.15) { tx = 0; tz = 0; }
+    if (waitOff) { tx = waitOff.x; tz = waitOff.z; rate = m.v > 0.3 ? 0.6 : 0; }
+    /* nhường đường: đang đứng/chậm mà có người đi tới thẳng chỗ mình -> bước sang bên (không chặn người đang qua) */
+    if (m.v < 0.4 && m.ghostT <= 0) {
+      for (const o of w.movers) {
+        if (o === m || o.ignore || !o.pts) continue;
+        const oSlow = o.v < 0.3;
+        if (!(o.eff > m.eff)) continue; /* chỉ nhường agent có ưu tiên cao hơn (người giữ lượt cửa luôn cao nhất) */
+        const dx = m.x - o.x, dz = m.z - o.z, along = dx * o.hx + dz * o.hz;
+        if (along <= 0 || along > (oSlow ? 1.3 : 1.8)) continue;
+        const rox = -o.hz, roz = o.hx, lt = dx * rox + dz * roz;
+        if (Math.abs(lt) >= 0.6) continue;
+        const sg3 = lt === 0 ? (m.prio > o.prio ? 1 : -1) : Math.sign(lt), need = Math.min(0.9, 0.75 - Math.abs(lt) + 0.0);
+        tx = m.ox + rox * sg3 * need; tz = m.oz + roz * sg3 * need; rate = 0.7; break;
+      }
+    }
+    const ex = tx - m.ox, ez = tz - m.oz, el = hyp(ex, ez), offHead = null;
+    /* mặt: hướng nhìn trước; tốc độ bị chặn khi mặt lệch hướng đi (không lùi, quay tại chỗ trước) */
+    const look = segAt(m, Math.min(m.L, m.s + P.LOOK));
+    const headT = (hyp(look.x - sg.x, look.z - sg.z) > 0.05) ? Math.atan2(look.x - sg.x, look.z - sg.z) : Math.atan2(f.x, f.z);
+    m.yaw = smoothAngle(m.yaw, headT, dt);
+    if (el > 1e-6) { const lim = rate * dt; if (el > lim) { m.ox += ex / el * lim; m.oz += ez / el * lim; } else { m.ox = tx; m.oz = tz; } }
+    vT = Math.min(vT, P.V * clamp((1.2 - Math.abs(angDiff(m.yaw, headT))) / 0.85, 0, 1));
+    if (m.ghostT > 0) m.ghostT -= dt;
+    m.v = vT < m.v ? Math.max(vT, m.v - P.BRAKE * dt) : Math.min(vT, m.v + P.ACC * dt);
+    m.s = Math.min(m.L, m.s + m.v * dt);
+    /* vị trí = điểm trên đường + lệch phải; không bao giờ vào ô chặn */
+    const sg2 = segAt(m, m.s);
+    let guard = 0;
+    while (hyp(m.ox, m.oz) > 0.01 && guard++ < 6) {
+      const ol = hyp(m.ox, m.oz), ux = m.ox / ol, uz = m.oz / ol;
+      if (!(w.blocked(sg2.x + m.ox, sg2.z + m.oz) || w.blocked(sg2.x + m.ox + ux * 0.15, sg2.z + m.oz + uz * 0.15))) break;
+      m.ox *= 0.5; m.oz *= 0.5;
+    }
+    if (hyp(m.ox, m.oz) <= 0.01) { m.ox = 0; m.oz = 0; }
+    const px = m.x, pz = m.z;
+    m.x = sg2.x + m.ox; m.z = sg2.z + m.oz; m.hx = sg2.fx; m.hz = sg2.fz;
+    m.vx = (m.x - px) / dt; m.vz = (m.z - pz) / dt;
+    /* nhả lượt cửa khi ra khỏi khung */
+    if (cr && m.s >= cr.x) { if (D && D.holder === m.id) { D.holder = null; D.flowUntil = w.now + 0.8; } m.ci++; }
+    m.state = waitingDoor ? 'waiting_door' : (m.v < 0.06 ? 'yielding' : 'walking');
+    if (qLegit && m.v < 0.3) legit = true; /* xếp hàng sau người đang chờ cửa hợp lệ */
+    m.legit = legit;
+    /* kẹt / phá kẹt */
+    if (m.v < 0.06 && !legit) { m.stuckT += dt; m.stillT += dt; } else if (m.v >= 0.15) { m.stuckT = 0; m.stillT = 0; } else if (legit) m.stuckT = 0;
+    m.maxStill = Math.max(m.maxStill, m.stillT); m.maxStuck = Math.max(m.maxStuck, m.stuckT);
+    if (m.stuckT > 2.0 && m.sideT <= 0 && m.stuckT < 2.0 + dt * 2) m.sideT = 1.5;
+    if (m.stuckT > 3.2 && !m.replanned) { m.needReplan = true; m.replanned = true; }
+    if (m.stuckT === 0) m.replanned = false;
+    if (m.stuckT > 4.2 && m.ghostT <= 0) { m.ghostT = 1.5; m.sideT = 0; }
+    /* tới đích */
+    if (m.L - m.s < 0.012) {
+      const e = m.pts[n - 1]; m.x = e.x; m.z = e.z; m.s = m.L; m.v = 0; m.ox = 0; m.oz = 0; m.vx = 0; m.vz = 0; m.pts = null; m.state = 'idle'; m.stuckT = 0; m.stillT = 0;
+      if (D && D.holder === m.id) D.holder = null;
+      const cb = m.done; m.done = null; if (cb) cb(true);
+    }
+  }
+
+  function stepOnce(w, dt) {
+    w.now += dt;
+    w.res.clear();
+    for (const m of w.movers) {
+      if (m.ignore) continue;
+      if (!m.pts) { for (let k = 0; k <= 5; k++) w.res.add(m.id, m.x, m.z, w.now + 0.2 * k); continue; }
+      for (let k = 0; k <= 5; k++) { const p = segAt(m, Math.min(m.L, m.s + m.v * 0.2 * k)); w.res.add(m.id, p.x, p.z, w.now + 0.2 * k); }
+    }
+    arbitrate(w);
+    for (const m of w.movers) m.isHolder = false;
+    for (const D of w.doors.values()) if (D.holder != null) { const h = w.movers.find(x => x.id === D.holder); if (h) h.isHolder = true; }
+    for (const m of w.movers) m.eff = (m.isHolder ? 1e6 : 0) + (m.state === 'waiting_door' && !m.isHolder ? -1e6 : 0) + m.prio; /* người chờ cửa có ưu tiên thấp nhất: nhường mọi người đang đi */
+    for (const D of w.doors.values()) {
+      let near = D.holder != null;
+      if (!near) for (const m of w.movers) if (!m.ignore && hyp(m.x - D.center.x, m.z - D.center.z) < P.OPEN_R) { near = true; break; }
+      doorTick(D, near, w.now, dt);
+    }
+    for (const m of w.movers) stepMover(w, m, dt);
+    /* tách mềm: hai agent không bao giờ chồng lên nhau (bán kính 0.25 m), chỉ đẩy phần lệch của agent đang đi */
+    for (let i = 0; i < w.movers.length; i++) for (let j = i + 1; j < w.movers.length; j++) {
+      const a = w.movers[i], b = w.movers[j];
+      if (a.ignore || b.ignore || a.ghostT > 0 || b.ghostT > 0) continue;
+      let dx = b.x - a.x, dz = b.z - a.z, d = hyp(dx, dz);
+      if (d >= P.SEP) continue;
+      if (d < 1e-6) { dx = 1; dz = 0; d = 1; }
+      const push = Math.min(P.SEP - d, 4 * dt), ux = dx / d, uz = dz / d;
+      /* agent ưu tiên thấp hơn bị đẩy ra; agent đứng yên (không có đường) không bị đẩy */
+      const ca = !!a.pts, cb = !!b.pts, lowA = a.eff < b.eff;
+      const mv = (m, sx, sz) => { if (w.blocked(m.x + sx, m.z + sz)) return false; m.x += sx; m.z += sz; m.ox += sx; m.oz += sz; return true; };
+      if (ca && cb) { if (lowA) { if (!mv(a, -ux * push, -uz * push)) mv(b, ux * push, uz * push); } else if (!mv(b, ux * push, uz * push)) mv(a, -ux * push, -uz * push); }
+      else if (ca) mv(a, -ux * push, -uz * push); else if (cb) mv(b, ux * push, uz * push);
+    }
+  }
+  function stepAll(w, dt) { const n = Math.max(1, Math.ceil(dt / P.SUB)); for (let i = 0; i < n; i++) stepOnce(w, dt / n); }
+
+  Nav.move = { P, angDiff, smoothAngle, cornerSpeed, stopSpeed, Reservations, pickDoorTurn, doorTick, inFrame, doorLocal, createWorld, addDoor, createMover, setPath, stepAll };
+})(OfficeNav);
+/* ===== FEAT-2026-161 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -3260,7 +3535,9 @@ buildMeshes(){
         // Glass leaf (door/sliding-glass) or glass pane (window)
         if(op.type==='door'||op.type==='sliding-glass'||op.type==='window'){
           const glLeaf=new T.Mesh(new T.BoxGeometry(t*0.4,oh-FT,ow-FT*2),new T.MeshStandardMaterial({color:0xa0b8cf,transparent:true,opacity:(op.open===false&&op.type!=='window')?0.85:0.38,roughness:0.1,metalness:0.4}));
-          glLeaf.position.set(fx,oe+oh/2,fz);glLeaf.rotation.y=angle;FP2.wallGroup.add(glLeaf);
+          glLeaf.position.set(fx,oe+oh/2,fz);glLeaf.rotation.y=angle;
+          if(op.type!=='window'){const lR=os,rR=len-oe2;glLeaf.userData.door={id:op.id,px:fx,pz:fz,py:oe+oh/2,ux,uz,dir:rR>=lR?1:-1,slide:Math.min(ow-0.04,Math.max(0,Math.max(lR,rR)-0.02))};}/* FEAT-2026-161: lá cửa trượt theo animT */
+          FP2.wallGroup.add(glLeaf);
         }
         pos=oe2;
       }
@@ -3727,7 +4004,8 @@ const FEAT159={
   }
 };
 FEAT158.afterRefresh.push(()=>FEAT159.update());
-setInterval(()=>{try{FEAT159.syncVisibility();}catch(e){}},300); // nhãn cảnh báo chỉ hiện khi đang ở Build/FP2
+/* FEAT-2026-161: thay setInterval 300 ms bằng hook đúng vào việc vào/ra Build/FP2 (setter của FP2.active) */
+{let _fp2Act=!!FP2.active;Object.defineProperty(FP2,'active',{get(){return _fp2Act;},set(v){_fp2Act=!!v;try{FEAT159.syncVisibility();}catch(e){}},enumerable:true,configurable:true});}
 
 /* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
 function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}
@@ -4169,6 +4447,7 @@ function spawnCustomAgent(cfg) {
   const col = typeof cfg.color === 'number' ? cfg.color : 0x7c3aed;
   const ag = new Agent(slot.id, cfg.name, cfg.role || 'Custom Agent', col, seat, slot.dept, cfg.bio || '', cfg.shortName || cfg.name.split(' ')[0]);
   ag._f160 = true;
+  if (desk && seat.crPt) ag.g.position.set(seat.crPt.x, 0, seat.crPt.z);
   if (desk) seats['d_' + slot.id] = seat;
   else { ag.sitting = false; ag.seat = null; ag.home = null; ag.noDesk = true; ag.cell = [slot.c + 1, slot.r + 3]; }
   agents.push(ag);
@@ -4237,7 +4516,7 @@ const FEAT160 = {
     let s = this.seats.get(d.id);
     if (!s) {
       const m = this.meshes.get(d.id), c = this.cellOf;
-      s = { cr: [c(d.seatPt.x), c(d.seatPt.z)], ap: [c(d.approachPt.x), c(d.approachPt.z)], apPt: d.approachPt, face: d.facing, ch: m.chair, base: m.chair.position.clone(), _f160: d.id };
+      s = { cr: [c(d.seatPt.x), c(d.seatPt.z)], ap: [c(d.approachPt.x), c(d.approachPt.z)], apPt: d.approachPt, crPt: d.seatPt, face: d.facing, ch: m.chair, base: m.chair.position.clone(), _f160: d.id };
       this.seats.set(d.id, s);
     }
     return s;
@@ -4321,12 +4600,10 @@ const FEAT160 = {
     ag.isTransitioning = true;
     try {
       if (ag.sitting && ag.seat) await ag.standUp();
-      const r = this.route(ag, d.approachPt);
-      if (!r.ok) { ag.say(r.reason, 4); FEAT158.msg(r.reason, false); return r; }
-      await ag._followPts(r.waypoints);
-      ag.g.rotation.y = d.facing; ag.cell = [this.cellOf(d.approachPt.x), this.cellOf(d.approachPt.z)];
+      const ok = await ag.sitDown(this.seatOf(d));
+      if (!ok) { const reason = (ag.navBlock && ag.navBlock.reason) || 'Không tới được bàn'; FEAT158.msg(reason, false); return { ok: false, reason }; }
       ag.say('Về bàn ' + d.id, 2.5);
-      return r;
+      return { ok: true };
     } finally { ag.isTransitioning = false; }
   },
   /* Hoàn tác/làm lại: đồng bộ bàn + agent */
@@ -4389,26 +4666,207 @@ const FEAT160 = {
   }
 };
 window.FEAT160 = FEAT160;
-Agent.prototype._followPts = function (pts) {
-  return new Promise(res => {
-    if (!pts || !pts.length) { res(); return; }
-    this.path = pts.map(p => new T.Vector3(p.x, 0, p.z)); this.res = res;
-  });
-};
-(function () {
-  const origWalk = Agent.prototype.walk, origSit = Agent.prototype.sitDown;
-  /* Custom agent: đi theo planRoute (qua cửa, tránh bàn); không có đường thì rơi về A* cũ */
-  Agent.prototype.walk = function (tc) {
-    if (this._f160 && FEAT159.nav) {
-      const to = (this.home && this.home.ap === tc && this.home.apPt) ? this.home.apPt : { x: (tc[0] + 0.5) * CS, z: (tc[1] + 0.5) * CS };
-      const r = FEAT160.route(this, to);
-      if (r.ok) return this._followPts(r.waypoints);
-      console.warn('[FEAT160] planRoute lỗi, dùng A* cũ:', r.reason);
+/* ===== FEAT-2026-161 PAGE INTEGRATION: di chuyển như thật cho mọi agent (lõi + custom) ===== */
+const FEAT161 = {
+  M: OfficeNav.move, world: null, movers: new Map(), leaves: [], onBlocked: [], samples: null,
+  init() { this.world = this.M.createWorld((x, z) => this.blockedAt(x, z)); this.onNavChanged(); },
+  /* ô chặn tại toạ độ thế giới: tường FP2 (cửa mở đã khoét) + bàn tự do + lưới cũ */
+  blockedAt(x, z) {
+    const c = Math.floor(x / CS), r = Math.floor(z / CS);
+    if (c < 0 || r < 0 || c >= W || r >= H) return true;
+    const i = r * W + c, m = FEAT158.model;
+    return !!((m && m.blocked[i]) || blocked[i] || FEAT160.baseGrid()[i]);
+  },
+  mv(ag) {
+    let m = this.movers.get(ag.id);
+    if (!m) { const p = ag.g.position; m = this.M.createMover(ag.id, agents.indexOf(ag) + 1, p.x, p.z, ag.g.rotation.y); this.movers.set(ag.id, m); this.world.movers.push(m); }
+    return m;
+  },
+  syncMovers() {
+    if (this.movers.size === agents.length && agents.every(a => this.movers.has(a.id))) return;
+    const keep = new Set(agents.map(a => a.id));
+    for (const id of [...this.movers.keys()]) if (!keep.has(id)) { const m = this.movers.get(id); if (m.abort) m.abort(); this.movers.delete(id); this.world.movers = this.world.movers.filter(x => x !== m); }
+  },
+  /* có wall graph -> planRoute qua cửa; chưa có dữ liệu FP2 -> A* cũ (đã làm mượt) */
+  graphMode(ag) { const n = FEAT159.nav; return !!n && (!!ag._f160 || n.doors.some(d => d.pass)); }, /* CR-1: văn phòng mặc định có tường FP2 nhưng 0 cửa (cửa cũ là khe lưới cũ) -> lõi dùng A* cũ tới khi có cửa FP2 đầu tiên */
+  baseFor(ag) {
+    const d = FEAT160.baseGrid();
+    if (ag._f160) return d;
+    const g = new Uint8Array(W * H); for (let i = 0; i < g.length; i++) g[i] = (d[i] || blocked[i]) ? 1 : 0;
+    return g;
+  },
+  nearestFree(nav, base, pt) {
+    const c0 = Math.floor(pt.x / CS), r0 = Math.floor(pt.z / CS);
+    for (let rad = 0; rad <= 5; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== rad) continue;
+      if (!OfficeNav.cellBlocked(nav.blocked, W, H, base, c0 + dc, r0 + dr)) return rad === 0 ? pt : { x: (c0 + dc + 0.5) * CS, z: (r0 + dr + 0.5) * CS };
     }
-    return origWalk.call(this, tc);
-  };
-  Agent.prototype.sitDown = function (s) { if (!s) return Promise.resolve(); return origSit.call(this, s); };
+    return pt;
+  },
+  legacyGrid() { const g = new Uint8Array(blocked); if (window.FP2 && FP2.active) for (let i = 0; i < g.length; i++) if (fp2WallBlocked[i]) g[i] = 1; return g; },
+  legacyRoute(ag, to) {
+    const p = ag.g.position;
+    let tc = [Math.floor(to.x / CS), Math.floor(to.z / CS)];
+    /* đích nằm trong ô chặn của lưới cũ (vd ghế sofa/quầy bar): đi tới ô trống gần nhất, đoạn cuối do hoạt ảnh ngồi (trượt vào ghế như trước) */
+    if (isB(tc[0], tc[1])) {
+      let found = null;
+      for (let rad = 1; rad <= 4 && !found; rad++) for (let dr = -rad; dr <= rad && !found; dr++) for (let dc = -rad; dc <= rad && !found; dc++) if (Math.max(Math.abs(dc), Math.abs(dr)) === rad && !isB(tc[0] + dc, tc[1] + dr)) found = [tc[0] + dc, tc[1] + dr];
+      if (found) { tc = found; to = { x: wx(tc[0]), z: wx(tc[1]) }; }
+    }
+    let a = [Math.floor(p.x / CS), Math.floor(p.z / CS)];
+    if (isB(a[0], a[1]) && ag.cell) a = ag.cell;
+    if (a[0] === tc[0] && a[1] === tc[1]) return { ok: true, waypoints: [{ x: to.x, z: to.z }], legacy: true };
+    const path = astar(a, tc);
+    if (!path || path.length < 2) return { ok: false, reason: 'Không tìm thấy đường (lưới cũ)' };
+    let pts = path.map(([c, r]) => ({ x: wx(c), z: wx(r) }));
+    pts[0] = { x: p.x, z: p.z }; pts[pts.length - 1] = { x: to.x, z: to.z };
+    pts = OfficeNav.smoothPath(this.legacyGrid(), { CS, W, H, base: null }, pts);
+    return { ok: true, waypoints: pts, legacy: true };
+  },
+  route(ag, to) {
+    const p = ag.g.position;
+    if (!this.graphMode(ag)) return this.legacyRoute(ag, to);
+    const nav = FEAT159.nav, base = this.baseFor(ag), prev = nav.cfg.base;
+    if (!ag._f160) to = this.nearestFree(nav, base, to); /* ghế lõi nằm trong đồ nội thất cũ: đích = ô trống gần nhất */
+    const from = this.nearestFree(nav, base, { x: p.x, z: p.z });
+    nav.cfg.base = base;
+    let r; try { r = OfficeNav.planRoute(nav, from, to); } finally { nav.cfg.base = prev; }
+    if (r.ok && (from.x !== p.x || from.z !== p.z)) r.waypoints.unshift({ x: p.x, z: p.z });
+    return r;
+  },
+  apPt(s) { return s.apPt || { x: wx(s.ap[0]), z: wx(s.ap[1]) }; },
+  crPt(s) { return s.crPt || { x: wx(s.cr[0]), z: wx(s.cr[1]) }; },
+  abort(ag) { const m = this.movers.get(ag.id); if (!m) return; m.pts = null; m.v = 0; m.done = null; const f = m.abort; m.abort = null; if (f) f(false); },
+  markBlocked(ag, reason, to) {
+    ag.navBlock = { reason, to: to || null, at: sim.t, agentId: ag.id }; ag.navState = 'blocked';
+    try { ag.say(reason, 4); } catch (e) {}
+    for (const fn of this.onBlocked) { try { fn(ag, ag.navBlock); } catch (e) {} }
+  },
+  /* Đi tới điểm `to` (toạ độ thế giới). Resolve true khi tới nơi, false nếu bị chặn/huỷ. Không đường -> đứng yên + navBlock. */
+  walkTo(ag, to) {
+    this.abort(ag);
+    const m = this.mv(ag), p = ag.g.position;
+    m.x = p.x; m.z = p.z; m.yaw = ag.g.rotation.y; m.ignore = false;
+    const r = this.route(ag, to);
+    if (!r.ok) { this.markBlocked(ag, r.reason, to); return Promise.resolve(false); }
+    ag._navTarget = to;
+    return this.follow(ag, r.waypoints);
+  },
+  follow(ag, pts) {
+    const m = this.mv(ag);
+    return new Promise(res => {
+      ag.navBlock = null;
+      if (!this.M.setPath(m, pts)) { ag.navState = 'idle'; res(true); return; }
+      ag.navState = 'walking';
+      m.done = () => { ag.navState = 'idle'; res(true); };
+      m.abort = () => res(false);
+    });
+  },
+  walk(ag, tc, seat) {
+    const s = seat || ag.home;
+    const to = (s && s.apPt && s.ap === tc) ? s.apPt : { x: (tc[0] + 0.5) * CS, z: (tc[1] + 0.5) * CS };
+    return this.walkTo(ag, to);
+  },
+  replan(ag) {
+    const m = this.movers.get(ag.id); if (!m || !m.pts || !ag._navTarget) return;
+    m.needReplan = false;
+    const to = ag._navTarget, r = this.route(ag, to);
+    if (!r.ok) { const f = m.abort; m.pts = null; m.v = 0; m.done = null; m.abort = null; this.markBlocked(ag, r.reason, to); if (f) f(false); return; }
+    const done = m.done, ab = m.abort, st = m.stuckT, gh = m.ghostT; this.M.setPath(m, r.waypoints); m.done = done; m.abort = ab; m.stuckT = st; m.ghostT = gh; m.replanned = true;
+  },
+  /* quay mượt tại chỗ (tốc độ quay giới hạn) */
+  faceTo(ag, yaw) {
+    const a0 = ag.g.rotation.y, d = this.M.angDiff(a0, yaw), ad = Math.abs(d);
+    if (ad < 0.02) { ag.g.rotation.y = a0 + d; return Promise.resolve(); }
+    const dur = Math.max(0.12, ad / this.M.P.TURN * 1.6);
+    return tween(dur, k => { ag.g.rotation.y = a0 + d * (k * k * (3 - 2 * k)); });
+  },
+  /* cập nhật cửa/lá cửa khi đồ thị phòng-cửa đổi */
+  onNavChanged() {
+    if (!this.world) return;
+    const nav = FEAT159.nav, seen = new Set();
+    if (nav) for (const d of nav.doors) { if (!d.pass) continue; seen.add(d.id); this.M.addDoor(this.world, { id: d.id, center: d.center, normal: d.normal, width: d.width, locked: !d.open }); }
+    for (const id of [...this.world.doors.keys()]) if (!seen.has(id)) this.world.doors.delete(id);
+    this.leaves = (window.FP2 && FP2.wallGroup) ? FP2.wallGroup.children.filter(o => o.userData && o.userData.door) : [];
+    for (const m of this.movers.values()) if (m.pts) m.needReplan = true;
+  },
+  updateLeaves() {
+    for (const l of this.leaves) {
+      const u = l.userData.door, D = this.world.doors.get(u.id), t = D ? D.animT : 0, o = u.slide * (t * t * (3 - 2 * t)) * u.dir;
+      l.position.set(u.px + u.ux * o, u.py, u.pz + u.uz * o);
+    }
+  },
+  step(dt) {
+    if (!this.world || !(dt > 0)) return;
+    this.syncMovers();
+    const walking = [];
+    for (const ag of agents) {
+      const m = this.mv(ag);
+      if (!m.pts) { const p = ag.g.position; m.x = p.x; m.z = p.z; m.yaw = ag.g.rotation.y; m.ignore = !!ag.sitting; m.v = 0; m.vx = 0; m.vz = 0; }
+      else { m.ignore = false; walking.push(ag); }
+    }
+    if (this.samples) { /* chế độ đo: bước nhỏ 0.05 s, ghi mẫu sau mỗi bước (độc lập với FPS) */
+      const n = Math.max(1, Math.ceil(dt / 0.05)), h = dt / n;
+      for (let i = 0; i < n; i++) {
+        this.M.stepAll(this.world, h);
+        const t = sim.t - dt + (i + 1) * h;
+        for (const ag of agents) { const m = this.movers.get(ag.id); if (m) this.samples.push({ t: +t.toFixed(3), id: ag.id, x: +m.x.toFixed(3), z: +m.z.toFixed(3), yaw: +m.yaw.toFixed(3), v: +m.v.toFixed(3), st: m.pts ? m.state : (ag.sitting ? 'sit' : 'idle'), stuck: +m.stuckT.toFixed(2), sit: ag.sitting ? 1 : 0 }); }
+      }
+    } else this.M.stepAll(this.world, dt);
+    for (const ag of walking) {
+      const m = this.movers.get(ag.id); if (!m) continue;
+      ag.g.position.set(m.x, 0, m.z); ag.g.rotation.y = m.yaw; ag.cell = [Math.floor(m.x / CS), Math.floor(m.z / CS)];
+      if (m.pts) ag.navState = m.state;
+      if (m.needReplan) this.replan(ag);
+    }
+    this.updateLeaves();
+  },
+  /* bước chân đồng bộ tốc độ thật: pha = quãng đường / chiều dài sải (không trượt chân) */
+  animate(ag, dt) {
+    const m = this.movers.get(ag.id); if (!m || ag.sitting || !m.pts) return;
+    const sp = Math.hypot(m.vx, m.vz); if (sp < 0.05) return;
+    const A = 0.6 * Math.min(1, Math.max(0.4, sp / 1.2)), L = 0.46;
+    ag._f161ph = (ag._f161ph || 0) + sp * dt * Math.PI * 2 / (4 * L * Math.sin(A));
+    const st = Math.sin(ag._f161ph) * A;
+    ag.legs[0].rotation.x = st; ag.legs[1].rotation.x = -st; ag.arms[0].rotation.x = -st; ag.arms[1].rotation.x = st;
+  },
+  startSampling() { this.samples = []; },
+  stopSampling() { const s = this.samples; this.samples = null; return s; }
+};
+window.FEAT161 = FEAT161;
+Agent.prototype._followPts = function (pts) { return FEAT161.follow(this, pts); };
+Agent.prototype.walk = function (tc) { return FEAT161.walk(this, tc, null); };
+(function () {
+  const origUpdate = Agent.prototype.update;
+  Agent.prototype.update = function (dt) { origUpdate.call(this, dt); FEAT161.animate(this, dt); };
 })();
+/* Ngồi: tới approachPt -> quay về facing -> kéo ghế -> ngồi đúng seatPt. Trả về false nếu không có đường (đứng yên, navBlock). */
+Agent.prototype.sitDown = async function (s) {
+  if (!s) return false;
+  if (this.sitting && this.seat === s) return true;
+  const ap = FEAT161.apPt(s), cr = FEAT161.crPt(s), here = this.g.position;
+  if (Math.hypot(here.x - ap.x, here.z - ap.z) > 0.12) { const ok = await FEAT161.walkTo(this, ap); if (!ok) return false; }
+  await FEAT161.faceTo(this, s.face);
+  const d = new T.Vector3(ap.x - cr.x, 0, ap.z - cr.z).normalize();
+  await tween(0.35, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k));
+  const a = this.g.position.clone(), b = new T.Vector3(cr.x, 0, cr.z);
+  this.sitting = true;
+  await tween(0.5, k => { this.g.position.lerpVectors(a, b, k); s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k)); });
+  this.seat = s; this.cell = s.cr; this.navState = 'sitting'; this.navBlock = null;
+  return true;
+};
+/* Rời bàn: ngược lại (kéo ghế ra, đứng dậy ở approachPt, đẩy ghế vào). */
+Agent.prototype.standUp = async function () {
+  const s = this.seat; if (!s) return;
+  const ap = FEAT161.apPt(s), cr = FEAT161.crPt(s), d = new T.Vector3(ap.x - cr.x, 0, ap.z - cr.z).normalize();
+  const a = this.g.position.clone(), b = new T.Vector3(ap.x, 0, ap.z);
+  await tween(0.4, k => { this.g.position.lerpVectors(a, b, k); s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k); });
+  this.sitting = false;
+  await tween(0.3, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k)));
+  this.cell = s.ap; this.seat = null; this.navState = 'idle';
+};
+FEAT161.init();
+FEAT158.afterRefresh.push(() => FEAT161.onNavChanged());
 FEAT160.init();
 FEAT158.afterRefresh.push(() => FEAT160.onNavChanged());
 FEAT160.onNavChanged();
@@ -5940,6 +6398,7 @@ function loop(now) {
     }
   }
 
+  FEAT161.step(dt);
   agents.forEach(a => a.update(dt));
 
   doors.forEach(d => {

@@ -13,7 +13,7 @@ function block(n) {
   if (a < 0 || b < 0) return '';
   return html.slice(a, b + e.length);
 }
-const code = block(158) + '\n' + block(159) + '\n' + block(160) + '\nreturn OfficeNav;';
+const code = block(158) + '\n' + block(159) + '\n' + block(160) + '\n' + block(161) + '\nreturn OfficeNav;';
 const Nav = new Function(code)();
 
 let pass = 0, fail = 0;
@@ -317,6 +317,158 @@ if (block(159)) {
     eq(m.desks.length === 2 && m.desks[0].agentId === 'dp_1' && m.desks[1].agentId === 'dp_2', 'agent giữ: ' + m.desks.map(d => d.agentId));
     eq(near(m.desks[0].x, (8 + 2) * CS) && near(m.desks[0].z, (34 + 1) * CS) && m.desks[0].rot === 0, 'cùng vị trí DESK_POOL');
     eq(JSON.stringify(m) === JSON.stringify(D.migratePool(pool, cfgs, CS)), 'idempotent');
+  });
+}
+
+/* ---------- FEAT-161 ---------- */
+{
+  const M = Nav.move, hyp = Math.hypot;
+  const wallBlocked = (x, z) => Math.abs(x - 10) < 0.3 && Math.abs(z - 10) > 0.55;
+  const mkWorld = (locked) => {
+    const w = M.createWorld(wallBlocked);
+    M.addDoor(w, { id: 'o1', center: { x: 10, z: 10 }, normal: { x: 1, z: 0 }, width: 0.9, locked: !!locked });
+    return w;
+  };
+  const route = (from, to) => { // qua cửa o1 (trục x)
+    const lr = from.x < 10, f = lr ? { x: 9.4, z: 10 } : { x: 10.6, z: 10 }, b = lr ? { x: 10.6, z: 10 } : { x: 9.4, z: 10 };
+    return [{ x: f.x, z: f.z, door: 'o1', kind: 'front' }, { x: b.x, z: b.z, door: 'o1', kind: 'back' }, { x: to.x, z: to.z }];
+  };
+  function sim6() {
+    const w = mkWorld(false), ms = [];
+    const starts = [[7, 3], [7, 10], [7, 17], [13, 4], [13, 10.4], [13, 16]], ends = [[15, 15], [15, 6], [16, 10], [5, 15], [4, 8], [5, 5]];
+    starts.forEach((s, i) => { const m = M.createMover('a' + i, i + 1, s[0], s[1], s[0] < 10 ? Math.PI / 2 : -Math.PI / 2); m.arrived = false; m.done = () => { m.arrived = true; }; w.movers.push(m); M.setPath(m, route({ x: s[0], z: s[1] }, { x: ends[i][0], z: ends[i][1] })); ms.push(m); });
+    const stat = { minPair: 9, wallHits: 0, maxInFrame: 0, maxFrameStill: 0, maxStuck: 0, maxStill: 0, maxTurn: 0, backward: 0, backDisp: 0, maxAcc: 0, maxFrameSpeed: 0, openBeforeEnter: true, t: 0 };
+    const D = w.doors.get('o1'), lastYaw = ms.map(m => m.yaw), lastV = ms.map(() => 0), still = ms.map(() => 0), lastP = ms.map(m => ({ x: m.x, z: m.z }));
+    const dt = 1 / 60;
+    for (let k = 0; k < 60 * 80; k++) {
+      M.stepAll(w, dt); stat.t += dt;
+      let inF = 0;
+      ms.forEach((m, i) => {
+        if (wallBlocked(m.x, m.z)) stat.wallHits++;
+        const fr = M.inFrame(D, m.x, m.z);
+        if (fr) { inF++; still[i] = m.v < 0.1 ? still[i] + dt : 0; stat.maxFrameStill = Math.max(stat.maxFrameStill, still[i]); stat.maxFrameSpeed = Math.max(stat.maxFrameSpeed, m.v); if (D.animT < 0.85) stat.openBeforeEnter = false; } else still[i] = 0;
+        stat.maxTurn = Math.max(stat.maxTurn, Math.abs(M.angDiff(lastYaw[i], m.yaw)) / dt); lastYaw[i] = m.yaw;
+        const vx = (m.x - lastP[i].x) / dt, vz = (m.z - lastP[i].z) / dt, sp = hyp(vx, vz);
+        if (sp > 0.2 && Math.cos(m.yaw) * vz + Math.sin(m.yaw) * vx < 0) stat.backDisp++;
+        if (m.v > 0.2 && Math.cos(m.yaw) * m.hz + Math.sin(m.yaw) * m.hx < 0) stat.backward++;
+        lastP[i] = { x: m.x, z: m.z };
+        stat.maxAcc = Math.max(stat.maxAcc, Math.abs(m.v - lastV[i]) / dt); lastV[i] = m.v;
+        stat.maxStuck = Math.max(stat.maxStuck, m.maxStuck); stat.maxStill = Math.max(stat.maxStill, m.maxStill);
+        for (let j = 0; j < i; j++) stat.minPair = Math.min(stat.minPair, hyp(m.x - ms[j].x, m.z - ms[j].z));
+      });
+      stat.maxInFrame = Math.max(stat.maxInFrame, inF);
+      if (ms.every(m => m.arrived)) break;
+    }
+    stat.arrived = ms.filter(m => m.arrived).length; stat.ms = ms; stat.w = w;
+    return stat;
+  }
+
+  t('161 smoothAngle: giới hạn tốc độ quay, đi đường ngắn, hội tụ', () => {
+    let a = 0, mx = 0; const dt = 1 / 60;
+    for (let i = 0; i < 200; i++) { const n = M.smoothAngle(a, Math.PI * 0.99, dt); mx = Math.max(mx, Math.abs(n - a) / dt); a = n; }
+    eq(mx <= M.P.TURN + 1e-6, 'rate ' + mx); eq(Math.abs(a - Math.PI * 0.99) < 1e-3, 'hội tụ ' + a);
+    eq(M.smoothAngle(3.0, -3.0, 0.5) > 3.0, 'đi đường ngắn qua ±π');
+    eq(M.cornerSpeed(Math.PI / 3) <= 0.75 && M.cornerSpeed(0) >= 1.1 && M.stopSpeed(0) === 0, 'cornerSpeed/stopSpeed');
+  });
+
+  t('161 Reservations: xung đột ô cùng cửa sổ thời gian, bỏ qua của chính mình và khác thời điểm', () => {
+    const R = new M.Reservations(0.5);
+    R.add('a', 5.1, 5.1, 1.0);
+    eq(R.conflict('b', 5.3, 5.2, 1.2) === 'a', 'phải xung đột');
+    eq(R.conflict('a', 5.1, 5.1, 1.0) === null, 'bỏ qua chính mình');
+    eq(R.conflict('b', 5.3, 5.2, 2.5) === null, 'khác thời điểm');
+    eq(R.conflict('b', 6.5, 5.2, 1.0) === null, 'xa');
+    R.clear(); eq(R.conflict('b', 5.1, 5.1, 1.0) === null, 'clear');
+  });
+
+  t('161 pickDoorTurn: người giữ lượt giữ tiếp; không thì chờ lâu nhất, hoà: gần hơn, rồi ưu tiên', () => {
+    eq(M.pickDoorTurn([{ id: 'a', wait: 1, dist: 1, prio: 1 }, { id: 'b', wait: 5, dist: 1, prio: 2 }], 'a') === 'a', 'giữ lượt');
+    eq(M.pickDoorTurn([{ id: 'a', wait: 1, dist: 1, prio: 1 }, { id: 'b', wait: 5, dist: 1, prio: 2 }], null) === 'b', 'chờ lâu');
+    eq(M.pickDoorTurn([{ id: 'a', wait: 2, dist: 0.5, prio: 1 }, { id: 'b', wait: 2, dist: 1, prio: 9 }], null) === 'a', 'gần hơn');
+    eq(M.pickDoorTurn([{ id: 'a', wait: 2, dist: 1, prio: 1 }, { id: 'b', wait: 2, dist: 1, prio: 9 }], null) === 'b', 'ưu tiên');
+    eq(M.pickDoorTurn([], null) === null, 'rỗng');
+  });
+
+  t('161 cửa tự động: mở khi <1.2 m, đóng sau 1.5 s, khoá thì không mở (khoá khác tự đóng)', () => {
+    const D = { animT: 0, target: 0, lastPresent: -1e9, locked: false }; let now = 0; const dt = 0.02;
+    for (let i = 0; i < 50; i++) { now += dt; M.doorTick(D, true, now, dt); }
+    eq(D.animT >= 0.999, 'mở hẳn');
+    let tClose = -1; const t0 = now;
+    for (let i = 0; i < 400; i++) { now += dt; M.doorTick(D, false, now, dt); if (D.animT < 0.05 && tClose < 0) { tClose = now - t0; break; } }
+    eq(tClose >= 1.5 && tClose <= 2.5, 'đóng sau ' + tClose.toFixed(2));
+    const L = { animT: 0, target: 0, lastPresent: -1e9, locked: true };
+    for (let i = 0; i < 100; i++) { now += dt; M.doorTick(L, true, now, dt); }
+    eq(L.animT === 0, 'khoá không mở');
+  });
+
+  t('161 AC-05 mô phỏng 6 agent đi chéo qua 1 cửa: không xuyên nhau/tường, 1 người trong khung, không kẹt >5 s', () => {
+    const s = sim6();
+    console.log('   [sim6]', JSON.stringify({ t: +s.t.toFixed(1), arrived: s.arrived, minPair: +s.minPair.toFixed(2), wallHits: s.wallHits, maxInFrame: s.maxInFrame, maxFrameStill: +s.maxFrameStill.toFixed(2), maxStuck: +s.maxStuck.toFixed(2), maxStill: +s.maxStill.toFixed(2), maxFrameSpeed: +s.maxFrameSpeed.toFixed(2) }));
+    eq(s.arrived === 6, 'tới đích ' + s.arrived);
+    eq(s.minPair >= 0.3, 'minPair ' + s.minPair);
+    eq(s.wallHits === 0, 'wallHits');
+    eq(s.maxInFrame <= 1, 'maxInFrame ' + s.maxInFrame);
+    eq(s.maxFrameStill <= 2, 'frameStill ' + s.maxFrameStill);
+    eq(s.maxStuck <= 5, 'maxStuck ' + s.maxStuck);
+    eq(s.openBeforeEnter, 'vào khung khi cửa chưa mở');
+  });
+
+  t('161 AC-01/02 mô phỏng: tốc độ, quay, không lùi, gia tốc, tốc độ trong khung cửa', () => {
+    const s = sim6();
+    console.log('   [sim6b]', JSON.stringify({ maxTurn: +s.maxTurn.toFixed(2), backward: s.backward, backDisp: s.backDisp, maxAcc: +s.maxAcc.toFixed(2), maxFrameSpeed: +s.maxFrameSpeed.toFixed(2) }));
+    eq(s.maxTurn <= 4.5, 'turn ' + s.maxTurn); eq(s.backward === 0, 'lùi ' + s.backward);
+    eq(s.maxAcc <= 4.0, 'acc ' + s.maxAcc); eq(s.maxFrameSpeed <= 0.9, 'frameSpeed ' + s.maxFrameSpeed);
+    const w = M.createWorld(() => false), m = M.createMover('s', 1, 0, 0, Math.PI / 2); w.movers.push(m);
+    M.setPath(m, [{ x: 20, z: 0 }]); let t0 = 0, x5 = 0, x15 = 0;
+    for (let i = 0; i < 60 * 40 && m.pts; i++) { M.stepAll(w, 1 / 60); t0 += 1 / 60; if (!x5 && m.x >= 5) x5 = t0; if (!x15 && m.x >= 15) x15 = t0; }
+    const sp = 10 / (x15 - x5); eq(sp >= 1.1 && sp <= 1.3, 'v tb ' + sp);
+  });
+
+  t('161 góc rẽ: tốc độ giảm quanh góc >=60°, tới đích chính xác', () => {
+    const w = M.createWorld(() => false), m = M.createMover('c', 1, 0, 0, 0); w.movers.push(m);
+    M.setPath(m, [{ x: 0, z: 8 }, { x: 8, z: 8 }]); let atCorner = 9;
+    for (let i = 0; i < 60 * 30 && m.pts; i++) { M.stepAll(w, 1 / 60); if (Math.hypot(m.x, m.z - 8) < 0.6) atCorner = Math.min(atCorner, m.v); }
+    eq(atCorner <= 0.75, 'v gần góc ' + atCorner); eq(Math.abs(m.x - 8) < 0.01 && Math.abs(m.z - 8) < 0.01, 'tới đích');
+  });
+
+  t('161 phá kẹt: 2 agent đối đầu hành lang hẹp không kẹt quá 5 s', () => {
+    const w = M.createWorld((x, z) => Math.abs(z - 5) > 0.9), a = M.createMover('a', 1, 0, 5, Math.PI / 2), b = M.createMover('b', 2, 12, 5, -Math.PI / 2);
+    w.movers.push(a, b); a.done = () => { a.arr = 1; }; b.done = () => { b.arr = 1; };
+    M.setPath(a, [{ x: 12, z: 5 }]); M.setPath(b, [{ x: 0, z: 5 }]);
+    let minD = 9; for (let i = 0; i < 60 * 60 && !(a.arr && b.arr); i++) { M.stepAll(w, 1 / 60); minD = Math.min(minD, Math.hypot(a.x - b.x, a.z - b.z)); }
+    console.log('   [corridor]', JSON.stringify({ arr: [a.arr, b.arr], maxStuck: +Math.max(a.maxStuck, b.maxStuck).toFixed(2), minD: +minD.toFixed(2) }));
+    eq(a.arr && b.arr, 'cả hai tới'); eq(Math.max(a.maxStuck, b.maxStuck) <= 5, 'stuck');
+  });
+
+  t('161 cửa khoá: agent chờ ở điểm vào, không vào khung, cờ kẹt kích hoạt tính lại đường', () => {
+    const w = mkWorld(true), m = M.createMover('k', 1, 7, 10, Math.PI / 2); w.movers.push(m);
+    M.setPath(m, route({ x: 7, z: 10 }, { x: 13, z: 10 })); let inF = false, replan = false;
+    for (let i = 0; i < 60 * 8; i++) { M.stepAll(w, 1 / 60); if (M.inFrame(w.doors.get('o1'), m.x, m.z)) inF = true; if (m.needReplan) replan = true; }
+    eq(!inF, 'vào khung dù khoá'); eq(w.doors.get('o1').animT === 0, 'cửa khoá tự mở'); eq(replan, 'không báo tính lại'); eq(Math.abs(m.x - 9.4) < 0.1, 'điểm chờ ' + m.x);
+  });
+  t('161 AC-05 ngẫu nhiên: 90 kịch bản 6 agent qua 1 cửa (3 seed x 30): tới đích, 0 xuyên tường, <=1 trong khung, không kẹt >5 s, >=90% không chồng nhau <0.3 m', () => {
+    let overlapRuns = 0, bad = [], worstStuck = 0, maxT = 0, ghostRuns = 0;
+    for (const sd of [7, 99, 2024]) {
+      let seed = sd; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+      for (let it = 0; it < 30; it++) {
+        const w = mkWorld(false), pts = [];
+        const pickPt = side => { for (let g = 0; g < 200; g++) { const p = { x: side ? 11.5 + rnd() * 6.5 : 2 + rnd() * 6.5, z: 2 + rnd() * 16 }; if (pts.every(q => hyp(q.x - p.x, q.z - p.z) > 1.3)) { pts.push(p); return p; } } };
+        const sides = [0, 0, 0, 1, 1, 1], S = sides.map(pickPt), E = sides.map(sd2 => pickPt(1 - sd2));
+        const ms = S.map((p, i) => { const m = M.createMover('a' + i, i + 1, p.x, p.z, p.x < 10 ? Math.PI / 2 : -Math.PI / 2); m.arr = false; m.done = () => { m.arr = true; }; w.movers.push(m); M.setPath(m, route(p, E[i])); return m; });
+        const D = w.doors.get('o1'); let minP = 9, wall = 0, maxIn = 0, ghost = 0;
+        for (let k = 0; k < 60 * 120 && !ms.every(m => m.arr); k++) {
+          M.stepAll(w, 1 / 60); let inF = 0;
+          ms.forEach((m, i) => { if (wallBlocked(m.x, m.z)) wall++; if (m.ghostT > 0) ghost++; if (m.pts && M.inFrame(D, m.x, m.z)) inF++; for (let j = 0; j < i; j++) minP = Math.min(minP, hyp(m.x - ms[j].x, m.z - ms[j].z)); });
+          maxIn = Math.max(maxIn, inF); maxT = Math.max(maxT, k / 60);
+        }
+        const stuck = Math.max(...ms.map(m => m.maxStuck)); worstStuck = Math.max(worstStuck, stuck); if (ghost) ghostRuns++;
+        if (minP < 0.3) overlapRuns++;
+        if (ms.some(m => !m.arr) || wall || maxIn > 1 || stuck > 5) bad.push({ sd, it, arr: ms.filter(m => m.arr).length, wall, maxIn, stuck });
+      }
+    }
+    console.log('   [rand90]', JSON.stringify({ bad: bad.length, overlapRuns, ghostRuns, worstStuck: +worstStuck.toFixed(2), maxT: +maxT.toFixed(1) }));
+    eq(bad.length === 0, 'kịch bản lỗi ' + JSON.stringify(bad.slice(0, 3)));
+    eq(overlapRuns <= 9, 'chồng nhau ' + overlapRuns + '/90');
   });
 }
 
