@@ -142,6 +142,10 @@ html, body {
   font-weight: 700;
 }
 
+.fm-card{background:rgba(255,255,255,.05);border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:4px}
+.fm-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#111}
+.fm-card .nm{font-size:11px;line-height:1.2;max-height:2.4em;overflow:hidden}
+
 /* Quick Controls */
 #controlsCluster {
   display: flex;
@@ -5167,7 +5171,7 @@ setInterval(syncLiveCompanyStatus, 6000);
   const loader = new THREE.GLTFLoader();
   const placed = [];
 
-  function loadFurniMeshGlb(cfg) {
+  function loadFurniMeshGlb(cfg, done) {
     const url = cfg.glb_url;
     const name = cfg.name || 'FurniMesh model';
     loader.load(url, (gltf) => {
@@ -5186,17 +5190,29 @@ setInterval(syncLiveCompanyStatus, 6000);
       S.add(model);
       placed.push(model);
       console.info('[FurniMesh] loaded:', name);
+      if (done) done(null);
     }, undefined, (err) => {
       console.error('[FurniMesh] GLB load error:', err);
+      if (done) done(err || new Error('GLB load error'));
     });
   }
+  window.__furniMeshLoad = loadFurniMeshGlb;
 
+  // FEAT-2026-157: origin tin cậy cho postMessage (cấu hình tại đây)
+  const FURNIMESH_TRUSTED_ORIGINS = [
+    window.location.origin,
+    'http://127.0.0.1:3100', 'http://localhost:3100',
+    'http://127.0.0.1:3000', 'http://localhost:3000',
+    'http://127.0.0.1:5173', 'http://localhost:5173'
+  ];
   window.addEventListener('message', (ev) => {
+    if (FURNIMESH_TRUSTED_ORIGINS.indexOf(ev.origin) === -1) return;
     if (ev.data && ev.data.type === 'furnimesh:add' && typeof ev.data.glb_url === 'string') {
       loadFurniMeshGlb(ev.data);
     }
   });
 })();
+
 
 /* ===== CUSTOM TEAM PANEL UI v2 ===== */
 let _ctaSelPoolIdx = null;

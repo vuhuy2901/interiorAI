@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ToolCatalogEntry } from "@paperclipai/shared";
 import { toolsApi } from "@/api/tools";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { readFurniMeshSceneUrl } from "../furnimesh-config";
 
 type FurniMeshResult = {
   model_id?: string;
@@ -13,23 +14,33 @@ type FurniMeshResult = {
   glb_url?: string;
   category?: string;
   available_formats?: string[];
+  heavy?: boolean;
 };
 
-const CATEGORIES = [
-  "",
-  "Seating",
-  "Sofas",
-  "Tables",
-  "Beds",
-  "Storage",
-  "Lighting",
-  "Bathroom",
-  "Decor",
-  "Kitchen",
-  "Architecture",
-  "Appliances",
-  "Other Furniture",
-];
+function readCategoryNames(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.categories)) {
+    return record.categories
+      .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).category_name : null))
+      .filter((name): name is string => typeof name === "string" && name.length > 0);
+  }
+  if (typeof record.content === "string") {
+    try {
+      return readResults(JSON.parse(record.content));
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(record.content)) {
+    const text = record.content.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text");
+    const raw = text && typeof text === "object" ? (text as Record<string, unknown>).text : null;
+    if (typeof raw === "string") {
+      try { return readCategoryNames(JSON.parse(raw)); } catch { return []; }
+    }
+  }
+  return [];
+}
 
 function readResults(value: unknown): FurniMeshResult[] {
   if (Array.isArray(value)) return value.filter((item): item is FurniMeshResult => !!item && typeof item === "object");
@@ -37,6 +48,9 @@ function readResults(value: unknown): FurniMeshResult[] {
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.results)) return readResults(record.results);
   if (Array.isArray(record.items)) return readResults(record.items);
+  if (typeof record.content === "string") {
+    try { return readResults(JSON.parse(record.content)); } catch { return []; }
+  }
   if (Array.isArray(record.content)) {
     const text = record.content.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text");
     const raw = text && typeof text === "object" ? (text as Record<string, unknown>).text : null;
@@ -62,11 +76,12 @@ export function FurniMeshLibraryPanel({
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState<string[]>([]);
   const [results, setResults] = useState<FurniMeshResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const sceneWinRef = useRef<Window | null>(null);
-  const SCENE_URL = "http://localhost:8123/";
+  const SCENE_URL = readFurniMeshSceneUrl();
 
   const addToScene = (item: FurniMeshResult) => {
     if (!item.glb_url) return;
@@ -80,7 +95,20 @@ export function FurniMeshLibraryPanel({
     setTimeout(() => { try { win.postMessage(msg, SCENE_URL); } catch { /* cross-origin guard */ } }, 1500);
   };
   const searchTool = useMemo(() => catalog.find((entry) => entry.toolName === "search_furniture" && entry.status === "active"), [catalog]);
+  const categoriesTool = useMemo(() => catalog.find((entry) => entry.toolName === "list_furniture_categories" && entry.status === "active"), [catalog]);
   const agent = agents[0];
+  useEffect(() => {
+    if (!categoriesTool || !agent) return;
+    let cancelled = false;
+    void toolsApi.runTestCall(connectionId, { agentId: agent.id, toolName: categoriesTool.toolName, parameters: {} })
+      .then((response) => {
+        if (cancelled || response.decision !== "allowed") return;
+        const names = readCategoryNames(response.result);
+        if (names.length > 0) setCategories(names);
+      })
+      .catch(() => { /* category list is optional; search still works without it */ });
+    return () => { cancelled = true; };
+  }, [connectionId, categoriesTool, agent]);
   const search = async () => {
     if (!searchTool || !agent) return;
     setPending(true);
@@ -114,7 +142,7 @@ export function FurniMeshLibraryPanel({
         <label className="min-w-48 space-y-1 text-sm">
           <span className="text-muted-foreground">Category</span>
           <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={category} onChange={(event) => setCategory(event.target.value)}>
-            {CATEGORIES.map((item) => <option key={item} value={item}>{item || "All categories"}</option>)}
+            {["", ...categories].map((item) => <option key={item} value={item}>{item || "All categories"}</option>)}
           </select>
         </label>
         <Button type="button" disabled={!searchTool || !agent || pending} onClick={() => void search()}>
@@ -132,6 +160,7 @@ export function FurniMeshLibraryPanel({
               <div className="space-y-2 p-3">
                 <h3 className="line-clamp-2 text-sm font-medium">{item.name ?? item.model_id ?? "Untitled model"}</h3>
                 {item.category ? <p className="text-xs text-muted-foreground">{item.category}</p> : null}
+                {item.heavy ? <p className="text-xs text-destructive">Heavy model: may be slow to load in the scene.</p> : null}
                 <div className="flex flex-wrap gap-2 text-xs">
                   {item.detail_url ? <a className="text-primary underline-offset-4 hover:underline" href={item.detail_url} target="_blank" rel="noreferrer">Details</a> : null}
                   {item.glb_url ? <a className="text-primary underline-offset-4 hover:underline" href={item.glb_url} target="_blank" rel="noreferrer">Preview GLB</a> : null}
