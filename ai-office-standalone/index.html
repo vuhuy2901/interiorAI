@@ -3335,6 +3335,12 @@ const OfficeNav = (function () {
         D.flowSide = reqs.slice().sort((a, b) => (b.wait - a.wait) || (a.dist - b.dist) || (b.prio - a.prio))[0].side; D.closing = false;
       }
       if (D.flowSide != null && reqs.some(q => q.side !== D.flowSide && q.wait > 6)) D.closing = true;
+      /* FEAT-2026-163 CR-2: agent xin qua cửa mà đã đứng trong khung (bị tính lại đường giữa chừng)
+         nhận lượt ngay; nếu không, khung không bao giờ trống và cửa kẹt vĩnh viễn. */
+      if (D.holder == null && reqs.length) {
+        const insider = reqs.find(q => { const o = w.movers.find(x => x.id === q.id); return o && !o.ignore && inFrame(D, o.x, o.z); });
+        if (insider) { D.holder = insider.id; D.flowSide = insider.side; D.closing = false; }
+      }
       if (D.holder == null && reqs.length) {
         const busy = w.movers.some(o => !o.ignore && inFrame(D, o.x, o.z));
         const free = reqs.filter(q => q.side === D.flowSide && q.dist < P.ZONE_IN + 0.6 && !w.movers.some(o => o.id !== q.id && !o.ignore && hyp(o.x - q.ex, o.z - q.ez) < 0.5));
@@ -4193,6 +4199,7 @@ function fp2Snapshot(before = fp2State()){
   FP2._history.push(fp2HistoryEntry(before));
   if (FP2._history.length > FP2_HIST) FP2._history.shift();
   FP2._future.length = 0;
+  try { if (FP2._refreshBuildStatus) FP2._refreshBuildStatus(); } catch (e) {} /* FEAT-2026-163: nút Hoàn tác sau thao tác bàn */
 }
 function fp2Replay(from, to){
   if (!from.length) return false;
@@ -5503,8 +5510,16 @@ async function syncLiveCompanyStatus() {
 
   try {
     const now = Date.now();
-    // 1. Chỉ cập nhật thông tin công ty và dự án mỗi 30 giây
-    if (now - lastStaticFetch > 30000 || !lastStaticFetch) {
+    /* FEAT-2026-163: ảnh chụp chỉ đọc có CORS loopback — dùng được khi trang chạy ở cổng 5000 */
+    const officeStatus = await fetchWithFallback('/api/atelier/office-status');
+    const statusOk = !!(officeStatus && officeStatus.ok && Array.isArray(officeStatus.agents) && Array.isArray(officeStatus.issues));
+    if (statusOk) {
+      if (officeStatus.companyId) liveCompanyId = officeStatus.companyId;
+      if (officeStatus.project && officeStatus.project.name) cachedActiveProject = officeStatus.project.name;
+      lastStaticFetch = now;
+    }
+    // 1. Chỉ cập nhật thông tin công ty và dự án mỗi 30 giây (đường cũ, dự phòng)
+    if (!statusOk && (now - lastStaticFetch > 30000 || !lastStaticFetch)) {
       const companies = await fetchWithFallback('/api/companies');
       if (Array.isArray(companies) && companies.length > 0) {
         const activeComp = companies.find(c => c.status === 'active') || companies[0];
@@ -5526,10 +5541,12 @@ async function syncLiveCompanyStatus() {
     }
 
     // 2. Tải danh sách Agent và Issues đang hoạt động
-    const [agentsData, issuesData] = await Promise.all([
-      fetchWithFallback(`/api/companies/${liveCompanyId}/agents`),
-      fetchWithFallback(`/api/companies/${liveCompanyId}/issues?limit=50`)
-    ]);
+    const [agentsData, issuesData] = statusOk
+      ? [officeStatus.agents, officeStatus.issues]
+      : await Promise.all([
+        fetchWithFallback(`/api/companies/${liveCompanyId}/agents`),
+        fetchWithFallback(`/api/companies/${liveCompanyId}/issues?limit=50`)
+      ]);
 
     let activeProjectName = cachedActiveProject;
 
@@ -5540,14 +5557,21 @@ async function syncLiveCompanyStatus() {
     const blockedIssues = allIssues.filter(i => i.status === 'blocked');
     const reviewIssues = allIssues.filter(i => i.status === 'in_review');
 
-    completedTasks = doneIssues.length;
-    if (doneTxt) {
-      doneTxt.textContent = `${completedTasks} hoàn thành`;
+    const apiReachable = Array.isArray(agentsData) && Array.isArray(issuesData);
+    if (apiReachable) {
+      completedTasks = doneIssues.length;
+      if (doneTxt) {
+        doneTxt.textContent = `${completedTasks} hoàn thành`;
+      }
     }
 
     // 5. Cập nhật tiêu đề tiến trình công ty
     const runningBadge = document.getElementById('runningTaskBadge');
-    if (inProgressIssues.length > 0) {
+    if (!apiReachable) {
+      /* FEAT-2026-163: không báo "sẵn sàng" khi thực ra mất kết nối */
+      if (runningBadge) runningBadge.textContent = '⚠️ MẤT KẾT NỐI PAPERCLIP';
+      setPhase('⚠️ Mất kết nối Paperclip · agent giữ trạng thái cục bộ');
+    } else if (inProgressIssues.length > 0) {
       if (runningBadge) runningBadge.textContent = `⚡ ĐANG CHẠY (${inProgressIssues.length} TASK)`;
       const topTask = inProgressIssues[0];
       setPhase(`⚡ [${topTask.identifier}] ${topTask.title}`);
@@ -5575,15 +5599,31 @@ async function syncLiveCompanyStatus() {
       { seatId: 'l_sofa2', act: 'sofa', say: 'Nghỉ ngơi thư giãn trên sofa nỉ 🛋️' }
     ];
 
-    (apiOk ? AGENT_MAPPINGS : []).forEach((mapping, agentIndex) => {
+    /* FEAT-2026-163: agent tuỳ chỉnh đã liên kết id Paperclip được ưu tiên;
+       agent lõi ghép theo tên với những agent Paperclip chưa được liên kết. */
+    const bindings = [];
+    if (apiOk) {
+      const claimed = new Set();
+      getCustomAgentConfigs().forEach((cfg, i) => {
+        const slot = DESK_POOL[cfg.poolIdx];
+        const live = cfg.paperclipAgentId ? liveAgents.find(la => la.id === cfg.paperclipAgentId) : null;
+        if (slot && A[slot.id] && live) {
+          claimed.add(live.id);
+          bindings.push({ id: slot.id, agentIndex: AGENT_MAPPINGS.length + i, liveAgent: live });
+        }
+      });
+      AGENT_MAPPINGS.forEach((mapping, agentIndex) => {
+        const live = liveAgents.find(la =>
+          !claimed.has(la.id) && mapping.match.some(m => (la.name || '').toLowerCase().includes(m))
+        );
+        if (live) bindings.push({ id: mapping.id, agentIndex, liveAgent: live });
+      });
+    }
+
+    bindings.forEach(({ id: boundId, agentIndex, liveAgent }) => {
+      const mapping = { id: boundId };
       const agent3D = A[mapping.id];
       if (!agent3D) return;
-
-      const liveAgent = liveAgents.find(la =>
-        mapping.match.some(m => (la.name || '').toLowerCase().includes(m))
-      );
-
-      if (!liveAgent) return;
 
       // Tìm task đang giao cho agent này
       const activeTask = inProgressIssues.find(i => i.assigneeAgentId === liveAgent.id);
@@ -5599,7 +5639,7 @@ async function syncLiveCompanyStatus() {
         agent3D.setStatus('working', `${activeTask.identifier}: ${activeTask.title}`);
         
         // Nếu Agent đang ở phòng nghỉ ngơi, tự động đứng dậy quay về bàn làm việc
-        if (agent3D.seat !== agent3D.home && !agent3D.isTransitioning) {
+        if (agent3D.home && agent3D.seat !== agent3D.home && !agent3D.isTransitioning) {
           agent3D.isTransitioning = true;
           (async () => {
             agent3D.say(`Nhận task ${activeTask.identifier}! Quay về bàn làm việc 💻`, 3.2);
@@ -5957,6 +5997,7 @@ document.getElementById('btnReset').onclick = () => resetView();
     el('btRedo').disabled = !FP2._future.length;
   }
 
+  FP2._refreshBuildStatus = () => { if (FP2.active) refreshStatus(); };
   function setOrbitMode(active) {
     cancelGesture();
     FP2.orbitMode = Boolean(active && FP2.active);
@@ -6997,7 +7038,7 @@ async function renderCustomTeamPanel() {
           <div class="cta-avatar" style="background:${bg};">${(cfg.name[0]||'?').toUpperCase()}</div>
           <div class="cta-info">
             <div class="cta-name">${cfg.name}</div>
-            <div class="cta-role">${cfg.role||'Custom Agent'}${slotLbl ? ' · '+slotLbl : ''}</div>
+            <div class="cta-role">${cfg.role||'Custom Agent'}${slotLbl ? ' · '+slotLbl : ''}${cfg.paperclipAgentId ? ' · liên kết Paperclip' : ''}</div>
           </div>
           <button class="cta-del" onclick="removeCustomAgent(${i})" title="Xoá">×</button>
         </div>`;
@@ -7009,29 +7050,39 @@ async function renderCustomTeamPanel() {
   }
 
   if (_ctaPcAgents === null) {
-    _ctaPcAgents = [];
-    try {
-      // Get active project from bootstrap, then fetch project-specific agents
-      const boot = await fetch('http://localhost:3100/api/atelier/bootstrap', { signal: AbortSignal.timeout(2000) });
-      let projectId = null;
-      if (boot.ok) {
-        const bd = await boot.json();
-        projectId = bd.paperclipBootstrap?.projectId || null;
+    /* FEAT-2026-163: bootstrap chậm (~2–3 s) và không có CORS nên không được chặn việc tải danh sách.
+       Danh sách lấy từ office-agents (có CORS); lỗi thì để null để lần mở panel sau thử lại. */
+    const getJson = async (path, ms) => {
+      for (const origin of ['http://localhost:3100', 'http://127.0.0.1:3100']) {
+        try {
+          const r = await fetch(origin + path, { signal: AbortSignal.timeout(ms) });
+          if (r.ok) return await r.json();
+        } catch { /* thử origin tiếp theo */ }
       }
-      const agentsUrl = projectId
-        ? `http://localhost:3100/api/atelier/office-agents?project_id=${encodeURIComponent(projectId)}`
-        : 'http://localhost:3100/api/atelier/office-agents';
-      const r = await fetch(agentsUrl, { signal: AbortSignal.timeout(2000) });
-      if (r.ok) { const d = await r.json(); _ctaPcAgents = d.agents || []; }
-    } catch { /* Paperclip offline — fallback to manual */ }
+      return null;
+    };
+    const [boot, all] = await Promise.all([
+      getJson('/api/atelier/bootstrap', 6000),
+      getJson('/api/atelier/office-agents', 5000),
+    ]);
+    let list = all && all.ok !== false && Array.isArray(all.agents) ? all.agents : null;
+    const projectId = boot?.paperclipBootstrap?.projectId || null;
+    if (list && projectId) {
+      const proj = await getJson(`/api/atelier/office-agents?project_id=${encodeURIComponent(projectId)}`, 5000);
+      if (proj && Array.isArray(proj.agents) && proj.agents.length > 0) list = proj.agents;
+    }
+    _ctaPcAgents = list; // null = offline, sẽ thử lại khi mở panel
   }
+  const pcAgents = _ctaPcAgents || [];
 
   const occupied = new Set(configs.map(c => c.poolIdx));
-  const pcSel = _ctaPcAgents.length > 0
+  const linkedIds = new Set(configs.map(c => c.paperclipAgentId).filter(Boolean));
+  const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const pcSel = pcAgents.length > 0
     ? `<div class="cta-label">Chọn từ Paperclip</div>
        <select id="ctaPcSel" class="cta-input">
          <option value="">── Nhập tay ──</option>
-         ${_ctaPcAgents.map(a => `<option value="${a.id}" data-name="${a.name}" data-role="${a.role||a.title||''}">${a.name}${a.role ? ' — '+a.role : ''}</option>`).join('')}
+         ${pcAgents.map(a => `<option value="${escAttr(a.id)}"${linkedIds.has(a.id) ? ' disabled' : ''} data-name="${escAttr(a.name)}" data-role="${escAttr(a.role||a.title||'')}">${escAttr(a.name)}${a.role ? ' — '+escAttr(a.role) : ''}</option>`).join('')}
        </select>`
     : '<div class="cta-label" style="color:#475569;">Paperclip offline — nhập tay</div>';
 
@@ -7051,7 +7102,7 @@ ${pcSel}
   </button>
 </form>`;
 
-  if (_ctaPcAgents.length > 0) {
+  if (pcAgents.length > 0) {
     document.getElementById('ctaPcSel').addEventListener('change', e => {
       const opt = e.target.selectedOptions[0];
       if (opt.value) {
@@ -7095,6 +7146,9 @@ ${pcSel}
       color: parseInt(colorHex.replace('#', ''), 16),
       poolIdx: _ctaSelPoolIdx,
     };
+    /* FEAT-2026-163: giữ liên kết id Paperclip để agent này nhận đúng task của mình */
+    const pcPick = document.getElementById('ctaPcSel');
+    if (pcPick && pcPick.value) cfg.paperclipAgentId = pcPick.value;
     const cfgs = getCustomAgentConfigs();
     cfgs.push(cfg);
     saveCustomAgentConfigs(cfgs);

@@ -440,6 +440,21 @@ if (block(159)) {
     eq(a.arr && b.arr, 'cả hai tới'); eq(Math.max(a.maxStuck, b.maxStuck) <= 5, 'stuck');
   });
 
+  /* FEAT-2026-163 CR-2: đổi đích khi đang đứng trong khung cửa không được làm kẹt cửa vĩnh viễn */
+  t('163 CR-2 agent bị tính lại đường khi đang trong khung cửa + agent khác chờ: cả hai qua được, không kẹt', () => {
+    const w = mkWorld(false);
+    const a = M.createMover('inframe', 1, 10.05, 10, Math.PI / 2), b = M.createMover('waiter', 2, 7, 10, Math.PI / 2), c = M.createMover('waiter2', 3, 7, 11.2, Math.PI / 2);
+    for (const m of [a, b, c]) { m.arr = false; m.done = () => { m.arr = true; }; w.movers.push(m); }
+    /* a đứng phía phải tâm cửa, đường mới phải quay lại bên trái: front=(10.6,10) back=(9.4,10) */
+    M.setPath(a, route({ x: 10.6, z: 10 }, { x: 5, z: 12 }));
+    M.setPath(b, route({ x: 7, z: 10 }, { x: 14, z: 9 }));
+    M.setPath(c, route({ x: 7, z: 11.2 }, { x: 14, z: 12 }));
+    let t2 = 0;
+    for (; t2 < 40 && !(a.arr && b.arr && c.arr); t2 += 1 / 60) M.stepAll(w, 1 / 60);
+    eq(a.arr && b.arr && c.arr, 'kẹt cửa: a=' + a.arr + ' b=' + b.arr + ' c=' + c.arr + ' holder=' + w.doors.get('o1').holder);
+    eq(t2 < 25, 'quá lâu ' + t2.toFixed(1) + ' s');
+  });
+
   t('161 cửa khoá: agent chờ ở điểm vào, không vào khung, cờ kẹt kích hoạt tính lại đường', () => {
     const w = mkWorld(true), m = M.createMover('k', 1, 7, 10, Math.PI / 2); w.movers.push(m);
     M.setPath(m, route({ x: 7, z: 10 }, { x: 13, z: 10 })); let inF = false, replan = false;
@@ -707,7 +722,9 @@ if (block(159)) {
     poll({ ok: false, tasks: {} }); eq(agentsM.b.state === 'working', 'API chết giữa chừng không về idle');
     poll({ ok: true, tasks: { a: 'BIM-1: dựng hình' } }); eq(agentsM.b.state === 'idle' && agentsM.a.state === 'working', 'hết task -> idle');
     /* guard thật trong trang */
-    eq(/const apiOk = Array\.isArray\(agentsData\) && Array\.isArray\(issuesData\)/.test(html) && /\(apiOk \? AGENT_MAPPINGS : \[\]\)\.forEach/.test(html), 'guard apiOk trong syncLiveCompanyStatus');
+    /* FEAT-2026-163: chấp nhận dạng cũ `(apiOk ? AGENT_MAPPINGS : []).forEach` và dạng mới `if (apiOk) { ... AGENT_MAPPINGS.forEach` */
+    eq(/const apiOk = Array\.isArray\(agentsData\) && Array\.isArray\(issuesData\)/.test(html)
+      && (/\(apiOk \? AGENT_MAPPINGS : \[\]\)\.forEach/.test(html) || /if \(apiOk\) \{[^]{0,900}?AGENT_MAPPINGS\.forEach/.test(html)), 'guard apiOk trong syncLiveCompanyStatus');
   });
 
   t('162 AC-06 chỉ setAgentState đổi trạng thái; panel dùng nguồn mới', () => {

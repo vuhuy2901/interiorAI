@@ -2446,6 +2446,71 @@ export function atelierBridgeRoutes(db: Db) {
     }
   });
 
+  // ============================================================================
+  // ATELIER OFFICE-STATUS (FEAT-2026-163) — read-only snapshot for the ai-office
+  // 3D page served from another local port (e.g. http://127.0.0.1:5000).
+  // CORS is limited to loopback origins; only the fields the page needs are sent.
+  // ============================================================================
+  const LOOPBACK_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost)(:\d{1,5})?$/;
+  router.get("/atelier/office-status", async (req, res) => {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    if (LOOPBACK_ORIGIN.test(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Methods", "GET");
+    }
+    try {
+      const companyId = await resolveAtelierCompanyId(req);
+      const [projectRows, agentRows, activeRows, doneRows] = await Promise.all([
+        db.select({ id: projects.id, name: projects.name, status: projects.status })
+          .from(projects)
+          .where(and(eq(projects.companyId, companyId), isNull(projects.archivedAt)))
+          .orderBy(desc(projects.updatedAt))
+          .limit(20),
+        db.select({ id: agents.id, name: agents.name, role: agents.role, title: agents.title, status: agents.status })
+          .from(agents)
+          .where(eq(agents.companyId, companyId))
+          .orderBy(agents.name),
+        db.select({
+          id: issues.id, identifier: issues.identifier, title: issues.title,
+          status: issues.status, assigneeAgentId: issues.assigneeAgentId,
+        })
+          .from(issues)
+          .where(and(
+            eq(issues.companyId, companyId),
+            isNull(issues.hiddenAt),
+            inArray(issues.status, ["in_progress", "blocked", "in_review"]),
+          ))
+          .orderBy(desc(issues.updatedAt))
+          .limit(100),
+        db.select({
+          id: issues.id, identifier: issues.identifier, title: issues.title,
+          status: issues.status, assigneeAgentId: issues.assigneeAgentId,
+        })
+          .from(issues)
+          .where(and(eq(issues.companyId, companyId), isNull(issues.hiddenAt), eq(issues.status, "done")))
+          .orderBy(desc(issues.updatedAt))
+          .limit(50),
+      ]);
+      const activeProject = projectRows.find((p) => p.status === "in_progress") ?? projectRows[0] ?? null;
+      res.json({
+        ok: true,
+        companyId,
+        project: activeProject ? { id: activeProject.id, name: activeProject.name, status: activeProject.status } : null,
+        agents: agentRows.map((a) => ({
+          id: a.id,
+          name: a.name,
+          role: a.role || (a.title ?? ""),
+          title: a.title ?? "",
+          status: a.status,
+        })),
+        issues: [...activeRows, ...doneRows],
+      });
+    } catch {
+      res.status(503).json({ ok: false });
+    }
+  });
+
   return router;
 }
 
