@@ -6990,6 +6990,38 @@ setInterval(syncLiveCompanyStatus, 6000);
   });
 })();
 
+/* =========================================================================
+   FEAT-2026-164: Office Decoration Enrichment (P5)
+   ========================================================================= */
+(async function setupDecorEnrichment() {
+  // Import decor enrichment module
+  const decorModule = await import('modules/decorEnrichment.js');
+
+  try {
+    // Load decor library
+    const decorLibrary = await decorModule.loadDecorLibrary();
+    if (!decorLibrary || Object.keys(decorLibrary).length === 0) {
+      console.warn('[Decor] Library not found or empty');
+      return;
+    }
+
+    // Validate placement rules
+    const validation = decorModule.validateDecorPlacement();
+    console.log(`[Decor] Validation: ${validation.valid} placements`);
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(w => console.warn(`[Decor] ⚠️ ${w}`));
+    }
+
+    // Enrich scene with decor
+    const decorGroup = await decorModule.enrichScene(S, decorLibrary);
+
+    // Report stats
+    const stats = decorModule.getDecorStats();
+    console.info(`[Decor] Enriched ${stats.totalPlacements} items across ${stats.roomCount} rooms:`, stats.byRoom);
+  } catch (err) {
+    console.error('[Decor] Enrichment failed:', err);
+  }
+})();
 
 /* ===== CUSTOM TEAM PANEL UI v2 ===== */
 let _ctaSelPoolIdx = null;
