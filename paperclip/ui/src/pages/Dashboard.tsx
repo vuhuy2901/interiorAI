@@ -42,6 +42,7 @@ import { PluginSlotOutlet } from "@/plugins/slots";
 import { SmokeLabDashboardCard } from "../components/SmokeLabDashboardCard";
 import { taskStatusIconProps } from "@/lib/task-status-presentation";
 import { AgentPerformanceAnalytics } from "../components/AgentPerformanceAnalytics";
+import { TokenAnalyticsSummary } from "../components/TokenAnalyticsSummary";
 
 const DASHBOARD_ACTIVITY_LIMIT = 10;
 
@@ -586,6 +587,8 @@ export function Dashboard() {
             agents={agents}
             projects={projects}
           />
+
+          <TokenAnalyticsSummary companyId={selectedCompanyId!} />
         </>
       )}
     </div>
