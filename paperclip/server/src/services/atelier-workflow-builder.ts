@@ -1,5 +1,13 @@
 import { and, desc, eq, max, sql } from "drizzle-orm";
-import { agents, atelierWorkflowRuns, atelierWorkflowStageExecutions, issues, workflows, type Db } from "@paperclipai/db";
+import {
+  agents,
+  atelierWorkflowRuns,
+  atelierWorkflowStageExecutions,
+  issues,
+  projects,
+  workflows,
+  type Db,
+} from "@paperclipai/db";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 const ATELIER_COMPANY_WORKFLOW_NAME = "Atelier Company Workflow";
 
@@ -15,6 +23,7 @@ export type AtelierWorkflowNode = {
   type: AtelierNodeType;
   name: string;
   description?: string;
+  notes?: string;
   position?: { x: number; y: number };
   taskType?: string;
   requiredRole?: string;
@@ -29,9 +38,30 @@ export type AtelierWorkflowNode = {
   retryPolicy?: { maxAttempts: number; backoffSeconds?: number };
   approval?: { required: boolean; approverRole?: string; approverAgentIds?: string[] };
   conditionOutcomes?: string[];
+  stepNumber?: number;
+  totalSteps?: number;
+  stepLabel?: string;
+  sourceNodes?: string[];
+  stepSettings?: Record<string, unknown>;
+  syncRule?: string;
 };
 
-export type AtelierWorkflowEdge = { id: string; source: string; target: string; outcome?: string };
+export type AtelierWorkflowEdge = {
+  id: string;
+  source: string;
+  target: string;
+  outcome?: string;
+  name?: string;
+  description?: string;
+  condition?: string;
+  trigger?: string;
+  priority?: string;
+  retryRule?: Record<string, unknown>;
+  timeoutSeconds?: number;
+  approvalRequired?: boolean;
+  guard?: string;
+  notes?: string;
+};
 export type AtelierEditableDefinition = {
   schemaVersion: 2;
   key: string;
@@ -42,6 +72,10 @@ export type AtelierEditableDefinition = {
   canvas?: { snapToGrid?: boolean; viewport?: { x: number; y: number; zoom: number } };
   gatePolicy?: Record<string, unknown>;
   stateMachine?: string[];
+  canvasNotes?: unknown[];
+  groupSections?: unknown[];
+  optionalSteps?: Record<string, unknown>;
+  activeForProjectIds?: string[];
 };
 
 export type WorkflowValidationIssue = {
@@ -201,11 +235,22 @@ export async function validateAtelierWorkflowDefinition(db: Db, companyId: strin
   if (ends.length !== 1) issues.push({ code: "end_count", severity: "error", message: "Workflow requires exactly one End node." });
   const outgoing = new Map<string, AtelierWorkflowEdge[]>();
   const incoming = new Map<string, AtelierWorkflowEdge[]>();
+  const edgeSignatures = new Set<string>();
+
   for (const edge of definition.edges) {
-    if (!ids.has(edge.source) || !ids.has(edge.target)) issues.push({ code: "dangling_edge", severity: "error", message: `Edge '${edge.id}' references a missing node.`, edgeId: edge.id });
+    if (!ids.has(edge.source) || !ids.has(edge.target)) {
+      issues.push({ code: "dangling_edge", severity: "error", message: `Edge '${edge.id}' references a missing node.`, edgeId: edge.id });
+    }
+    const sig = `${edge.source}->${edge.target}:${edge.outcome ?? ""}:${edge.condition ?? ""}`;
+    if (edgeSignatures.has(sig)) {
+      issues.push({ code: "duplicate_edge", severity: "error", message: `Duplicate transition from '${edge.source}' to '${edge.target}'.`, edgeId: edge.id });
+    }
+    edgeSignatures.add(sig);
+
     outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
     incoming.set(edge.target, [...(incoming.get(edge.target) ?? []), edge]);
   }
+
   for (const node of definition.nodes) {
     if (node.type === "JOIN" && (incoming.get(node.id)?.length ?? 0) < 2) issues.push({ code: "invalid_join", severity: "error", message: "Join requires at least two incoming edges.", nodeId: node.id });
     if (node.type === "CONDITION") {
@@ -213,13 +258,111 @@ export async function validateAtelierWorkflowDefinition(db: Db, companyId: strin
       for (const outcome of node.conditionOutcomes ?? []) if (!outcomes.has(outcome)) issues.push({ code: "missing_condition_branch", severity: "error", message: `Condition outcome '${outcome}' has no edge.`, nodeId: node.id });
     }
   }
+
+  if (ends.length === 1 && (incoming.get(ends[0].id)?.length ?? 0) === 0) {
+    issues.push({ code: "end_unreachable", severity: "error", message: `End node '${ends[0].name}' has no incoming transitions.`, nodeId: ends[0].id });
+  }
+
   if (starts.length === 1) {
-    const visited = new Set<string>(); const visiting = new Set<string>();
-    const visit = (id: string) => { if (visiting.has(id)) { issues.push({ code: "cycle", severity: "error", message: `Cycle detected at '${id}'.`, nodeId: id }); return; } if (visited.has(id)) return; visiting.add(id); for (const edge of outgoing.get(id) ?? []) visit(edge.target); visiting.delete(id); visited.add(id); };
-    visit(starts[0].id);
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (id: string, path: string[]) => {
+      if (visiting.has(id)) {
+        if (id === starts[0].id) {
+          issues.push({ code: "cycle", severity: "error", message: `Cycle detected returning to Start node '${id}'.`, nodeId: id });
+          return;
+        }
+        const sourceNode = path[path.length - 1];
+        const loopEdges = (outgoing.get(sourceNode) ?? []).filter((e) => e.target === id);
+        const hasGuard = loopEdges.some(
+          (e) =>
+            Boolean(e.condition) ||
+            e.trigger === "event" ||
+            Boolean(e.retryRule?.maxAttempts) ||
+            Boolean(e.outcome && /retry|reject|không|hủy/i.test(e.outcome)),
+        );
+        if (!hasGuard) {
+          issues.push({ code: "cycle", severity: "error", message: `Cycle detected at '${id}' without a retry limit or exit guard.`, nodeId: id });
+        }
+        return;
+      }
+      if (visited.has(id)) return;
+      visiting.add(id);
+      for (const edge of outgoing.get(id) ?? []) visit(edge.target, [...path, id]);
+      visiting.delete(id);
+      visited.add(id);
+    };
+    visit(starts[0].id, []);
     for (const node of definition.nodes) if (!visited.has(node.id)) issues.push({ code: "unreachable_node", severity: "error", message: `Node '${node.name}' is unreachable from Start.`, nodeId: node.id });
   }
   return { valid: !issues.some((issue) => issue.severity === "error"), issues, definition };
+}
+
+export async function activateAtelierWorkflowForProject(
+  db: Db,
+  companyId: string,
+  projectId: string,
+  workflowId: string,
+) {
+  return db.transaction(async (rawTx) => {
+    const tx = rawTx as unknown as Db;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`atelier-workflow-activate:${companyId}:${projectId}`}, 0))`);
+
+    const project = await tx
+      .select()
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.companyId, companyId)))
+      .then((rows) => rows[0] ?? null);
+    if (!project) throw notFound("Project not found");
+
+    // Enforce concurrency rule: if an execution is currently running, block switching
+    const activeRun = await tx
+      .select({ id: atelierWorkflowRuns.id, status: atelierWorkflowRuns.status })
+      .from(atelierWorkflowRuns)
+      .where(
+        and(
+          eq(atelierWorkflowRuns.companyId, companyId),
+          eq(atelierWorkflowRuns.projectId, projectId),
+          eq(atelierWorkflowRuns.status, "running"),
+        ),
+      )
+      .then((rows) => rows[0] ?? null);
+
+    if (activeRun) {
+      throw conflict(
+        "Không thể đổi Active Workflow khi dự án đang có quy trình đang thực thi. Hãy hoàn thành hoặc dừng lượt chạy trước.",
+        { code: "execution_in_progress", runId: activeRun.id },
+      );
+    }
+
+    const workflow = await tx
+      .select()
+      .from(workflows)
+      .where(and(eq(workflows.id, workflowId), eq(workflows.companyId, companyId)))
+      .then((rows) => rows[0] ?? null);
+    if (!workflow) throw notFound("Workflow definition not found");
+
+    const currentMeta = (project.metadata ?? {}) as Record<string, unknown>;
+    const updatedMeta = {
+      ...currentMeta,
+      activeWorkflowId: workflow.id,
+      activeWorkflowVersion: workflow.version,
+    };
+
+    await tx
+      .update(projects)
+      .set({ metadata: updatedMeta, updatedAt: new Date() })
+      .where(eq(projects.id, projectId));
+
+    return {
+      ok: true,
+      projectId,
+      activeWorkflowId: workflow.id,
+      activeWorkflowVersion: workflow.version,
+      workflowName: workflow.name,
+      status: workflow.status,
+    };
+  });
 }
 
 export async function listAtelierWorkflowVersions(db: Db, companyId: string) {

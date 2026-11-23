@@ -15,6 +15,11 @@ from app.services.cost_engine import calculate_project_estimate
 from app.services.geometry import analyze_scene_spatial_quality
 from app.services.mcp_gateway import sync_canonical_to_pascal
 from app.services.smart_fit import oriented_corners, point_in_polygon, polygons_overlap_sat
+from app.services.pascal_scene_asset_bridge import (
+    PascalFurnitureAssetReference,
+    build_scene_furniture_payload,
+    validate_pascal_asset_reference,
+)
 
 router = APIRouter()
 _locks: dict[str, asyncio.Lock] = {}
@@ -46,6 +51,22 @@ class AddFurnitureRequest(BaseModel):
     def nonblank_identity(self):
         if not self.idempotency_key.strip() or not self.item.id.strip():
             raise ValueError("idempotency_key and item.id must not be blank")
+        return self
+
+
+class FurniMeshSceneAdditionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    reference: PascalFurnitureAssetReference
+    room_id: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    price_vnd: float = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def nonblank_identity(self):
+        if not self.idempotency_key.strip():
+            raise ValueError("idempotency_key must not be blank")
         return self
 
 
@@ -260,6 +281,43 @@ async def add_furniture(project_id: str, body: AddFurnitureRequest):
             # A rejected CAS or receipt conflict rolls back both scene and history.
             conn.close()
         return _result(project, False)
+
+
+@router.post("/api/v1/projects/{project_id}/furniture/from-furnimesh")
+async def add_furnimesh_furniture(project_id: str, body: FurniMeshSceneAdditionRequest):
+    """Convert a reviewed FurniMesh reference into the existing CAS write envelope."""
+    if body.reference.scene_id != project_id:
+        raise HTTPException(status_code=409, detail={"reason": "scene_id_mismatch"})
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT revision FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        validate_pascal_asset_reference(
+            body.reference,
+            active_scene_id=project_id,
+            active_revision=row["revision"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"reason": "scene_asset_reference_invalid", "message": str(exc)}) from exc
+    payload = build_scene_furniture_payload(
+        body.reference,
+        room_id=body.room_id,
+        category=body.category,
+        name=body.name,
+        price_vnd=body.price_vnd,
+    )
+    return await add_furniture(
+        project_id,
+        AddFurnitureRequest(
+            base_revision=body.reference.expected_revision,
+            idempotency_key=body.idempotency_key,
+            item=FurnitureAddition.model_validate(payload),
+        ),
+    )
 
 
 @router.patch("/api/v1/projects/{project_id}/furniture/layout")

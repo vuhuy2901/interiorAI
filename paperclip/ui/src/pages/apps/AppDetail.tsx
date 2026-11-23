@@ -77,6 +77,7 @@ import {
   connectionOwnerProfile,
 } from "./connection-owner";
 import { describeError } from "@/api/errors";
+import { FurniMeshLibraryPanel } from "./app-detail/FurniMeshLibraryPanel";
 
 export { connectionAddress, connectionTransportLabel };
 
@@ -664,6 +665,7 @@ function StandardAppDetail({ renderActions, renderAgentSettings, renderConnectio
           : permissionsLoading
           ? <ToolsLoading />
           : <div className="space-y-10">
+              {brandKey === "furnimesh" ? <FurniMeshLibraryPanel connectionId={connectionId} catalog={catalog} agents={agents} /> : null}
               {isAppAggregator(brandKey) && grantsQuery.data?.capabilities.canConfigure === true
                 ? <ConnectedAggregatorApps key={connection.id} connection={connection} /> : null}
               {connection.config?.sourceTemplateKey === "honcho" && <HonchoWorkspaceSettings key={connection.id} connection={connection} canConfigure={grantsQuery.data?.capabilities?.canConfigure ?? false} />}

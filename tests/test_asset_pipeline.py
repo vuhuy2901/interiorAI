@@ -13,8 +13,12 @@ if str(API_DIR) not in sys.path:
 from app.services import asset_pipeline, blender_mcp
 from app.services.asset_pipeline import (
     AssetPipelineError,
+    FurniMeshError,
+    get_furnimesh_details,
     pack_gltf_to_glb,
+    parse_furnimesh_listing_html,
     register_user_glb,
+    validate_furnimesh_url,
     validate_glb,
 )
 
@@ -102,3 +106,45 @@ def test_blender_missing_is_blocked_without_fake_file(tmp_path: Path, monkeypatc
     assert result["status"] == "BLOCKED"
     assert result["error_code"] == "BLENDER_NOT_AVAILABLE"
     assert not output.exists()
+
+
+def test_furnimesh_listing_parser_returns_real_detail_candidates():
+    html = """
+    <a href="/library/seating/armchair/modern-chair-abc123/">Modern Chair</a>
+    <a href="/library/format/glb/">GLB</a>
+    <a href="https://evil.example/library/seating/chair/nope/">ignore</a>
+    """
+    results = parse_furnimesh_listing_html(html)
+    assert [item.model_id for item in results] == ["modern-chair-abc123"]
+    assert results[0].detail_url == "https://furnimesh.com/library/seating/armchair/modern-chair-abc123"
+
+
+def test_furnimesh_detail_parser_preserves_scene_units_and_glb_url(monkeypatch: pytest.MonkeyPatch):
+    detail = """
+    <script type="application/ld+json">{"category":"wrong JSON-LD context"}</script>
+    <h1>Modern Upholstered Chair</h1>
+    <img src="https://furnimesh.com/images/chair.jpg">
+    <dl><dt>Category</dt><dd>Seating → Armchair</dd></dl>
+    <h2>About this model</h2><p>A real chair.</p><h2>Key features</h2>
+    <a href="https://storage.googleapis.com/furnimesh-3d/gbl-files/chair.glb">GLB (48.3 MB)</a>
+    <div>Model extent</div><div>0.94 × 0.91 × 0.99 (scene units — adjust scale as needed)</div>
+    <div>Polycount</div><div>291,120</div>
+    """
+    monkeypatch.setattr(asset_pipeline, "_reject_private_hostname", lambda _host: None)
+    monkeypatch.setattr(asset_pipeline, "_fetch_furnimesh_html", lambda _url: (detail, "https://furnimesh.com/library/seating/armchair/chair-abc/"))
+    candidate = get_furnimesh_details(detail_url="https://furnimesh.com/library/seating/armchair/chair-abc/")
+    assert candidate.name == "Modern Upholstered Chair"
+    assert candidate.glb_url == "https://storage.googleapis.com/furnimesh-3d/gbl-files/chair.glb"
+    assert candidate.category == "Seating → Armchair"
+    assert candidate.technical["dimensions_source"] == "scene_units"
+    assert candidate.technical["polycount"] == 291120
+
+
+def test_furnimesh_url_validation_rejects_ssrf_and_unapproved_hosts(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(asset_pipeline, "_reject_private_hostname", lambda _host: None)
+    with pytest.raises(FurniMeshError):
+        validate_furnimesh_url("http://furnimesh.com/library/")
+    with pytest.raises(FurniMeshError):
+        validate_furnimesh_url("https://example.com/private.glb", asset=True)
+    with pytest.raises(FurniMeshError):
+        validate_furnimesh_url("https://storage.googleapis.com/other-bucket/model.glb", asset=True)

@@ -127,6 +127,11 @@ from app.services.asset_pipeline import (
     list_registered_assets,
     register_user_glb,
     search_assets,
+    check_furnimesh_asset_compatibility,
+    get_furnimesh_details,
+    get_furnimesh_glb_url,
+    preview_furnimesh,
+    search_furnimesh,
 )
 from app.services.material_system import (
     MATERIAL_ROOT,
@@ -138,6 +143,7 @@ from app.services.material_system import (
     save_material,
 )
 from app.services.smart_fit import assess_fit, generate_placement_options, plan_resize
+from app.services.scene_furniture import router as scene_furniture_router
 from app.services.agent_orchestrator_engine import execute_real_workflow_run, sync_native_workflow_run
 from app.services.workflow_input_sync import list_run_decisions, reconcile_workflow_inputs
 from app.services.workflow_runtime import validate_workflow_snapshot
@@ -222,6 +228,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The add-only scene route is the Pascal Scene Asset Bridge write surface. It
+# owns expected-revision CAS, idempotency receipts, spatial QA, and Pascal
+# verification; keeping it mounted here prevents a second mutation path.
+app.include_router(scene_furniture_router)
 
 
 @app.middleware("http")
@@ -1703,6 +1714,24 @@ class AssetSearchPayload(BaseModel):
     asset_type: str = "3d-model"
 
 
+class FurniMeshSearchPayload(BaseModel):
+    query: str = ""
+    category: Optional[str] = None
+    style: Optional[str] = None
+    color: Optional[str] = None
+    limit: int = 12
+    page: int = 1
+
+
+class FurniMeshModelPayload(BaseModel):
+    model_id: Optional[str] = None
+    detail_url: Optional[str] = None
+
+
+class FurniMeshCompatibilityPayload(FurniMeshModelPayload):
+    max_bytes: int = 300 * 1024 * 1024
+
+
 class PolyHavenImportPayload(BaseModel):
     slug: str
     resolution: str = "1k"
@@ -1743,6 +1772,49 @@ def api_search_assets(body: AssetSearchPayload):
             raise AssetPipelineError("Nguồn asset không được hỗ trợ")
         results = search_assets(body.query, body.source, body.limit, body.asset_type)
         return {"ok": True, "source": body.source, "results": [item.model_dump() for item in results]}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+# FurniMesh public library adapter.  These endpoints are deliberately
+# metadata/URL-only: no catalog sync and no download-to-disk operation.
+@app.post("/api/v1/furnimesh/search")
+def api_search_furnimesh(body: FurniMeshSearchPayload):
+    try:
+        results = search_furnimesh(**body.model_dump())
+        return {"ok": True, "source": "furnimesh", "results": [item.model_dump() for item in results]}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/details")
+def api_get_furnimesh_details(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, "model": get_furnimesh_details(**body.model_dump()).model_dump()}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/glb-url")
+def api_get_furnimesh_glb_url(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, **get_furnimesh_glb_url(**body.model_dump())}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/preview")
+def api_preview_furnimesh(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, **preview_furnimesh(**body.model_dump())}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/compatibility")
+def api_check_furnimesh_compatibility(body: FurniMeshCompatibilityPayload):
+    try:
+        return {"ok": True, **check_furnimesh_asset_compatibility(**body.model_dump())}
     except AssetPipelineError as exc:
         raise _asset_error(exc) from exc
 

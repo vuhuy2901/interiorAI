@@ -27,6 +27,7 @@ import { taskStatusIconProps } from "@/lib/task-status-presentation";
 import { AgentAvatar } from "./AgentAvatar";
 import { agentChatPinKey } from "./AgentChatPin";
 import { PinnedNavigationList, type PinnedNavigationItem } from "./PinnedNavigationList";
+import { CompanySimulationLink } from "./CompanySimulationLink";
 
 const moreDestinations = [
   { label: "Không gian thiết kế 2D/3D", to: "/design-studio", icon: Boxes },
@@ -174,6 +175,7 @@ export function CoordinatorSidebar({ children }: { children?: ReactNode }) {
           <SidebarNavItem className="design-sidebar-item" to="/skills" label="Skills / Skill Studio" icon={Boxes} />
           <SidebarNavItem className="design-sidebar-item" to="/apps" label="Kết nối AI / MCP" icon={Unplug} />
           <SidebarNavItem className="design-sidebar-item" to="/design-studio" label="Không gian thiết kế 2D/3D" icon={Boxes} textBadge="3D" />
+          <CompanySimulationLink />
           <SidebarNavItem className="design-sidebar-item" to="/inventory-bom" label="Danh mục nội thất" icon={Boxes} />
           <SidebarNavItem className="design-sidebar-item" to="/cost-estimation" label="Dự toán" icon={FolderOpen} />
         </div>

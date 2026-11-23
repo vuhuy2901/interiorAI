@@ -6,15 +6,22 @@ scene assets until their source/license metadata and runtime GLB have been valid
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
+import html
+import ipaddress
 import json
 import mimetypes
+import re
 import shutil
+import socket
 import struct
 import urllib.parse
+import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional
 
@@ -36,9 +43,300 @@ ALLOWED_DOWNLOAD_HOSTS = {
     "api.sketchfab.com",
 }
 
+# FurniMesh is intentionally a public-HTML, on-demand source.  The adapter
+# never treats a crawl/index as the runtime source of truth and never follows
+# arbitrary URLs supplied by an agent.
+FURNIMESH_PAGE_HOSTS = {"furnimesh.com", "www.furnimesh.com"}
+FURNIMESH_ASSET_HOSTS = {"storage.googleapis.com"}
+FURNIMESH_ASSET_PREFIX = "/furnimesh-3d/"
+FURNIMESH_PAGE_LIMIT = 5
+FURNIMESH_MAX_HTML_BYTES = 4 * 1024 * 1024
+
 
 class AssetPipelineError(RuntimeError):
     pass
+
+
+class FurniMeshError(AssetPipelineError):
+    """A safe, user-facing FurniMesh source or compatibility error."""
+
+
+class FurniMeshCandidate(BaseModel):
+    model_id: str
+    name: str
+    description: str = ""
+    thumbnail_url: Optional[str] = None
+    detail_url: str
+    category: Optional[str] = None
+    available_formats: List[str] = Field(default_factory=list)
+    glb_url: Optional[str] = None
+    source: Literal["furnimesh"] = "furnimesh"
+    technical: Dict[str, Any] = Field(default_factory=dict)
+
+
+class _FurniMeshNoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _reject_private_hostname(hostname: str) -> None:
+    """Reject private/loopback/link-local DNS answers before outbound IO."""
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)}
+    except socket.gaierror as exc:
+        raise FurniMeshError(f"Không phân giải được hostname FurniMesh: {hostname}") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise FurniMeshError("URL FurniMesh trỏ tới địa chỉ mạng nội bộ hoặc bị hạn chế")
+
+
+def validate_furnimesh_url(url: str, *, asset: bool = False) -> str:
+    parsed = urllib.parse.urlparse(url.strip())
+    allowed_hosts = FURNIMESH_ASSET_HOSTS if asset else FURNIMESH_PAGE_HOSTS
+    if parsed.scheme != "https" or parsed.hostname not in allowed_hosts or parsed.username or parsed.password:
+        raise FurniMeshError(f"URL FurniMesh không nằm trong allowlist: {url}")
+    if asset and not parsed.path.startswith(FURNIMESH_ASSET_PREFIX):
+        raise FurniMeshError("Asset URL FurniMesh nằm ngoài prefix lưu trữ công khai")
+    _reject_private_hostname(parsed.hostname)
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, ""))
+
+
+class _FurniMeshHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[dict[str, str]] = []
+        self.images: list[str] = []
+        self._href: Optional[str] = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        values = dict(attrs)
+        if tag == "a" and values.get("href"):
+            self._href = values["href"]
+            self._text = []
+        if tag == "img":
+            source = values.get("src") or values.get("data-src")
+            if source:
+                self.images.append(source)
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._href is not None:
+            text_value = " ".join(" ".join(self._text).split())
+            self.links.append({"href": self._href, "text": html.unescape(text_value)})
+            self._href = None
+            self._text = []
+
+
+def _furnimesh_absolute_url(value: str, base: str) -> str:
+    return urllib.parse.urljoin(base, html.unescape(value.strip()))
+
+
+def _fetch_furnimesh_html(url: str, *, timeout: int = 20) -> tuple[str, str]:
+    safe_url = validate_furnimesh_url(url)
+    opener = urllib.request.build_opener(_FurniMeshNoRedirect())
+    try:
+        current_url = safe_url
+        for _ in range(4):
+            request = urllib.request.Request(current_url, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
+            try:
+                response = opener.open(request, timeout=timeout)
+            except urllib.error.HTTPError as redirect:
+                if redirect.code < 300 or redirect.code >= 400:
+                    raise
+                location = redirect.headers.get("Location")
+                if not location:
+                    raise FurniMeshError("Trang FurniMesh redirect thiếu Location")
+                current_url = validate_furnimesh_url(urllib.parse.urljoin(current_url, location))
+                continue
+            with response:
+                final_url = validate_furnimesh_url(response.geturl())
+                payload = response.read(FURNIMESH_MAX_HTML_BYTES + 1)
+                if len(payload) > FURNIMESH_MAX_HTML_BYTES:
+                    raise FurniMeshError("Trang FurniMesh vượt giới hạn kích thước metadata")
+                return payload.decode("utf-8", errors="replace"), final_url
+        raise FurniMeshError("Trang FurniMesh vượt quá số lần redirect cho phép")
+    except FurniMeshError:
+        raise
+    except Exception as exc:
+        raise FurniMeshError(f"Không thể đọc trang FurniMesh: {exc}") from exc
+
+
+def _slug(value: str) -> str:
+    return "-".join(part for part in re.split(r"[^a-z0-9]+", value.lower()) if part)
+
+
+def _extract_model_id(detail_url: str) -> str:
+    parts = [part for part in urllib.parse.urlparse(detail_url).path.split("/") if part]
+    return parts[-1] if parts else detail_url
+
+
+def parse_furnimesh_listing_html(html_text: str, *, base_url: str = "https://furnimesh.com/library/") -> list[FurniMeshCandidate]:
+    parser = _FurniMeshHtmlParser()
+    parser.feed(html_text)
+    detail_links: dict[str, dict[str, str]] = {}
+    for link in parser.links:
+        absolute = _furnimesh_absolute_url(link["href"], base_url)
+        parsed = urllib.parse.urlparse(absolute)
+        if parsed.hostname not in FURNIMESH_PAGE_HOSTS or not parsed.path.startswith("/library/"):
+            continue
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if len(path_parts) < 4 or "/format/glb/" in parsed.path or path_parts[-1] in {"", "sofas", "chairs", "beds", "tables", "chair", "table", "bed", "armchair", "dining-table", "coffee-table"}:
+            continue
+        # Download links are stored on the corresponding detail page.  The
+        # listing itself remains cheap and only returns a candidate shell.
+        key = absolute.rstrip("/")
+        detail_links.setdefault(key, {"detail_url": key, "name": link["text"] or _extract_model_id(key)})
+    candidates: list[FurniMeshCandidate] = []
+    for item in detail_links.values():
+        candidates.append(FurniMeshCandidate(model_id=_extract_model_id(item["detail_url"]), name=item["name"], detail_url=item["detail_url"]))
+    return candidates
+
+
+def _text_between(text: str, start: str, end: str = "") -> str:
+    start_index = text.lower().find(start.lower())
+    if start_index < 0:
+        return ""
+    value = text[start_index + len(start):]
+    if end:
+        value = value[:value.lower().find(end.lower())] if end.lower() in value.lower() else value
+    return " ".join(re.sub(r"<[^>]+>", " ", value).split())
+
+
+def get_furnimesh_details(*, model_id: Optional[str] = None, detail_url: Optional[str] = None) -> FurniMeshCandidate:
+    if detail_url:
+        target = validate_furnimesh_url(detail_url)
+    elif model_id and model_id.startswith("https://"):
+        target = validate_furnimesh_url(model_id)
+    elif model_id and re.fullmatch(r"[a-z0-9][a-z0-9-]{2,160}", model_id):
+        # A bare slug is accepted only as a bounded detail path; no arbitrary
+        # host/path is inferred from agent input.
+        target = validate_furnimesh_url(f"https://furnimesh.com/library/{model_id}/")
+    else:
+        raise FurniMeshError("Cần model_id hợp lệ hoặc detail_url FurniMesh công khai")
+    source, final_url = _fetch_furnimesh_html(target)
+    parser = _FurniMeshHtmlParser()
+    parser.feed(source)
+    links = [_furnimesh_absolute_url(item["href"], final_url) for item in parser.links]
+    glb_candidates = [url for url in links if urllib.parse.urlparse(url).hostname in FURNIMESH_ASSET_HOSTS and url.lower().split("?", 1)[0].endswith(".glb")]
+    title_match = re.search(r"<h1[^>]*>(.*?)</h1>", source, re.I | re.S)
+    title = " ".join(re.sub(r"<[^>]+>", " ", title_match.group(1)).split()) if title_match else _extract_model_id(final_url)
+    image = next((url for url in parser.images if url.startswith(("https://", "/")) and "logo" not in url.lower()), None)
+    thumb = _furnimesh_absolute_url(image, final_url) if image else None
+    extent_match = re.search(r"Model extent.*?([0-9.]+\s*[×x]\s*[0-9.]+\s*[×x]\s*[0-9.]+).*?scene units", source, re.I | re.S)
+    poly_match = re.search(r"Polycount.*?([0-9][0-9,]*)", source, re.I | re.S)
+    size_match = re.search(r"GLB\s*([0-9.]+\s*(?:MB|GB))", source, re.I)
+    # Prefer the visible definition-list field. A broad `Category...>` match can
+    # accidentally capture the surrounding JSON-LD script instead of the UI value.
+    category_match = re.search(
+        r"<dt[^>]*>\s*Category\s*</dt>\s*<dd[^>]*>(.*?)</dd>",
+        source,
+        re.I | re.S,
+    )
+    category = (
+        " ".join(re.sub(r"<[^>]+>", " ", category_match.group(1)).split())
+        if category_match
+        else None
+    )
+    if not category:
+        json_category = re.search(r'"category"\s*:\s*"([^"]+)"', source, re.I)
+        category = html.unescape(json_category.group(1)).strip() if json_category else None
+    description = re.sub(r"^About this model\s*", "", _text_between(source, "About this model", "Key features"), flags=re.I)
+    return FurniMeshCandidate(
+        model_id=_extract_model_id(final_url), name=title, description=description,
+        thumbnail_url=thumb, detail_url=final_url, category=category,
+        available_formats=[fmt for fmt in ("GLB", "OBJ", "SKP", "BLEND") if re.search(rf"\b{fmt}\b", source, re.I)],
+        glb_url=validate_furnimesh_url(glb_candidates[0], asset=True) if glb_candidates else None,
+        technical={"scene_extent": extent_match.group(1) if extent_match else None, "polycount": int(poly_match.group(1).replace(",", "")) if poly_match else None, "glb_file_size": size_match.group(1) if size_match else None, "dimensions_source": "scene_units" if extent_match else None},
+    )
+
+
+def search_furnimesh(query: str = "", category: Optional[str] = None, style: Optional[str] = None, color: Optional[str] = None, limit: int = 12, page: int = 1) -> list[FurniMeshCandidate]:
+    limit = max(1, min(int(limit), 50))
+    page = max(1, min(int(page), FURNIMESH_PAGE_LIMIT))
+    category_path = _slug(category or "")
+    path = f"/library/format/glb/{category_path}/" if category_path else "/library/format/glb/"
+    url = f"https://furnimesh.com{path}?page={page}"
+    source, final_url = _fetch_furnimesh_html(url)
+    terms = [_slug(term) for term in (query, style, color) if term and _slug(term)]
+    shells: list[FurniMeshCandidate] = []
+    for candidate in parse_furnimesh_listing_html(source, base_url=final_url):
+        haystack = _slug(f"{candidate.name} {candidate.description} {candidate.category or ''}")
+        if terms and not all(term in haystack for term in terms):
+            continue
+        shells.append(candidate)
+        if len(shells) >= min(limit * 2, 50):
+            break
+    # Listing HTML is intentionally cheap, but the public contract promises
+    # useful thumbnails/formats/GLB metadata. Enrich only a bounded result
+    # window with limited concurrency; this is not a catalog sync.
+    enriched: list[Optional[FurniMeshCandidate]] = [None] * len(shells)
+    with ThreadPoolExecutor(max_workers=min(4, len(shells) or 1)) as pool:
+        futures = {pool.submit(get_furnimesh_details, detail_url=item.detail_url): index for index, item in enumerate(shells)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                enriched[index] = future.result()
+            except FurniMeshError:
+                enriched[index] = shells[index]
+    results: list[FurniMeshCandidate] = []
+    for candidate in enriched:
+        if candidate is None:
+            continue
+        haystack = _slug(f"{candidate.name} {candidate.description} {candidate.category or ''}")
+        if terms and not all(term in haystack for term in terms):
+            continue
+        results.append(candidate)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def get_furnimesh_glb_url(*, model_id: Optional[str] = None, detail_url: Optional[str] = None) -> dict[str, Any]:
+    details = get_furnimesh_details(model_id=model_id, detail_url=detail_url)
+    if not details.glb_url:
+        raise FurniMeshError("Model FurniMesh không công bố GLB công khai")
+    return {"model_id": details.model_id, "glb_url": validate_furnimesh_url(details.glb_url, asset=True), "source_url": details.detail_url, "verified": True}
+
+
+def preview_furnimesh(*, model_id: Optional[str] = None, detail_url: Optional[str] = None) -> dict[str, Any]:
+    details = get_furnimesh_details(model_id=model_id, detail_url=detail_url)
+    return {"model_id": details.model_id, "model_url": details.glb_url, "thumbnail_url": details.thumbnail_url, "metadata": details.model_dump(mode="json")}
+
+
+def check_furnimesh_asset_compatibility(*, model_id: Optional[str] = None, detail_url: Optional[str] = None, max_bytes: int = MAX_ASSET_BYTES) -> dict[str, Any]:
+    result = get_furnimesh_glb_url(model_id=model_id, detail_url=detail_url)
+    url = result["glb_url"]
+    try:
+        opener = urllib.request.build_opener(_FurniMeshNoRedirect())
+        current_url = url
+        for _ in range(4):
+            request = urllib.request.Request(current_url, headers={"User-Agent": USER_AGENT, "Accept": "model/gltf-binary"}, method="HEAD")
+            try:
+                response = opener.open(request, timeout=20)
+            except urllib.error.HTTPError as redirect:
+                if redirect.code < 300 or redirect.code >= 400:
+                    raise
+                location = redirect.headers.get("Location")
+                if not location:
+                    raise FurniMeshError("GLB redirect thiếu Location")
+                current_url = validate_furnimesh_url(urllib.parse.urljoin(current_url, location), asset=True)
+                continue
+            with response:
+                final_url = validate_furnimesh_url(response.geturl(), asset=True)
+                content_length = response.headers.get("Content-Length")
+                size = int(content_length) if content_length and content_length.isdigit() else None
+                if size is not None and size > max_bytes:
+                    return {**result, "compatible": False, "reason": "file_too_large", "file_size_bytes": size}
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                return {**result, "compatible": True, "file_size_bytes": size, "content_type": content_type, "redirected_url": final_url, "analysis": "remote-header-only; GLB geometry analysis deferred until selected asset is provided"}
+        raise FurniMeshError("GLB vượt quá số lần redirect cho phép")
+    except Exception as exc:
+        raise FurniMeshError(f"Không thể kiểm tra GLB FurniMesh: {exc}") from exc
 
 
 class AssetCandidate(BaseModel):

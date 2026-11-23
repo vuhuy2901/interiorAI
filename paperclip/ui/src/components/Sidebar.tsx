@@ -62,6 +62,7 @@ import { PluginSlotOutlet } from "@/plugins/slots";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { SidebarCompanyMenu } from "./SidebarCompanyMenu";
 import { primarySidebarStyles } from "./primary-sidebar-styles";
+import { CompanySimulationLink } from "./CompanySimulationLink";
 
 export function Sidebar({ children }: { children?: ReactNode }) {
   const { enabled } = useCoordinatorWorkspaceEnabled();
@@ -199,6 +200,7 @@ function ClassicSidebar({ children }: { children?: ReactNode }) {
           collapsible={{ open: atelierOpen, onOpenChange: setAtelierOpen }}
         >
           <SidebarNavItem to="/design-studio" label="Không gian thiết kế 2D/3D" icon={Box} textBadge="3D" />
+          <CompanySimulationLink />
           <SidebarNavItem to="/inventory-bom" label="Danh mục nội thất" icon={ClipboardList} />
           <SidebarNavItem to="/cost-estimation" label="Dự toán" icon={Calculator} />
           <SidebarNavItem to="/render-compare" label="Phối cảnh Render" icon={Camera} />

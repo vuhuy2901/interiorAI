@@ -207,6 +207,32 @@ const apps = [
       },
     ),
   ],
+  [
+    "furnimesh",
+    "FurniMesh MCP",
+    "Search and preview public furniture assets on demand for governed scene workflows.",
+    "design",
+    "furnimesh.com",
+    ["https://furnimesh.com/*", "https://storage.googleapis.com/furnimesh-3d/*"],
+    method(
+      "mcp",
+      "mcp_remote",
+      "none",
+      { serverUrl: "http://127.0.0.1:3180/mcp" },
+      "S1",
+      "Connect the local FurniMesh MCP server. Calls read public FurniMesh HTML on demand and never download the full catalog.",
+      {
+        label: "Connect FurniMesh MCP",
+        ownershipModes: ["customer"],
+        consoleLinks: { library: "https://furnimesh.com/library/", docs: "https://furnimesh.com/library/format/glb/" },
+        warnings: [
+          "FurniMesh scene units are metadata until calibrated; do not treat them as physical dimensions without review.",
+          "Scene writes require the Pascal Scene Asset Bridge and an explicit approval policy.",
+        ],
+      },
+    ),
+    { featured: true, docsUrl: "https://furnimesh.com/library/" },
+  ],
   ...[
     ["arcade", "Arcade", "https://api.arcade.dev/*", "https://docs.arcade.dev/en/operate/governance/mcp-gateways"],
     ["executor", "Executor", "https://executor.sh/*", "https://executor.sh/docs/mcp-proxy"],
