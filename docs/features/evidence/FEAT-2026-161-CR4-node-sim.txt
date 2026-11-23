@@ -1,0 +1,44 @@
+PASS 158 AC-01 front/back hai bên tường, sai số < 0.05 m (3 vị trí)
+PASS 158 AC-02 A* front->back thành công khi mở, thất bại khi đóng
+PASS 158 AC-03 từ chối: vượt mép / chồng cửa / tường ngắn; hít vị trí lệch nhỏ
+PASS 158 AC-04 cửa sổ chặn lưới
+PASS 159 phát hiện 3 phòng + phòng ngoài (tường chữ T chưa tách)
+PASS 159 pointInRoom ưu tiên phòng nhỏ nhất khi lồng nhau
+PASS 159 AC 3 phòng nối tiếp: đi 1->3 qua đúng 2 cửa
+PASS 159 cửa đóng -> route lỗi có lý do
+PASS 159 xoá cửa duy nhất -> phòng "chưa có cửa" + route lỗi rõ
+PASS 159 "Thêm cửa tự động" làm phòng tới được lại
+PASS 159 mặt bằng không cửa: auto-add lần lượt -> mọi phòng có cửa
+PASS 159 làm mượt line-of-sight không cắt ô chặn
+PASS 160 AC-01 geom: seat/approach/facing cho rot 0..3
+PASS 160 AC-02 10 bàn ở 3 phòng hợp lệ; serialize/parse giữ nguyên
+PASS 160 AC-03 từ chối: khung cửa, tường, bàn khác, ngoài phòng, phòng chưa có cửa
+PASS 160 AC-03b từ chối bàn làm mất lối đi tới cửa
+PASS 160 AC-03c từ chối bàn chia đôi phòng, cắt đường nối giữa hai cửa
+PASS 160 AC-04 bàn là vật cản planRoute (useBase); đường qua đúng cửa, không cắt bàn/tường
+PASS 160 AC-06 migratePool: poolIdx -> bàn tự do, không mất agent, idempotent
+PASS 161 smoothAngle: giới hạn tốc độ quay, đi đường ngắn, hội tụ
+PASS 161 Reservations: xung đột ô cùng cửa sổ thời gian, bỏ qua của chính mình và khác thời điểm
+PASS 161 pickDoorTurn: người giữ lượt giữ tiếp; không thì chờ lâu nhất, hoà: gần hơn, rồi ưu tiên
+PASS 161 cửa tự động: mở khi <1.2 m, đóng sau 1.5 s, khoá thì không mở (khoá khác tự đóng)
+   [sim6] {"t":27.5,"arrived":6,"minPair":0.42,"wallHits":0,"maxInFrame":1,"maxFrameStill":0,"maxStuck":0.17,"maxStill":0.17,"maxFrameSpeed":0.8}
+PASS 161 AC-05 mô phỏng 6 agent đi chéo qua 1 cửa: không xuyên nhau/tường, 1 người trong khung, không kẹt >5 s
+   [sim6b] {"maxTurn":4.2,"backward":0,"backDisp":145,"maxAcc":3.6,"maxFrameSpeed":0.8}
+PASS 161 AC-01/02 mô phỏng: tốc độ, quay, không lùi, gia tốc, tốc độ trong khung cửa
+PASS 161 góc rẽ: tốc độ giảm quanh góc >=60°, tới đích chính xác
+   [corridor] {"arr":[1,1],"maxStuck":0.45,"minD":0.6}
+PASS 161 phá kẹt: 2 agent đối đầu hành lang hẹp không kẹt quá 5 s
+PASS 161 cửa khoá: agent chờ ở điểm vào, không vào khung, cờ kẹt kích hoạt tính lại đường
+   [rand90] {"bad":0,"overlapRuns":1,"ghostRuns":8,"worstStuck":4.05,"maxT":34.4}
+PASS 161 AC-05 ngẫu nhiên: 90 kịch bản 6 agent qua 1 cửa (3 seed x 30): tới đích, 0 xuyên tường, <=1 trong khung, không kẹt >5 s, >=90% không chồng nhau <0.3 m
+   [seed] {"before":{"rooms":8,"doors":0,"noDoor":8},"seeded":7,"noDoorAfterSeed":0,"autoAdd":0,"noDoorFinal":0}
+PASS 161 CR-4 mặt bằng mặc định: 8 phòng, 0 cửa FP2 -> gieo từ khe lưới cũ -> 0 phòng thiếu cửa
+PASS 161 CR-4 cửa gieo nằm đúng khe lối đi cũ (không ở chỗ tường đặc của lưới cũ)
+   [reach] {"pairs":72,"fail":0}
+PASS 161 CR-4 9 agent lõi: mọi bàn tới được mọi bàn khác qua planRoute (72 cặp)
+   [core9] {"rounds":6,"agents":54,"arrived":54,"samples":122103,"wallHits":0,"deskHits":0,"maxStuck":4.22}
+PASS 161 CR-4 mô phỏng 9 agent lõi đi chéo giữa các bàn: tới đích, 0 mẫu trong ô tường, không xuyên bàn
+   [ghost] {"wallHits":0,"firstGhost":9.98,"ghostSeconds":1,"minD":0.34}
+PASS 161 CR-4 ghost: không bao giờ xuyên tường/bàn; chỉ sau kẹt >=4 s, tối đa 1 s, giữ >=0.3 m giữa agent
+
+34 pass, 0 fail

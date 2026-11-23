@@ -386,3 +386,13 @@ Phím W → `FP2.mode = 'wall'` (đã có, khoảng line 4017)
 | version collision với v=2 | fp2Load check `raw.v===3` riêng; v=2 → migrate hoặc seed |
 | Wall ghost không xoá được khi pointerleave | Thêm pointerleave handler → cancel wallDraw |
 | Seed wall coords sai (off-by-CS) | Verify trong test: snapshot FP2.wallNodes và so sánh với fp2SeedDefaultRooms |
+
+---
+
+## Verification Evidence
+
+- Command: `node -e "const fs=require('fs');const html=fs.readFileSync('ai-office-standalone/index.html','utf8');const blocks=html.match(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)||[];let ok=0,err=0;blocks.forEach((b,i)=>{const code=b.replace(/<script\\b[^>]*>/,'').replace(/<\\/script>/,'');try{new Function(code);ok++;}catch(e){err++;console.error('Block',i,e.message.slice(0,80));}});console.log('OK:',ok,'ERR:',err);"`
+- Result: `OK: 3 ERR: 0`
+- Final line count: `4690` lines in `ai-office-standalone/index.html`.
+- Base revision: `7bdd862a909994e3d7cfad0f045629eb92156f8d`.
+- Final working-tree file revision (`git hash-object ai-office-standalone/index.html`): `0d165715ac387b9cc580258cb1a13c29ec54427e`.

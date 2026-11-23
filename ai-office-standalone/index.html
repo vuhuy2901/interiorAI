@@ -897,6 +897,9 @@ html, body {
     <button type="button" class="btool" id="fp2Rot" title="Phím R" hidden>Xoay đồ</button>
     <button type="button" class="btool" id="fp2Clear">Xóa mặt bằng…</button>
   </div>
+  <div id="navMsg" role="status" aria-live="polite" style="font-size:12px;min-height:16px;margin-top:8px;"></div>
+  <div id="navWarn" style="display:none;margin-top:8px;"></div>
+  <div id="deskPanel" style="display:none;margin-top:8px;max-height:260px;overflow:auto;"></div>
 </section>
 
 <section id="fp2WallProps" class="build-surface" aria-labelledby="fp2WallTitle" hidden>
@@ -920,6 +923,7 @@ html, body {
     <button type="button" class="btool" data-btool="wall" title="Phím W">Tường và cửa</button>
     <button type="button" class="btool" data-btool="paint" title="Phím F">Sàn</button>
     <button type="button" class="btool" data-btool="furniture" title="Phím U">Nội thất</button>
+    <button type="button" class="btool" data-btool="desk" title="Phím B">Bàn làm việc</button>
     <button type="button" class="btool" data-btool="erase" title="Phím E">Xóa</button>
   </div>
   <div class="build-tools">
@@ -1007,6 +1011,12 @@ html, body {
       <span class="role-dot" style="background:#4ade80;"></span>
       <span id="dStatusTxt">Đang làm việc tại bàn</span>
     </div>
+  </div>
+
+  <div class="drawer-section" id="dDeskSec" style="display:none;">
+    <span class="drawer-lbl">Bàn làm việc</span>
+    <select id="dDeskSel" style="width:100%;margin-top:4px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px;font-size:12px;"></select>
+    <div id="dDeskMsg" style="font-size:11px;color:#94a3b8;margin-top:3px;"></div>
   </div>
 
   <div class="drawer-section">
@@ -1978,10 +1988,11 @@ const screenTextures = {
   })
 };
 
-function createDetailedDesk(c, r, screenType = 'design', dualMon = false) {
+function createDetailedDesk(c, r, screenType = 'design', dualMon = false, free = null) {
   const deskGroup = new T.Group();
-  const x = (c + 2) * CS, z = (r + 1) * CS;
+  const x = free ? free.x : (c + 2) * CS, z = free ? free.z : (r + 1) * CS;
   deskGroup.position.set(x, 0, z);
+  if (free) deskGroup.rotation.y = (free.rot || 0) * Math.PI / 2; /* FEAT-2026-160: bàn tự do, không chặn lưới cũ */
 
   bx(0, 0.74, 0, 4 * CS - 0.08, 0.05, 2 * CS - 0.08, 0x3d2c1f, deskGroup, { roughness: 0.45 });
   bx(0, 0.768, 0.06, 1.25, 0.008, 0.58, 0x1f2229, deskGroup, { roughness: 0.9 });
@@ -2033,6 +2044,7 @@ function createDetailedDesk(c, r, screenType = 'design', dualMon = false) {
   cyl(0, 0.05, 0, 0.04, 0.05, 0x3d7048, 0, plantPot);
 
   S.add(deskGroup);
+  if (free) return deskGroup;
   blk(c, r, c + 3, r + 1);
 }
 
@@ -2650,6 +2662,988 @@ function astar(a, b) {
    10b. FP2 — Free-Draw Floor Plan Editor (core)
    ========================================================================= */
 
+/* ===== FEAT-2026-158 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+const OfficeNav = (function () {
+  const EPS = 1e-6, FRONT_DIST = 0.6, EDGE_MARGIN = 0.1, SNAP_TOL = 0.3, OPEN_GAP = 0.05, WALL_PAD = 0.3;
+  const isPassType = t => t === 'door' || t === 'sliding-glass';
+  const defaultWidth = t => t === 'window' ? 1.2 : 0.9;
+  const worldToCell = (CS, x) => Math.floor(x / CS);
+
+  function wallGeom(state, wall) {
+    const n0 = state.nodes.get(wall.startId), n1 = state.nodes.get(wall.endId);
+    if (!n0 || !n1) return null;
+    const dx = n1.x - n0.x, dz = n1.z - n0.z, len = Math.hypot(dx, dz);
+    if (len < EPS) return null;
+    const ux = dx / len, uz = dz / len;
+    return { n0, n1, len, ux, uz, nx: -uz, nz: ux };
+  }
+
+  /* Validate / snap a prospective opening. Returns {ok, offset, width, reason?, snapped?} */
+  function validateOpening(state, wallId, rawOffset, type, width, ignoreId) {
+    const wall = state.walls.get(wallId), g = wall && wallGeom(state, wall);
+    if (!g) return { ok: false, reason: 'Không tìm thấy tường' };
+    const w = width || defaultWidth(type);
+    if (g.len < w + 2 * EDGE_MARGIN) return { ok: false, width: w, reason: 'Tường quá ngắn (cần ≥ ' + (w + 2 * EDGE_MARGIN).toFixed(2) + ' m)' };
+    const lo = w / 2 + EDGE_MARGIN, hi = g.len - w / 2 - EDGE_MARGIN;
+    if (rawOffset < lo - SNAP_TOL || rawOffset > hi + SNAP_TOL) return { ok: false, width: w, reason: 'Cửa vượt mép tường (chừa ≥ 0.1 m mỗi đầu)' };
+    let off = Math.min(hi, Math.max(lo, rawOffset));
+    const others = state.openings.filter(o => o.wallId === wallId && o.id !== ignoreId);
+    const clash = p => others.find(o => Math.abs(o.offset - p) < (o.width + w) / 2 + OPEN_GAP - EPS);
+    if (clash(off)) {
+      const cands = [];
+      for (const o of others) cands.push(o.offset - (o.width + w) / 2 - OPEN_GAP, o.offset + (o.width + w) / 2 + OPEN_GAP);
+      const free = cands.filter(p => p >= lo - EPS && p <= hi + EPS && !clash(p)).sort((a, b) => Math.abs(a - rawOffset) - Math.abs(b - rawOffset));
+      if (free.length && Math.abs(free[0] - rawOffset) <= SNAP_TOL) off = free[0];
+      else return { ok: false, width: w, reason: 'Chồng lên cửa/cửa sổ khác' };
+    }
+    return { ok: true, offset: off, width: w, snapped: Math.abs(off - rawOffset) > 1e-6 };
+  }
+
+  function doorInfo(state, op) {
+    const wall = state.walls.get(op.wallId), g = wall && wallGeom(state, wall);
+    if (!g) return null;
+    const cx = g.n0.x + g.ux * op.offset, cz = g.n0.z + g.uz * op.offset;
+    return {
+      id: op.id, wallId: op.wallId, type: op.type, pass: isPassType(op.type), open: op.open !== false,
+      center: { x: cx, z: cz }, normal: { x: g.nx, z: g.nz }, width: op.width,
+      frontPt: { x: cx + g.nx * FRONT_DIST, z: cz + g.nz * FRONT_DIST },
+      backPt: { x: cx - g.nx * FRONT_DIST, z: cz - g.nz * FRONT_DIST },
+      cells: [], roomA: null, roomB: null
+    };
+  }
+
+  /* Build wall-blocked grid with open pass-door cells carved out (only cells of the door's own wall). */
+  function buildDoorGrid(state, cfg) {
+    const { CS, W, H } = cfg, blocked = new Uint8Array(W * H);
+    const doors = [];
+    for (const op of state.openings) { const d = doorInfo(state, op); if (d) doors.push(d); }
+    for (const wall of state.walls.values()) {
+      const g = wallGeom(state, wall); if (!g) continue;
+      const lim = (wall.thickness || 0.15) / 2 + WALL_PAD;
+      const minx = Math.min(g.n0.x, g.n1.x) - lim, maxx = Math.max(g.n0.x, g.n1.x) + lim;
+      const minz = Math.min(g.n0.z, g.n1.z) - lim, maxz = Math.max(g.n0.z, g.n1.z) + lim;
+      const c0 = Math.max(0, worldToCell(CS, minx)), c1 = Math.min(W - 1, worldToCell(CS, maxx));
+      const r0 = Math.max(0, worldToCell(CS, minz)), r1 = Math.min(H - 1, worldToCell(CS, maxz));
+      const mine = doors.filter(d => d.wallId === wall.id);
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        const px = (c + 0.5) * CS - g.n0.x, pz = (r + 0.5) * CS - g.n0.z;
+        const along = px * g.ux + pz * g.uz, t = Math.min(g.len, Math.max(0, along));
+        if (Math.hypot(px - g.ux * t, pz - g.uz * t) > lim) continue;
+        let carved = false;
+        for (const d of mine) {
+          const off = (d.center.x - g.n0.x) * g.ux + (d.center.z - g.n0.z) * g.uz;
+          if (Math.abs(along - off) <= d.width / 2 + EPS) {
+            d.cells.push([c, r]);
+            if (d.pass && d.open) carved = true;
+          }
+        }
+        if (!carved) blocked[r * W + c] = 1;
+      }
+    }
+    return { blocked, doors };
+  }
+
+  const cellBlocked = (grid, W, H, base, c, r) => c < 0 || r < 0 || c >= W || r >= H || grid[r * W + c] === 1 || (base && base[r * W + c] === 1);
+
+  /* A* on cells (same movement rules as the game's astar). a,b = [c,r]. Returns [[c,r],...] or null. */
+  function astarCells(grid, cfg, a, b) {
+    const { W, H, base } = cfg, N = W * H;
+    const isB = (c, r) => cellBlocked(grid, W, H, base, c, r);
+    if (isB(a[0], a[1]) || isB(b[0], b[1])) return null;
+    const g = new Float32Array(N).fill(1e9), par = new Int32Array(N).fill(-1), cl = new Uint8Array(N);
+    const h = (c, r) => Math.hypot(c - b[0], r - b[1]);
+    const heap = [[h(a[0], a[1]), a[0], a[1]]];
+    const push = it => { heap.push(it); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { let l = 2 * i + 1, r = l + 1, m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    g[a[1] * W + a[0]] = 0;
+    while (heap.length) {
+      const [, c, r] = pop(), q = r * W + c;
+      if (cl[q]) continue; cl[q] = 1;
+      if (c === b[0] && r === b[1]) { const p = []; let z = q; while (z >= 0) { p.push([z % W, Math.floor(z / W)]); z = par[z]; } return p.reverse(); }
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+        if (!dc && !dr) continue;
+        const nc = c + dc, nr = r + dr;
+        if (isB(nc, nr)) continue;
+        if (dc && dr && (isB(c + dc, r) || isB(c, r + dr))) continue;
+        const n = nr * W + nc, ng = g[q] + (dc && dr ? 1.414 : 1);
+        if (ng < g[n]) { g[n] = ng; par[n] = q; push([ng + h(nc, nr), nc, nr]); }
+      }
+    }
+    return null;
+  }
+
+  /* A* between world points; returns [{x,z},...] (cell centres, exact endpoints) or null. */
+  function astarPoints(grid, cfg, p, q) {
+    const { CS } = cfg;
+    const ca = [worldToCell(CS, p.x), worldToCell(CS, p.z)], cb = [worldToCell(CS, q.x), worldToCell(CS, q.z)];
+    const path = astarCells(grid, cfg, ca, cb);
+    if (!path) return null;
+    const pts = path.map(([c, r]) => ({ x: (c + 0.5) * CS, z: (r + 0.5) * CS }));
+    pts[0] = { x: p.x, z: p.z }; pts[pts.length - 1] = { x: q.x, z: q.z };
+    return pts;
+  }
+
+  return { FRONT_DIST, EDGE_MARGIN, SNAP_TOL, isPassType, defaultWidth, worldToCell, wallGeom, validateOpening, doorInfo, buildDoorGrid, cellBlocked, astarCells, astarPoints };
+})();
+/* ===== FEAT-2026-158 CORE END ===== */
+
+/* ===== FEAT-2026-159 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const OUT_ID = 'OUT', VERT_TOL = 0.08;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  /* Split walls at T-junctions / crossings, return planar segments over merged vertices. */
+  function planarize(state) {
+    const verts = [];
+    const vid = (x, z) => {
+      for (let i = 0; i < verts.length; i++) if (Math.hypot(verts[i].x - x, verts[i].z - z) < VERT_TOL) return i;
+      verts.push({ x, z }); return verts.length - 1;
+    };
+    const ws = [];
+    for (const w of state.walls.values()) { const g = Nav.wallGeom(state, w); if (g) ws.push({ w, g }); }
+    const segs = [];
+    for (const { w, g } of ws) {
+      const cuts = [{ s: 0, x: g.n0.x, z: g.n0.z }, { s: g.len, x: g.n1.x, z: g.n1.z }];
+      for (const n of state.nodes.values()) {
+        const px = n.x - g.n0.x, pz = n.z - g.n0.z, s = px * g.ux + pz * g.uz, d = Math.abs(px * g.nx + pz * g.nz);
+        if (d < 0.06 && s > 0.05 && s < g.len - 0.05) cuts.push({ s, x: n.x, z: n.z });
+      }
+      for (const { w: w2, g: g2 } of ws) {
+        if (w2 === w) continue;
+        const den = g.ux * g2.uz - g.uz * g2.ux; if (Math.abs(den) < 1e-9) continue;
+        const qx = g2.n0.x - g.n0.x, qz = g2.n0.z - g.n0.z;
+        const s = (qx * g2.uz - qz * g2.ux) / den, u = (qx * g.uz - qz * g.ux) / den;
+        if (s > 0.05 && s < g.len - 0.05 && u > -0.05 && u < g2.len + 0.05) cuts.push({ s, x: g.n0.x + g.ux * s, z: g.n0.z + g.uz * s });
+      }
+      cuts.sort((a, b) => a.s - b.s);
+      const uniq = [];
+      for (const c of cuts) if (!uniq.length || c.s - uniq[uniq.length - 1].s > 0.05) uniq.push(c);
+      for (let i = 0; i + 1 < uniq.length; i++) {
+        const a = vid(uniq[i].x, uniq[i].z), b = vid(uniq[i + 1].x, uniq[i + 1].z);
+        if (a !== b) segs.push({ wallId: w.id, a, b, s0: uniq[i].s, s1: uniq[i + 1].s });
+      }
+    }
+    return { verts, segs };
+  }
+
+  function pointInPoly(poly, x, z) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+
+  function detectRooms(state) {
+    const { verts, segs } = planarize(state);
+    const edges = [], out = verts.map(() => []);
+    segs.forEach((s, i) => {
+      edges[2 * i] = { from: s.a, to: s.b, seg: i };
+      edges[2 * i + 1] = { from: s.b, to: s.a, seg: i };
+      for (const e of [2 * i, 2 * i + 1]) {
+        const f = verts[edges[e].from], t = verts[edges[e].to];
+        edges[e].ang = Math.atan2(t.z - f.z, t.x - f.x); out[edges[e].from].push(e);
+      }
+    });
+    out.forEach(l => l.sort((p, q) => edges[p].ang - edges[q].ang));
+    const next = e => { const l = out[edges[e].to], k = l.indexOf(e ^ 1); return l[(k - 1 + l.length) % l.length]; };
+    const faceOf = new Map(), faces = [];
+    for (let e = 0; e < edges.length; e++) {
+      if (!edges[e] || faceOf.has(e)) continue;
+      const loop = []; let cur = e, guard = 0;
+      while (!faceOf.has(cur) && guard++ < 100000) { faceOf.set(cur, faces.length); loop.push(cur); cur = next(cur); }
+      faces.push(loop);
+    }
+    const rooms = [];
+    faces.forEach((loop, fi) => {
+      const pts = loop.map(e => verts[edges[e].from]);
+      let a2 = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a2 += pts[j].x * pts[i].z - pts[i].x * pts[j].z;
+      const area = a2 / 2;
+      if (!(area > 0.5)) return; // mặt ngoài (âm) hoặc quá nhỏ
+      const bound = [];
+      for (const e of loop) {
+        const tf = faceOf.get(e ^ 1);
+        if (tf === fi) continue; // đoạn thò (spur)
+        const s = segs[edges[e].seg];
+        bound.push({ seg: edges[e].seg, wallId: s.wallId, s0: s.s0, s1: s.s1, len: s.s1 - s.s0 });
+      }
+      let cx = 0, cz = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const f = pts[j].x * pts[i].z - pts[i].x * pts[j].z; cx += (pts[j].x + pts[i].x) * f; cz += (pts[j].z + pts[i].z) * f;
+      }
+      let centroid = { x: cx / (6 * area), z: cz / (6 * area) };
+      if (!pointInPoly(pts, centroid.x, centroid.z)) {
+        // điểm trong đa giác: thử trung điểm các đỉnh lệch vào trong
+        let best = null;
+        for (let i = 0; i < pts.length && !best; i++) {
+          const p = pts[i], q = pts[(i + 2) % pts.length], m = { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 };
+          if (pointInPoly(pts, m.x, m.z)) best = m;
+        }
+        centroid = best || pts[0];
+      }
+      const xs = pts.map(p => p.x), zs = pts.map(p => p.z);
+      rooms.push({ poly: pts.map(p => ({ x: p.x, z: p.z })), area, edges: bound, centroid, minx: Math.min(...xs), minz: Math.min(...zs) });
+    });
+    rooms.sort((a, b) => a.minx - b.minx || a.minz - b.minz);
+    rooms.forEach((r, i) => { r.id = 'R' + (i + 1); r.name = 'Phòng ' + (i + 1); });
+    return rooms;
+  }
+
+  function pointInRoom(nav, x, z) {
+    let best = null;
+    for (const r of nav.rooms) if (pointInPoly(r.poly, x, z) && (!best || r.area < best.area)) best = r;
+    return best ? best.id : OUT_ID;
+  }
+
+  function buildNav(state, cfg) {
+    const { blocked, doors } = Nav.buildDoorGrid(state, cfg);
+    const rooms = detectRooms(state);
+    const nav = { cfg, blocked, doors, rooms, roomById: {}, edges: [], noDoor: [], components: [] };
+    rooms.forEach(r => { nav.roomById[r.id] = r; });
+    for (const d of doors) {
+      if (!d.pass) continue;
+      d.roomA = pointInRoom(nav, d.frontPt.x, d.frontPt.z);
+      d.roomB = pointInRoom(nav, d.backPt.x, d.backPt.z);
+      if (d.roomA === d.roomB) continue;
+      const ca = d.roomA === OUT_ID ? d.center : nav.roomById[d.roomA].centroid, cb = d.roomB === OUT_ID ? d.center : nav.roomById[d.roomB].centroid;
+      nav.edges.push({ door: d.id, a: d.roomA, b: d.roomB, w: dist(ca, cb), open: d.open });
+    }
+    for (const r of rooms) if (!nav.edges.some(e => e.a === r.id || e.b === r.id)) nav.noDoor.push(r.id);
+    return nav;
+  }
+
+  /* Phòng "tới được" = có ít nhất 1 cửa đang mở nối sang phòng/ngoài khác. */
+  function isRoomReachable(nav, roomId) {
+    if (roomId === OUT_ID) return true;
+    return nav.edges.some(e => e.open && (e.a === roomId || e.b === roomId));
+  }
+
+  function lineOfSight(grid, cfg, a, b) {
+    const L = dist(a, b), n = Math.max(1, Math.ceil(L / (cfg.CS / 4)));
+    const ux = L > 0 ? (b.x - a.x) / L : 0, uz = L > 0 ? (b.z - a.z) / L : 0;
+    for (let i = 0; i <= n; i++) {
+      const x = a.x + (b.x - a.x) * i / n, z = a.z + (b.z - a.z) * i / n;
+      for (const o of [0, 0.15, -0.15]) {
+        const px = x - uz * o, pz = z + ux * o;
+        if (Nav.cellBlocked(grid, cfg.W, cfg.H, cfg.base, Nav.worldToCell(cfg.CS, px), Nav.worldToCell(cfg.CS, pz))) return false;
+      }
+    }
+    return true;
+  }
+
+  function smoothPath(grid, cfg, pts) {
+    if (!pts || pts.length < 3) return pts;
+    const res = [pts[0]]; let i = 0;
+    while (i < pts.length - 1) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !lineOfSight(grid, cfg, pts[i], pts[j])) j--;
+      res.push(pts[j]); i = j;
+    }
+    return res;
+  }
+
+  /* Tìm đường từ a tới b trên lưới + làm mượt; null nếu không có. */
+  function pathSegment(nav, a, b) {
+    const raw = Nav.astarPoints(nav.blocked, nav.cfg, a, b);
+    return raw ? smoothPath(nav.blocked, nav.cfg, raw) : null;
+  }
+
+  function roomName(nav, id) { return id === OUT_ID ? 'Ngoài trời' : ((nav.roomById[id] && nav.roomById[id].name) || id); }
+
+  function exitsOf(nav, room, allowClosed) {
+    const res = [];
+    for (const d of nav.doors) {
+      if (!d.pass || d.roomA === d.roomB || (!d.open && !allowClosed)) continue;
+      if (d.roomA === room) res.push({ d, dir: 'f', fromPt: d.frontPt, toPt: d.backPt, next: d.roomB });
+      else if (d.roomB === room) res.push({ d, dir: 'b', fromPt: d.backPt, toPt: d.frontPt, next: d.roomA });
+    }
+    return res;
+  }
+
+  /* Dijkstra trên trạng thái (cửa, hướng). Trả về chuỗi exits hoặc null. */
+  function doorChain(nav, rs, re, from, to, allowClosed) {
+    const best = new Map(), prev = new Map(), pq = [];
+    const push = (cost, key, room, pt) => pq.push({ cost, key, room, pt });
+    let endCost = Infinity, endPrev = null;
+    const relaxExits = (room, pt, base, fromKey) => {
+      for (const e of exitsOf(nav, room, allowClosed)) {
+        const key = e.d.id + ':' + e.dir, c = base + dist(pt, e.fromPt) + dist(e.fromPt, e.toPt);
+        if (c < (best.has(key) ? best.get(key) : Infinity)) { best.set(key, c); prev.set(key, { fromKey, e }); push(c, key, e.next, e.toPt); }
+      }
+    };
+    relaxExits(rs, from, 0, null);
+    while (pq.length) {
+      let bi = 0; for (let i = 1; i < pq.length; i++) if (pq[i].cost < pq[bi].cost) bi = i;
+      const cur = pq.splice(bi, 1)[0];
+      if (cur.cost > best.get(cur.key)) continue;
+      if (cur.room === re) { const c = cur.cost + dist(cur.pt, to); if (c < endCost) { endCost = c; endPrev = cur.key; } }
+      relaxExits(cur.room, cur.pt, cur.cost, cur.key);
+    }
+    if (endPrev === null) return null;
+    const chain = []; let k = endPrev;
+    while (k) { const p = prev.get(k); chain.unshift(p.e); k = p.fromKey; }
+    return { chain, cost: endCost };
+  }
+
+  function planRoute(nav, from, to) {
+    const rs = pointInRoom(nav, from.x, from.z), re = pointInRoom(nav, to.x, to.z);
+    const fail = reason => ({ ok: false, reason });
+    let chain = [];
+    if (rs !== re) {
+      const r = doorChain(nav, rs, re, from, to, false);
+      if (!r) {
+        const hasNoDoor = id => id !== OUT_ID && nav.noDoor.includes(id);
+        if (hasNoDoor(rs)) return fail(roomName(nav, rs) + ' chưa có cửa');
+        if (hasNoDoor(re)) return fail(roomName(nav, re) + ' chưa có cửa');
+        const r2 = doorChain(nav, rs, re, from, to, true);
+        if (r2) {
+          const closed = r2.chain.filter(e => !e.d.open).map(e => 'Cửa ' + e.d.id);
+          return fail([...new Set(closed)].join(', ') + ' đang đóng');
+        }
+        return fail('Không có đường nối giữa ' + roomName(nav, rs) + ' và ' + roomName(nav, re));
+      }
+      chain = r.chain;
+    }
+    const waypoints = []; let cur = { x: from.x, z: from.z };
+    const addSeg = (a, b) => {
+      const seg = pathSegment(nav, a, b);
+      if (!seg) return false;
+      seg.forEach((p, i) => { if (waypoints.length && i === 0 && dist(waypoints[waypoints.length - 1], p) < 1e-6) return; waypoints.push({ x: p.x, z: p.z }); });
+      return true;
+    };
+    for (const e of chain) {
+      if (!addSeg(cur, e.fromPt)) return fail('Không có đường trong ' + roomName(nav, e.dir === 'f' ? e.d.roomA : e.d.roomB) + ' tới cửa ' + e.d.id + ' (bị chặn)');
+      waypoints[waypoints.length - 1].door = e.d.id; waypoints[waypoints.length - 1].kind = 'front';
+      waypoints.push({ x: e.toPt.x, z: e.toPt.z, door: e.d.id, kind: 'back' });
+      cur = e.toPt;
+    }
+    if (!addSeg(cur, to)) return fail('Không có đường tới đích trong ' + roomName(nav, re) + ' (bị chặn)');
+    let length = 0; for (let i = 0; i + 1 < waypoints.length; i++) length += dist(waypoints[i], waypoints[i + 1]);
+    return { ok: true, waypoints, doors: chain.map(e => e.d.id), rooms: [rs, ...chain.map(e => e.next)], length };
+  }
+
+  /* Gợi ý cửa 0.9 m cho phòng: đặt giữa đoạn tường dài nhất hợp lệ, một bên là phòng này, bên kia là phòng khác/ngoài. */
+  function suggestDoor(state, nav, roomId) {
+    const room = nav.roomById[roomId];
+    if (!room) return { ok: false, reason: 'Không tìm thấy phòng' };
+    const w = Nav.defaultWidth('door');
+    const hasDoor = id => id !== OUT_ID && !nav.noDoor.includes(id);
+    const sideRoom = e => { // phòng ở phía bên kia đoạn tường (điểm lệch 0.6 m về cả hai phía tại giữa đoạn)
+      const g = Nav.wallGeom(state, state.walls.get(e.wallId)), m = (e.s0 + e.s1) / 2;
+      const cx = g.n0.x + g.ux * m, cz = g.n0.z + g.uz * m;
+      const p = pointInRoom(nav, cx + g.nx * 0.6, cz + g.nz * 0.6), q = pointInRoom(nav, cx - g.nx * 0.6, cz - g.nz * 0.6);
+      return p === roomId ? q : p;
+    };
+    // ưu tiên tường giáp phòng khác đã có cửa (nối vào mạng sẵn có), rồi tới ngoài/phòng khác; trong cùng nhóm lấy tường dài nhất
+    const rank = e => { const o = sideRoom(e); return hasDoor(o) ? 0 : (o === OUT_ID ? 1 : 2); };
+    const cands = room.edges.map(e => ({ e, k: rank(e) })).sort((a, b) => a.k - b.k || b.e.len - a.e.len).map(x => x.e);
+    for (const e of cands) {
+      if (e.len < w + 2 * Nav.EDGE_MARGIN) continue;
+      const center = (e.s0 + e.s1) / 2, v = Nav.validateOpening(state, e.wallId, center, 'door', w);
+      if (!v.ok || v.snapped && Math.abs(v.offset - center) > 0.3) continue;
+      if (v.offset - w / 2 < e.s0 - 1e-6 || v.offset + w / 2 > e.s1 + 1e-6) continue;
+      const d = Nav.doorInfo(state, { id: 'tmp', wallId: e.wallId, offset: v.offset, type: 'door', width: w });
+      const a = pointInRoom(nav, d.frontPt.x, d.frontPt.z), b = pointInRoom(nav, d.backPt.x, d.backPt.z);
+      if ((a === roomId) !== (b === roomId)) return { ok: true, wallId: e.wallId, offset: v.offset, width: w };
+    }
+    return { ok: false, reason: 'Không tìm được đoạn tường hợp lệ để đặt cửa cho ' + room.name };
+  }
+
+  Object.assign(Nav, { OUT_ID, planarize, pointInPoly, detectRooms, pointInRoom, buildNav, isRoomReachable, lineOfSight, smoothPath, pathSegment, planRoute, suggestDoor });
+})(OfficeNav);
+/* ===== FEAT-2026-159 CORE END ===== */
+
+/* ===== FEAT-2026-160 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const SNAP = 0.25, BODY_HX = 1.0, BODY_HZ = 0.5, SEAT_D = 0.75, APPROACH_D = 1.25, CHAIR_H = 0.28, EPS = 1e-6;
+  const r6 = v => Math.round(v * 1e6) / 1e6;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+  const snap = v => Math.round(v / SNAP) * SNAP;
+
+  /* Hình học bàn. rot 0..3; ghế/agent ở phía s=(sinθ,cosθ); agent quay mặt về bàn (facing=θ+π). */
+  function geom(x, z, rot) {
+    rot = ((Math.round(rot) % 4) + 4) % 4;
+    const th = rot * Math.PI / 2, sx = r6(Math.sin(th)), sz = r6(Math.cos(th)), ux = r6(Math.cos(th)), uz = r6(-Math.sin(th));
+    let facing = th + Math.PI; if (facing >= 2 * Math.PI) facing -= 2 * Math.PI;
+    return {
+      x, z, rot, facing,
+      seatPt: { x: r6(x + sx * SEAT_D), z: r6(z + sz * SEAT_D) },
+      approachPt: { x: r6(x + sx * APPROACH_D), z: r6(z + sz * APPROACH_D) },
+      body: { cx: x, cz: z, ux, uz, hx: BODY_HX, hz: BODY_HZ },
+      chair: { cx: r6(x + sx * SEAT_D), cz: r6(z + sz * SEAT_D), ux, uz, hx: CHAIR_H, hz: CHAIR_H }
+    };
+  }
+
+  /* SAT 2D giữa hai OBB; chạm mép không tính là chồng. */
+  function obbOverlap(a, b) {
+    const axes = [[a.ux, a.uz], [-a.uz, a.ux], [b.ux, b.uz], [-b.uz, b.ux]];
+    const proj = (o, ax) => {
+      const c = o.cx * ax[0] + o.cz * ax[1];
+      const r = o.hx * Math.abs(o.ux * ax[0] + o.uz * ax[1]) + o.hz * Math.abs(-o.uz * ax[0] + o.ux * ax[1]);
+      return [c - r, c + r];
+    };
+    for (const ax of axes) {
+      const p = proj(a, ax), q = proj(b, ax);
+      if (p[1] <= q[0] + EPS || q[1] <= p[0] + EPS) return false;
+    }
+    return true;
+  }
+
+  function make(id, x, z, rot, nav, extra) {
+    const g = geom(x, z, rot);
+    return Object.assign({
+      id, x: g.x, z: g.z, rot: g.rot,
+      roomId: nav ? Nav.pointInRoom(nav, x, z) : null,
+      seatPt: g.seatPt, approachPt: g.approachPt, facing: g.facing, agentId: null, screen: 'design'
+    }, extra || {});
+  }
+
+  /* Lưới vật cản của các bàn (ô giao thân bàn). Ô approachPt của chính bàn luôn trống. */
+  function baseGrid(desks, cfg) {
+    const { CS, W, H } = cfg, grid = new Uint8Array(W * H);
+    for (const d of desks) {
+      const g = geom(d.x, d.z, d.rot), b = g.body;
+      const ex = b.hx * Math.abs(b.ux) + b.hz * Math.abs(b.uz), ez = b.hx * Math.abs(b.uz) + b.hz * Math.abs(b.ux);
+      const c0 = Math.max(0, Math.floor((d.x - ex) / CS)), c1 = Math.min(W - 1, Math.floor((d.x + ex) / CS));
+      const r0 = Math.max(0, Math.floor((d.z - ez) / CS)), r1 = Math.min(H - 1, Math.floor((d.z + ez) / CS));
+      const ap = [Nav.worldToCell(CS, g.approachPt.x), Nav.worldToCell(CS, g.approachPt.z)];
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        if (c === ap[0] && r === ap[1]) continue;
+        const cell = { cx: (c + 0.5) * CS, cz: (r + 0.5) * CS, ux: 1, uz: 0, hx: CS / 2, hz: CS / 2 };
+        if (obbOverlap(b, cell)) grid[r * W + c] = 1;
+      }
+    }
+    return grid;
+  }
+
+  /* Điểm "trong phòng" của các cửa mở nối phòng này. */
+  function roomExitPts(nav, roomId) {
+    const res = [];
+    for (const d of nav.doors) {
+      if (!d.pass || !d.open || d.roomA === d.roomB) continue;
+      if (d.roomA === roomId) res.push({ door: d.id, pt: d.frontPt });
+      else if (d.roomB === roomId) res.push({ door: d.id, pt: d.backPt });
+    }
+    return res;
+  }
+
+  /* Từ from có tới được một cửa mở của phòng (cửa gần nhất thử trước). */
+  /* Lưới chặn = base + mọi ô ngoài đa giác phòng (đường kiểm tra không được đi vòng qua phòng khác). */
+  function roomMask(nav, roomId, base) {
+    const { CS, W, H } = nav.cfg, room = nav.roomById[roomId], m = new Uint8Array(W * H);
+    if (base) m.set(base);
+    if (!room) return m;
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (!m[r * W + c] && !Nav.pointInPoly(room.poly, (c + 0.5) * CS, (r + 0.5) * CS)) m[r * W + c] = 1;
+    return m;
+  }
+  function canExit(nav, base, roomId, from) {
+    const cfg = Object.assign({}, nav.cfg, { base: roomMask(nav, roomId, base) });
+    const ex = roomExitPts(nav, roomId).sort((a, b) => dist(from, a.pt) - dist(from, b.pt));
+    for (const e of ex) if (Nav.astarPoints(nav.blocked, cfg, from, e.pt)) return true;
+    return false;
+  }
+
+  function wallObb(state, wall) {
+    const g = Nav.wallGeom(state, wall); if (!g) return null;
+    return { cx: (g.n0.x + g.n1.x) / 2, cz: (g.n0.z + g.n1.z) / 2, ux: g.ux, uz: g.uz, hx: g.len / 2, hz: (wall.thickness || 0.15) / 2 + 0.02 };
+  }
+  function doorZone(d) {
+    return { cx: d.center.x, cz: d.center.z, ux: -d.normal.z, uz: d.normal.x, hx: d.width / 2 + 0.25, hz: Nav.FRONT_DIST + 0.3 };
+  }
+
+  /* Kiểm tra bàn ứng viên. cand = {x,z,rot[,id]}. desks = bàn đã có (bỏ qua cand.id). */
+  function validate(state, nav, desks, cand) {
+    const fail = reason => ({ ok: false, reason });
+    const { CS, W, H } = nav.cfg;
+    const x = snap(cand.x), z = snap(cand.z), g = geom(x, z, cand.rot);
+    const others = desks.filter(d => d.id !== cand.id);
+    const pts = [g.seatPt, g.approachPt];
+    for (const o of [g.body, g.chair]) {
+      const ex = o.hx * Math.abs(o.ux) + o.hz * Math.abs(o.uz), ez = o.hx * Math.abs(o.uz) + o.hz * Math.abs(o.ux);
+      pts.push({ x: o.cx - ex, z: o.cz - ez }, { x: o.cx + ex, z: o.cz + ez });
+    }
+    for (const p of pts) if (p.x < 0 || p.z < 0 || p.x >= W * CS || p.z >= H * CS) return fail('Ngoài vùng mặt bằng');
+    const roomId = Nav.pointInRoom(nav, x, z);
+    if (roomId === Nav.OUT_ID) return fail('Bàn phải đặt trong phòng khép kín');
+    const name = (nav.roomById[roomId] && nav.roomById[roomId].name) || roomId;
+    if (nav.noDoor.includes(roomId)) return fail(name + ' chưa có cửa');
+    if (!Nav.isRoomReachable(nav, roomId)) return fail(name + ' chưa tới được (mọi cửa đang đóng)');
+    for (const w of state.walls.values()) {
+      const o = wallObb(state, w);
+      if (o && (obbOverlap(g.body, o) || obbOverlap(g.chair, o))) return fail('Chồng lên tường');
+    }
+    for (const d of nav.doors) {
+      if (!d.pass) continue;
+      const z2 = doorZone(d);
+      if (obbOverlap(g.body, z2) || obbOverlap(g.chair, z2)) return fail('Chắn khung cửa ' + d.id);
+    }
+    for (const d of others) {
+      const o = geom(d.x, d.z, d.rot);
+      if (obbOverlap(g.body, o.body) || obbOverlap(g.body, o.chair) || obbOverlap(g.chair, o.body) || obbOverlap(g.chair, o.chair)) return fail('Chồng lên bàn khác');
+    }
+    if (Nav.pointInRoom(nav, g.approachPt.x, g.approachPt.z) !== roomId) return fail('Điểm tiếp cận (phía ghế) nằm ngoài ' + name);
+    const cand2 = make(cand.id || '_new', x, z, cand.rot, nav);
+    const base = baseGrid(others.concat([cand2]), nav.cfg);
+    if (Nav.cellBlocked(nav.blocked, W, H, base, Nav.worldToCell(CS, g.approachPt.x), Nav.worldToCell(CS, g.approachPt.z))) return fail('Điểm tiếp cận bị tường/bàn chặn');
+    if (!canExit(nav, base, roomId, g.approachPt)) return fail('Bàn làm mất lối đi tới cửa của ' + name);
+    const exits = roomExitPts(nav, roomId);
+    const cfgR = Object.assign({}, nav.cfg, { base: roomMask(nav, roomId, base) });
+    for (let i = 1; i < exits.length; i++) {
+      if (!Nav.astarPoints(nav.blocked, cfgR, exits[0].pt, exits[i].pt)) return fail('Bàn làm đứt đường nối các cửa của ' + name);
+    }
+    for (const d of others) {
+      if (d.roomId !== roomId && Nav.pointInRoom(nav, d.x, d.z) !== roomId) continue;
+      const ap = geom(d.x, d.z, d.rot).approachPt;
+      if (!canExit(nav, base, roomId, ap)) return fail('Bàn này chặn lối đi của bàn khác trong ' + name);
+    }
+    return { ok: true, desk: make(cand.id || null, x, z, cand.rot, nav, { agentId: cand.agentId || null, screen: cand.screen || 'design' }), roomId };
+  }
+
+  const VERSION = 1;
+  function serialize(desks, deskless, next) {
+    return JSON.stringify({ v: VERSION, next: next || desks.length + 1, deskless: deskless || [], desks: desks.map(d => ({ id: d.id, x: d.x, z: d.z, rot: d.rot, roomId: d.roomId, seatPt: d.seatPt, approachPt: d.approachPt, facing: d.facing, agentId: d.agentId || null, screen: d.screen || 'design' })) });
+  }
+  function parse(json) {
+    let o; try { o = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return null; }
+    if (!o || o.v !== VERSION || !Array.isArray(o.desks)) return null;
+    const desks = o.desks.filter(d => d && typeof d.x === 'number' && typeof d.z === 'number').map(d => {
+      const g = geom(d.x, d.z, d.rot || 0);
+      return { id: d.id, x: g.x, z: g.z, rot: g.rot, roomId: d.roomId || null, seatPt: g.seatPt, approachPt: g.approachPt, facing: g.facing, agentId: d.agentId || null, screen: d.screen || 'design' };
+    });
+    return { desks, deskless: Array.isArray(o.deskless) ? o.deskless : [], next: o.next || desks.length + 1 };
+  }
+
+  /* DESK_POOL + cấu hình custom agent cũ (poolIdx) -> bàn tự do cùng vị trí. Không kiểm tra hợp lệ (không được mất agent). */
+  function migratePool(pool, cfgs, CS, nav) {
+    const desks = []; let n = 1;
+    (cfgs || []).forEach((cfg, i) => {
+      const idx = typeof cfg.poolIdx === 'number' ? cfg.poolIdx : i, slot = pool[idx];
+      if (!slot || desks.some(d => d.agentId === slot.id)) return;
+      desks.push(make('D' + (n++), (slot.c + 2) * CS, (slot.r + 1) * CS, 0, nav, { agentId: slot.id, screen: slot.screenType || 'design' }));
+    });
+    return { desks, next: n };
+  }
+
+  Nav.desk = { SNAP, geom, snap, obbOverlap, make, baseGrid, roomExitPts, canExit, validate, serialize, parse, migratePool, VERSION };
+})(OfficeNav);
+/* ===== FEAT-2026-160 CORE END ===== */
+
+/* ===== FEAT-2026-161 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const P = { V: 1.2, ACC: 1.5, DEC: 1.8, BRAKE: 3.6, TURN: 4.2, WAIT_OFF: 0.65, ZONE: 1.6, ZONE_IN: 1.9, REQ_RANGE: 4.0, R: 0.25, GAP: 0.6, VDOOR: 0.8, OPEN_R: 1.2, CLOSE_DELAY: 1.5, OPEN_TIME: 0.45, FRAME: 0.45, REQ_D: 1.2, LAT: 0.6, LOOK: 0.4, SUB: 0.05, SEP: 0.42, GHOST_AFTER: 4.0, GHOST_MAX: 1.0, GHOST_SEP: 0.34 };
+  const TAU = Math.PI * 2, hyp = Math.hypot;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+  /* Quay mượt có giới hạn tốc độ quay (rad/s) */
+  function smoothAngle(cur, target, dt, maxRate) {
+    const d = angDiff(cur, target), lim = Math.min(maxRate || P.TURN, Math.abs(d) * 10 + 0.3) * dt;
+    return cur + Math.sign(d) * Math.min(Math.abs(d), lim);
+  }
+  /* Tốc độ tại góc rẽ (ang = góc đổi hướng, rad) */
+  const cornerSpeed = ang => Math.max(0.3, 1.2 * (1 - 1.35 * Math.min(ang, Math.PI) / Math.PI));
+  /* Tốc độ tối đa để còn dừng được sau d mét (giảm tốc DEC) */
+  const stopSpeed = d => Math.sqrt(2 * P.DEC * Math.max(0, d));
+
+  /* Đặt trước ô theo cửa sổ thời gian ngắn */
+  class Reservations {
+    constructor(CS) { this.CS = CS || 0.5; this.map = new Map(); }
+    clear() { this.map.clear(); }
+    add(id, x, z, t) { const k = Math.floor(x / this.CS) + ',' + Math.floor(z / this.CS); let a = this.map.get(k); if (!a) this.map.set(k, a = []); a.push({ id, x, z, t }); }
+    conflict(id, x, z, t, win, dist) {
+      win = win == null ? 0.4 : win; dist = dist == null ? 0.55 : dist;
+      const c = Math.floor(x / this.CS), r = Math.floor(z / this.CS);
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+        const a = this.map.get((c + dc) + ',' + (r + dr)); if (!a) continue;
+        for (const e of a) if (e.id !== id && Math.abs(e.t - t) <= win && hyp(e.x - x, e.z - z) < dist) return e.id;
+      }
+      return null;
+    }
+  }
+
+  /* Chọn lượt qua cửa: người đang giữ lượt giữ tiếp; không thì người chờ lâu nhất, hoà: gần hơn, rồi ưu tiên cao hơn. */
+  function pickDoorTurn(reqs, holder, lastSide) {
+    if (holder != null && reqs.some(r => r.id === holder)) return holder;
+    if (!reqs.length) return null;
+    const cmp = (a, b) => (b.wait - a.wait) || (a.dist - b.dist) || (b.prio - a.prio);
+    let pool = reqs;
+    /* giữ dòng người cùng chiều (đoàn) trừ khi phía đối diện đã chờ quá 6 s (chống bỏ đói) */
+    if (lastSide != null) {
+      const same = reqs.filter(r => r.side === lastSide), opp = reqs.filter(r => r.side !== lastSide);
+      if (same.length && !(opp.length && Math.max(...opp.map(r => r.wait)) > 6)) pool = same;
+    }
+    return pool.slice().sort(cmp)[0].id;
+  }
+
+  /* Cửa tự động: mở khi có người <OPEN_R, đóng sau CLOSE_DELAY khi vắng; cửa khoá (locked) không tự mở. */
+  function doorTick(d, anyNear, now, dt) {
+    if (d.locked) d.target = 0;
+    else if (anyNear) { d.target = 1; d.lastPresent = now; }
+    else if (now - d.lastPresent >= P.CLOSE_DELAY) d.target = 0;
+    d.animT += clamp(d.target - d.animT, -dt / P.OPEN_TIME, dt / P.OPEN_TIME);
+  }
+  const doorLocal = (D, x, z) => { const dx = x - D.center.x, dz = z - D.center.z; return { n: dx * D.normal.x + dz * D.normal.z, t: dx * -D.normal.z + dz * D.normal.x }; };
+  const inFrame = (D, x, z) => { const l = doorLocal(D, x, z); return Math.abs(l.n) < P.FRAME && Math.abs(l.t) < D.width / 2 + 0.25; };
+
+  function createWorld(blocked) { return { now: 0, movers: [], doors: new Map(), blocked: blocked || (() => false), res: new Reservations(0.5) }; }
+  function addDoor(w, info) {
+    const old = w.doors.get(info.id);
+    const D = { id: info.id, center: info.center, normal: info.normal, width: info.width, locked: !!info.locked, animT: old ? old.animT : 0, target: old ? old.target : 0, lastPresent: old ? old.lastPresent : -1e9, holder: old ? old.holder : null, since: old ? old.since : new Map(), flowSide: old ? old.flowSide : null, closing: false, flowUntil: old ? old.flowUntil : -1e9 };
+    w.doors.set(info.id, D); return D;
+  }
+  function createMover(id, prio, x, z, yaw) {
+    return { id, prio, x, z, yaw: yaw || 0, v: 0, s: 0, L: 0, pts: null, cum: null, ox: 0, oz: 0, vx: 0, vz: 0, stuckT: 0, stillT: 0, ghostT: 0, sideT: 0, needReplan: false, state: 'idle', ignore: false, crossings: [], ci: 0, hx: 0, hz: 1, done: null, maxStill: 0, maxStuck: 0, blockedHits: 0 };
+  }
+  function setPath(m, pts) {
+    const a = [];
+    const push = p => { if (!a.length || hyp(a[a.length - 1].x - p.x, a[a.length - 1].z - p.z) > 1e-3) a.push({ x: p.x, z: p.z, door: p.door, kind: p.kind }); else if (p.kind) { const q = a[a.length - 1]; q.door = p.door; q.kind = p.kind; } };
+    push({ x: m.x, z: m.z }); for (const p of pts || []) push(p);
+    m.ox = 0; m.oz = 0; m.s = 0; m.ci = 0; m.crossings = []; m.stuckT = 0; m.needReplan = false;
+    if (a.length < 2) { m.pts = null; m.cum = null; m.L = 0; m.state = 'idle'; return false; }
+    const cum = [0]; for (let i = 1; i < a.length; i++) cum.push(cum[i - 1] + hyp(a[i].x - a[i - 1].x, a[i].z - a[i - 1].z));
+    for (let i = 0; i + 1 < a.length; i++) if (a[i].kind === 'front' && a[i + 1].kind === 'back' && a[i].door === a[i + 1].door) m.crossings.push({ door: a[i].door, e: cum[i], x: cum[i + 1], ex: a[i].x, ez: a[i].z });
+    m.pts = a; m.cum = cum; m.L = cum[cum.length - 1]; m.state = 'walking'; return true;
+  }
+  function segAt(m, s) {
+    let i = 0; while (i < m.pts.length - 2 && m.cum[i + 1] <= s) i++;
+    const len = m.cum[i + 1] - m.cum[i] || 1, a = m.pts[i], b = m.pts[i + 1], u = clamp((s - m.cum[i]) / len, 0, 1);
+    return { i, x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u, fx: (b.x - a.x) / len, fz: (b.z - a.z) / len };
+  }
+  const headingOf = (m, i) => Math.atan2(m.pts[i + 1].x - m.pts[i].x, m.pts[i + 1].z - m.pts[i].z);
+
+  function arbitrate(w) {
+    for (const D of w.doors.values()) {
+      const reqs = [], seen = new Set();
+      for (const m of w.movers) {
+        const cr = m.pts && m.crossings[m.ci];
+        if (!cr || cr.door !== D.id || cr.e - m.s >= P.REQ_RANGE) continue;
+        if (!D.since.has(m.id)) D.since.set(m.id, w.now);
+        seen.add(m.id);
+        reqs.push({ id: m.id, wait: w.now - D.since.get(m.id), dist: Math.max(0, cr.e - m.s), prio: m.prio, side: Math.sign(doorLocal(D, cr.ex, cr.ez).n), ex: cr.ex, ez: cr.ez });
+      }
+      for (const id of [...D.since.keys()]) if (!seen.has(id)) D.since.delete(id);
+      if (D.holder != null) {
+        const h = w.movers.find(x => x.id === D.holder), cr = h && h.pts && h.crossings[h.ci];
+        if (!cr || cr.door !== D.id) D.holder = null;
+      }
+      D.reqCount = reqs.length;
+      /* dòng chảy: mỗi lúc chỉ một phía đi qua (đoàn cùng chiều); phía kia chờ ở rìa vùng cửa, không vây quanh lối ra */
+      const act = reqs.filter(q => q.side === D.flowSide && q.dist < P.ZONE_IN + 0.6);
+      const clear = !w.movers.some(o => !o.ignore && hyp(o.x - D.center.x, o.z - D.center.z) < 1.7);
+      if (D.holder == null && reqs.length && (D.flowSide == null || clear) && (D.flowSide == null || !act.length || (D.closing && !reqs.some(q => q.side === D.flowSide && q.dist < P.ZONE_IN)))) {
+        D.flowSide = reqs.slice().sort((a, b) => (b.wait - a.wait) || (a.dist - b.dist) || (b.prio - a.prio))[0].side; D.closing = false;
+      }
+      if (D.flowSide != null && reqs.some(q => q.side !== D.flowSide && q.wait > 6)) D.closing = true;
+      if (D.holder == null && reqs.length) {
+        const busy = w.movers.some(o => !o.ignore && inFrame(D, o.x, o.z));
+        const free = reqs.filter(q => q.side === D.flowSide && q.dist < P.ZONE_IN + 0.6 && !w.movers.some(o => o.id !== q.id && !o.ignore && hyp(o.x - q.ex, o.z - q.ez) < 0.5));
+        const pick = busy ? null : pickDoorTurn(free, null, D.flowSide);
+        if (pick != null) D.holder = pick;
+      }
+    }
+  }
+
+  function stepMover(w, m, dt) {
+    if (!m.pts) { m.v = 0; m.stuckT = 0; m.stillT = 0; return; }
+    const sg = segAt(m, m.s), f = { x: sg.fx, z: sg.fz }, r = { x: -f.z, z: f.x }, n = m.pts.length;
+    let vT = P.V;
+    vT = Math.min(vT, stopSpeed(m.L - m.s), 2 * (m.L - m.s) + 0.02);
+    for (let i = sg.i + 1; i < n - 1; i++) {
+      const dd = m.cum[i] - m.s; if (dd > 3) break;
+      const ang = Math.abs(angDiff(headingOf(m, i - 1), headingOf(m, i)));
+      if (ang >= 0.35) vT = Math.min(vT, Math.sqrt(cornerSpeed(ang) ** 2 + 2 * P.DEC * dd));
+    }
+    /* cửa */
+    const cr = m.crossings[m.ci], D = cr && w.doors.get(cr.door);
+    let waitingDoor = false, legit = false, noLat = false, waitOff = null;
+    if (cr && D) {
+      const dEntry = cr.e - m.s;
+      if (dEntry < 1.5) noLat = true;
+      if (D.holder === m.id) {
+        if (D.animT >= 0.9) { if (m.s > cr.e - 0.5) vT = Math.min(vT, P.VDOOR); if (hyp(m.ox, m.oz) > 0.15 && dEntry < 0.6) vT = Math.min(vT, 0.25); }
+        else if (dEntry > -0.01) vT = Math.min(vT, stopSpeed(dEntry - 0.03));
+      } else if (dEntry > -0.01) {
+        const mySide = Math.sign(doorLocal(D, cr.ex, cr.ez).n), notMine = D.flowSide != null && mySide !== D.flowSide;
+        if (notMine || (D.closing && dEntry > P.ZONE_IN)) {
+          /* phía kia đang qua: chờ ở rìa vùng cửa (ZONE trước điểm vào) để không chặn lối ra */
+          vT = Math.min(vT, stopSpeed(dEntry - P.ZONE - 0.03));
+          /* đứng lệch sang bên trục cửa (>=1.0 m) để chừa lối đi cho dòng đang qua */
+          if (dEntry < P.ZONE + 1.8) {
+            const tx0 = -D.normal.z, tz0 = D.normal.x, l = (sg.x - D.center.x) * tx0 + (sg.z - D.center.z) * tz0, sd = Math.abs(l) > 0.2 ? Math.sign(l) : (m.prio % 2 ? 1 : -1);
+            if (Math.abs(l) < 1.0) waitOff = { x: tx0 * sd * (1.0 - Math.abs(l)), z: tz0 * sd * (1.0 - Math.abs(l)) };
+          }
+          if (dEntry < P.ZONE + 0.35) { waitingDoor = true; legit = true; }
+        } else {
+          /* cùng chiều: dừng ở vùng chờ WAIT_OFF trước điểm vào (frontPt/backPt), ngoài khung cửa */
+          vT = Math.min(vT, stopSpeed(dEntry - P.WAIT_OFF - 0.03));
+          if (dEntry < P.WAIT_OFF + 0.35) { waitingDoor = true; legit = D.holder != null; }
+        }
+      }
+    }
+    if (cr && m.s > cr.e - 0.5) noLat = true;
+    /* tránh nhau */
+    let headOn = false, obstacleSide = 0, qLegit = false;
+    for (const o of w.movers) {
+      if (o === m || o.ignore) continue;
+      const dx = o.x - m.x, dz = o.z - m.z, dist = hyp(dx, dz);
+      if (dist > 2.6 || dist < 1e-6) continue;
+      const fwd = dx * f.x + dz * f.z, lat = dx * r.x + dz * r.z;
+      if (fwd <= 0 && dist > P.GAP * 0.9) continue;
+      const oMoving = !!o.pts && o.v > 0.15, oActive = !!o.pts && o.state !== 'waiting_door', cosH = oActive ? o.hx * f.x + o.hz * f.z : 1;
+      const inLane = Math.abs(lat) < 0.45;
+      if (oActive && cosH < -0.5 && fwd > 0 && fwd < 2.5 && Math.abs(lat) < 0.8) headOn = true;
+      if (m.ghostT > 0) continue;
+      if (fwd > 0 && inLane && fwd < 1.6) {
+        if (headOn && oActive && dist > 0.9) { /* lệch phải xử lý */ }
+        else if (!o.pts || o.eff > m.eff) { vT = Math.min(vT, Math.max(0, fwd - P.GAP) * 1.8); if (o.legit) qLegit = true; }
+      }
+      if (!oMoving && o.state !== 'waiting_door' && inLane && fwd > 0 && fwd < 1.8) obstacleSide = lat > 0 ? -1 : 1;
+    }
+    /* đặt trước ô: nhường agent ưu tiên cao hơn đang di chuyển */
+    if (m.ghostT <= 0 && !headOn) for (let k = 2; k <= 5; k++) {
+      const p = segAt(m, Math.min(m.L, m.s + m.v * 0.2 * k)), c = w.res.conflict(m.id, p.x, p.z, w.now + 0.2 * k);
+      if (c != null) { const o = w.movers.find(x => x.id === c); if (o && o.pts && o.v > 0.15 && o.eff > m.eff) { vT = Math.min(vT, k <= 3 ? 0 : 0.3); break; } }
+    }
+    /* độ lệch phải */
+    let tx = 0, tz = 0, rate = 0.9 * clamp(0.25 + m.v / 0.6, 0, 1);
+    if (m.sideT > 0) { const sgn = obstacleSide || 1; tx = r.x * sgn * P.LAT; tz = r.z * sgn * P.LAT; m.sideT -= dt; rate = Math.max(rate, 0.5); } else if (headOn) { tx = r.x * P.LAT; tz = r.z * P.LAT; rate = Math.max(rate, 0.4); } else if (obstacleSide) { tx = r.x * obstacleSide * P.LAT; tz = r.z * obstacleSide * P.LAT; rate = Math.max(rate, 0.4); }
+    if (noLat || m.cum[sg.i + 1] - m.s < 1.0 || m.s - m.cum[sg.i] < 0.15) { tx = 0; tz = 0; }
+    if (waitOff) { tx = waitOff.x; tz = waitOff.z; rate = m.v > 0.3 ? 0.6 : 0; }
+    /* nhường đường: đang đứng/chậm mà có người đi tới thẳng chỗ mình -> bước sang bên (không chặn người đang qua) */
+    if (m.v < 0.4 && m.ghostT <= 0) {
+      for (const o of w.movers) {
+        if (o === m || o.ignore || !o.pts) continue;
+        const oSlow = o.v < 0.3;
+        if (!(o.eff > m.eff)) continue; /* chỉ nhường agent có ưu tiên cao hơn (người giữ lượt cửa luôn cao nhất) */
+        const dx = m.x - o.x, dz = m.z - o.z, along = dx * o.hx + dz * o.hz;
+        if (along <= 0 || along > (oSlow ? 1.3 : 1.8)) continue;
+        const rox = -o.hz, roz = o.hx, lt = dx * rox + dz * roz;
+        if (Math.abs(lt) >= 0.6) continue;
+        const sg3 = lt === 0 ? (m.prio > o.prio ? 1 : -1) : Math.sign(lt), need = Math.min(0.9, 0.75 - Math.abs(lt) + 0.0);
+        tx = m.ox + rox * sg3 * need; tz = m.oz + roz * sg3 * need; rate = 0.7; break;
+      }
+    }
+    const ex = tx - m.ox, ez = tz - m.oz, el = hyp(ex, ez), offHead = null;
+    /* mặt: hướng nhìn trước; tốc độ bị chặn khi mặt lệch hướng đi (không lùi, quay tại chỗ trước) */
+    const look = segAt(m, Math.min(m.L, m.s + P.LOOK));
+    const headT = (hyp(look.x - sg.x, look.z - sg.z) > 0.05) ? Math.atan2(look.x - sg.x, look.z - sg.z) : Math.atan2(f.x, f.z);
+    m.yaw = smoothAngle(m.yaw, headT, dt);
+    if (el > 1e-6) { const lim = rate * dt; if (el > lim) { m.ox += ex / el * lim; m.oz += ez / el * lim; } else { m.ox = tx; m.oz = tz; } }
+    vT = Math.min(vT, P.V * clamp((1.2 - Math.abs(angDiff(m.yaw, headT))) / 0.85, 0, 1));
+    if (m.ghostT > 0) m.ghostT -= dt;
+    m.v = vT < m.v ? Math.max(vT, m.v - P.BRAKE * dt) : Math.min(vT, m.v + P.ACC * dt);
+    m.s = Math.min(m.L, m.s + m.v * dt);
+    /* vị trí = điểm trên đường + lệch phải; không bao giờ vào ô chặn */
+    const sg2 = segAt(m, m.s);
+    let guard = 0;
+    while (hyp(m.ox, m.oz) > 0.01 && guard++ < 6) {
+      const ol = hyp(m.ox, m.oz), ux = m.ox / ol, uz = m.oz / ol;
+      if (!(w.blocked(sg2.x + m.ox, sg2.z + m.oz) || w.blocked(sg2.x + m.ox + ux * 0.15, sg2.z + m.oz + uz * 0.15))) break;
+      m.ox *= 0.5; m.oz *= 0.5;
+    }
+    if (hyp(m.ox, m.oz) <= 0.01) { m.ox = 0; m.oz = 0; }
+    const px = m.x, pz = m.z;
+    m.x = sg2.x + m.ox; m.z = sg2.z + m.oz; m.hx = sg2.fx; m.hz = sg2.fz;
+    m.vx = (m.x - px) / dt; m.vz = (m.z - pz) / dt;
+    /* nhả lượt cửa khi ra khỏi khung */
+    if (cr && m.s >= cr.x) { if (D && D.holder === m.id) { D.holder = null; D.flowUntil = w.now + 0.8; } m.ci++; }
+    m.state = waitingDoor ? 'waiting_door' : (m.v < 0.06 ? 'yielding' : 'walking');
+    if (qLegit && m.v < 0.3) legit = true; /* xếp hàng sau người đang chờ cửa hợp lệ */
+    m.legit = legit;
+    /* kẹt / phá kẹt */
+    if (m.v < 0.06 && !legit) { m.stuckT += dt; m.stillT += dt; } else if (m.v >= 0.15) { m.stuckT = 0; m.stillT = 0; } else if (legit) m.stuckT = 0;
+    m.maxStill = Math.max(m.maxStill, m.stillT); m.maxStuck = Math.max(m.maxStuck, m.stuckT);
+    if (m.stuckT > 2.0 && m.sideT <= 0 && m.stuckT < 2.0 + dt * 2) m.sideT = 1.5;
+    if (m.stuckT > 3.2 && !m.replanned) { m.needReplan = true; m.replanned = true; }
+    if (m.stuckT === 0) m.replanned = false;
+    /* CR-4: ghost chỉ bỏ va chạm với AGENT khác (tường/bàn luôn kiểm ô chặn), sau khi kẹt >=4.0 s và đã thử lệch phải + đổi lượt + tính lại đường, tối đa 1.0 s */
+    if (m.stuckT >= P.GHOST_AFTER && m.replanned && m.ghostT <= 0 && !m.ghostUsed) { m.ghostT = P.GHOST_MAX; m.sideT = 0; m.ghostUsed = true; m.ghostCount = (m.ghostCount || 0) + 1; }
+    if (m.stuckT === 0 && m.ghostT <= 0) m.ghostUsed = false;
+    /* tới đích */
+    if (m.L - m.s < 0.012) {
+      const e = m.pts[n - 1]; m.x = e.x; m.z = e.z; m.s = m.L; m.v = 0; m.ox = 0; m.oz = 0; m.vx = 0; m.vz = 0; m.pts = null; m.state = 'idle'; m.stuckT = 0; m.stillT = 0;
+      if (D && D.holder === m.id) D.holder = null;
+      const cb = m.done; m.done = null; if (cb) cb(true);
+    }
+  }
+
+  function stepOnce(w, dt) {
+    w.now += dt;
+    w.res.clear();
+    for (const m of w.movers) {
+      if (m.ignore) continue;
+      if (!m.pts) { for (let k = 0; k <= 5; k++) w.res.add(m.id, m.x, m.z, w.now + 0.2 * k); continue; }
+      for (let k = 0; k <= 5; k++) { const p = segAt(m, Math.min(m.L, m.s + m.v * 0.2 * k)); w.res.add(m.id, p.x, p.z, w.now + 0.2 * k); }
+    }
+    arbitrate(w);
+    for (const m of w.movers) m.isHolder = false;
+    for (const D of w.doors.values()) if (D.holder != null) { const h = w.movers.find(x => x.id === D.holder); if (h) h.isHolder = true; }
+    for (const m of w.movers) m.eff = (m.isHolder ? 1e6 : 0) + (m.state === 'waiting_door' && !m.isHolder ? -1e6 : 0) + m.prio; /* người chờ cửa có ưu tiên thấp nhất: nhường mọi người đang đi */
+    for (const D of w.doors.values()) {
+      let near = D.holder != null;
+      if (!near) for (const m of w.movers) if (!m.ignore && hyp(m.x - D.center.x, m.z - D.center.z) < P.OPEN_R) { near = true; break; }
+      doorTick(D, near, w.now, dt);
+    }
+    for (const m of w.movers) stepMover(w, m, dt);
+    /* tách mềm: hai agent không bao giờ chồng lên nhau (bán kính 0.25 m), chỉ đẩy phần lệch của agent đang đi */
+    for (let i = 0; i < w.movers.length; i++) for (let j = i + 1; j < w.movers.length; j++) {
+      const a = w.movers[i], b = w.movers[j];
+      if (a.ignore || b.ignore) continue;
+      const sep = (a.ghostT > 0 || b.ghostT > 0) ? P.GHOST_SEP : P.SEP; /* CR-4: ghost chỉ nới khoảng tách xuống 0.34 m, không chồng hẳn */
+      let dx = b.x - a.x, dz = b.z - a.z, d = hyp(dx, dz);
+      if (d >= sep) continue;
+      if (d < 1e-6) { dx = 1; dz = 0; d = 1; }
+      const push = Math.min(sep - d, (d < 0.36 ? 10 : 4) * dt), ux = dx / d, uz = dz / d;
+      /* agent ưu tiên thấp hơn bị đẩy ra; agent đứng yên (không có đường) không bị đẩy */
+      const ca = !!a.pts, cb = !!b.pts, lowA = a.eff < b.eff;
+      const mv = (m, sx, sz) => { if (w.blocked(m.x + sx, m.z + sz)) return false; m.x += sx; m.z += sz; m.ox += sx; m.oz += sz; return true; };
+      if (ca && cb) { if (lowA) { if (!mv(a, -ux * push, -uz * push)) mv(b, ux * push, uz * push); } else if (!mv(b, ux * push, uz * push)) mv(a, -ux * push, -uz * push); }
+      else if (ca) mv(a, -ux * push, -uz * push); else if (cb) mv(b, ux * push, uz * push);
+    }
+  }
+  function stepAll(w, dt) { const n = Math.max(1, Math.ceil(dt / P.SUB)); for (let i = 0; i < n; i++) stepOnce(w, dt / n); }
+
+  Nav.move = { P, angDiff, smoothAngle, cornerSpeed, stopSpeed, Reservations, pickDoorTurn, doorTick, inFrame, doorLocal, createWorld, addDoor, createMover, setPath, stepAll };
+})(OfficeNav);
+/* CR-4: gieo cửa FP2 từ khe lối đi của lưới cũ (pure). walk(x,z) = ô lưới cũ có đi được không. */
+(function (Nav) {
+  const KEY = 'atelier_fp2_legacydoors_v1', STEP = 0.1, SIDE = 0.6, MIN_RUN = 1.0, MAX_W = 1.2;
+  function legacyDoorSpecs(state, walk) {
+    const openings = (state.openings || []).slice(), st = { nodes: state.nodes, walls: state.walls, openings }, specs = [];
+    for (const wall of [...state.walls.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+      const g = Nav.wallGeom(state, wall); if (!g) continue;
+      const ok = o => { const x = g.n0.x + g.ux * o, z = g.n0.z + g.uz * o; return walk(x, z) && walk(x + g.nx * SIDE, z + g.nz * SIDE) && walk(x - g.nx * SIDE, z - g.nz * SIDE); };
+      let a = null;
+      const flush = b => {
+        if (a == null) return; const len = b - a + STEP, c = (a + b) / 2; a = null;
+        if (len < MIN_RUN) return;
+        const w = Math.min(MAX_W, len - 0.1), v = Nav.validateOpening(st, wall.id, c, 'door', w);
+        if (!v.ok) return;
+        const sp = { wallId: wall.id, offset: v.offset, type: 'door', width: v.width }; specs.push(sp);
+        openings.push({ id: '_seed' + specs.length, wallId: wall.id, offset: sp.offset, type: 'door', width: sp.width, open: true });
+      };
+      let last = 0;
+      for (let o = STEP; o < g.len; o += STEP) { if (ok(o)) { if (a == null) a = o; last = o; } else if (a != null) flush(last); }
+      if (a != null) flush(last);
+    }
+    return specs;
+  }
+  /* Chạy một lần: cần gieo khi có phòng nhưng chưa có cửa đi nào và cờ chưa đặt */
+  const needSeed = (flag, nav) => !flag && !!nav && nav.rooms.length > 0 && !nav.doors.some(d => d.pass);
+  Nav.seed = { KEY, legacyDoorSpecs, needSeed };
+})(OfficeNav);
+/* ===== FEAT-2026-161 CORE END ===== */
+
+/* ===== FEAT-2026-162 CORE BEGIN (pure: no DOM / THREE / globals) ===== */
+(function (Nav) {
+  const STATES = ['no_desk', 'idle', 'walking', 'waiting_door', 'blocked', 'sitting', 'working', 'meeting', 'leaving'];
+  const TRANSITIONS = {
+    no_desk: ['idle', 'walking', 'blocked', 'meeting', 'leaving'],
+    idle: ['no_desk', 'walking', 'sitting', 'working', 'blocked', 'meeting', 'leaving'],
+    walking: ['idle', 'waiting_door', 'blocked', 'sitting', 'working', 'meeting', 'leaving', 'no_desk'],
+    waiting_door: ['walking', 'blocked', 'idle'],
+    blocked: ['idle', 'walking', 'no_desk', 'sitting', 'working', 'leaving'],
+    sitting: ['idle', 'working', 'walking', 'meeting', 'leaving', 'blocked', 'no_desk'],
+    working: ['sitting', 'idle', 'walking', 'blocked', 'meeting', 'leaving', 'no_desk'],
+    meeting: ['idle', 'walking', 'sitting', 'working', 'leaving'],
+    leaving: ['walking', 'idle', 'no_desk', 'blocked']
+  };
+  const LOG_MAX = 40, SPEED = 1.2;
+  const canTransition = (from, to) => from === to ? STATES.indexOf(to) >= 0 : !!(TRANSITIONS[from] && TRANSITIONS[from].indexOf(to) >= 0);
+  /* đường chuyển ngắn nhất (BFS) từ from tới to chỉ gồm chuyển hợp lệ; trả về các trạng thái SAU from, [] nếu from===to, null nếu không có */
+  function path(from, to) {
+    if (STATES.indexOf(from) < 0 || STATES.indexOf(to) < 0) return null;
+    if (from === to) return [];
+    const prev = { [from]: null }, q = [from];
+    while (q.length) {
+      const s = q.shift();
+      for (const n of TRANSITIONS[s]) if (!(n in prev)) { prev[n] = s; if (n === to) { const r = []; let c = to; while (c !== from) { r.unshift(c); c = prev[c]; } return r; } q.push(n); }
+    }
+    return null;
+  }
+  function createMachine(initial) { return { state: initial || 'idle', target: null, reason: null, task: null, since: 0, log: [], rejected: 0 }; }
+  const pushLog = (m, e) => { m.log.push(e); if (m.log.length > LOG_MAX) m.log.splice(0, m.log.length - LOG_MAX); };
+  /* Đổi trạng thái: kiểm tra hợp lệ; blocked cần reason. info = {target, reason, task}. Cùng trạng thái chỉ cập nhật thông tin (không log, trừ khi lý do chặn đổi). */
+  function setState(m, to, info, now) {
+    info = info || {};
+    if (STATES.indexOf(to) < 0) { m.rejected++; return { ok: false, from: m.state, to, reason: 'Trạng thái không tồn tại' }; }
+    if (to === 'blocked' && !(info.reason && String(info.reason).trim())) { m.rejected++; return { ok: false, from: m.state, to, reason: 'blocked cần lý do' }; }
+    const from = m.state;
+    if (!canTransition(from, to)) { m.rejected++; return { ok: false, from, to, reason: 'Chuyển ' + from + ' -> ' + to + ' không hợp lệ' }; }
+    const changed = from !== to, oldReason = m.reason;
+    if (changed) { m.state = to; m.since = now || 0; }
+    m.target = info.target === undefined ? (changed ? null : m.target) : info.target;
+    m.reason = (to === 'blocked' || to === 'waiting_door') ? (info.reason || null) : null;
+    m.task = info.task === undefined ? (changed && to !== 'working' ? null : m.task) : info.task;
+    if (changed || (to === 'blocked' && m.reason !== oldReason)) pushLog(m, { t: +(now || 0).toFixed(1), from, to, why: m.reason || m.task || m.target || '' });
+    return { ok: true, from, to, changed };
+  }
+  /* Đặt trạng thái đích; nếu chuyển trực tiếp không hợp lệ thì đi qua các bước trung gian hợp lệ */
+  function goTo(m, to, info, now) {
+    if (canTransition(m.state, to)) return setState(m, to, info, now);
+    const p = path(m.state, to); if (!p) return setState(m, to, info, now);
+    let r = null;
+    for (let i = 0; i < p.length; i++) r = setState(m, p[i], i === p.length - 1 ? info : (p[i] === 'blocked' ? { reason: 'chuyển tiếp' } : {}), now);
+    return r;
+  }
+  const etaSeconds = (remaining, speed) => Math.max(0, remaining || 0) / (speed > 0 ? speed : SPEED);
+
+  /* Suy ra trạng thái máy từ quan sát (cờ vật lý + trạng thái kinh doanh). Trả {state, info} hoặc null = giữ nguyên (đang chuyển cảnh). */
+  function deriveFromNav(o) {
+    if (o.leaving) return { state: 'leaving', info: { target: o.target || null } };
+    if (o.blockReason) return { state: 'blocked', info: { reason: o.blockReason, target: o.target || null } };
+    if (o.moving) {
+      if (o.doorWait) return { state: 'waiting_door', info: { reason: 'Chờ cửa ' + (o.doorId || ''), target: o.target || null } };
+      return { state: 'walking', info: { target: o.target || null } };
+    }
+    if (o.transitioning) return null;
+    if (o.business === 'error') return { state: 'blocked', info: { reason: o.task || 'Task tạm dừng' } };
+    if (o.sitting) {
+      if (o.business === 'meeting') return { state: 'meeting', info: {} };
+      if ((o.business === 'working' || o.business === 'thinking') && o.atHome) return { state: 'working', info: { task: o.task || null } };
+      return { state: 'sitting', info: {} };
+    }
+    if (o.business === 'meeting') return { state: 'meeting', info: {} };
+    if (!o.hasDesk) return { state: 'no_desk', info: {} };
+    return { state: 'idle', info: {} };
+  }
+  function statusText(m) {
+    switch (m.state) {
+      case 'no_desk': return 'Chưa có bàn làm việc';
+      case 'idle': return 'Đang rảnh (sẵn sàng nhận nhiệm vụ)';
+      case 'walking': return 'Đang đi' + (m.target ? ' tới ' + m.target : '');
+      case 'waiting_door': return 'Đang chờ cửa' + (m.reason ? ' (' + m.reason + ')' : '');
+      case 'blocked': return 'Bị chặn: ' + (m.reason || 'không rõ lý do');
+      case 'sitting': return 'Đang ngồi';
+      case 'working': return 'Đang làm việc' + (m.task ? ': ' + m.task : '');
+      case 'meeting': return 'Đang họp tại Phòng Họp Kiến Trúc';
+      case 'leaving': return 'Đang rời chỗ ngồi';
+    }
+    return m.state;
+  }
+  function tagText(m, eta) {
+    switch (m.state) {
+      case 'walking': return '→ ' + (m.target || '') + (eta != null ? ' ' + Math.max(0, Math.round(eta)) + 's' : '');
+      case 'waiting_door': return 'chờ cửa';
+      case 'blocked': return '⚠ ' + String(m.reason || '').slice(0, 28);
+      case 'working': return 'làm việc' + (m.task ? ' ' + String(m.task).slice(0, 14) : '');
+      case 'sitting': return 'ngồi';
+      case 'meeting': return 'họp';
+      case 'leaving': return 'rời bàn';
+      case 'no_desk': return 'chưa có bàn';
+      default: return 'rảnh';
+    }
+  }
+  /* Kết quả poll Paperclip -> ý định. api = {ok, agentFound, task}. null = không đổi (API lỗi/tắt/không thấy agent). */
+  function paperclipIntent(api) {
+    if (!api || !api.ok || !api.agentFound) return null;
+    return api.task ? { state: 'working', task: api.task } : { state: 'idle', task: null };
+  }
+  Nav.state = { STATES, TRANSITIONS, LOG_MAX, SPEED, canTransition, path, createMachine, setState, goTo, etaSeconds, deriveFromNav, statusText, tagText, paperclipIntent };
+})(OfficeNav);
+/* ===== FEAT-2026-162 CORE END ===== */
+
 const FP2_KEY = 'atelier_fp2_v1';
 const FP2_HIST = 40;
 
@@ -2742,8 +3736,19 @@ prepareOpening(wallId, offset, type, width, height) {
     Math.abs(o.offset - opening.offset) < (o.width + opening.width) / 2 + OPENING_FRAME);
   return overlaps ? null : opening;
 },
-addOpening(opening) {
-  FP2.wallOpenings.push({...opening, id:'o'+(++this._oid)});
+/* addOpening(opening) (object, from prepareOpening) or
+   addOpening(wallId, offset, type, width, height, elevation) (FEAT-2026-158/159/161 callers) */
+addOpening(a, offset, type, w, h, elev) {
+  const id = 'o' + (++this._oid);
+  if (a && typeof a === 'object') {
+    FP2.wallOpenings.push({...a, id, open: a.open !== false});
+    return id;
+  }
+  const isWin = type === 'window';
+  FP2.wallOpenings.push({id, wallId: a, offset, type: type || 'sliding-glass',
+    width: w || (isWin ? 1.2 : 0.9), height: h || (isWin ? 1.0 : Math.min(2.1, DOOR_MAX_H)),
+    elevation: elev || (isWin ? 0.8 : 0), open: true});
+  return id;
 },
 removeOpening(oid){FP2.wallOpenings=FP2.wallOpenings.filter(o=>o.id!==oid);},
 buildMeshes(){
@@ -2777,7 +3782,7 @@ buildMeshes(){
     }
     let pos = 0;
     for (const opening of this.openingsForWall(wall, len)) {
-      const { id, offset, width, elevation: bottom, height, type } = opening;
+      const { id, offset, width, elevation: bottom, height, type, open } = opening;
       const left = offset - width / 2, right = offset + width / 2, top = bottom + height;
       const f = OPENING_FRAME, frameDepth = t + 0.02;
       addWallRun(pos, left);
@@ -2787,15 +3792,17 @@ buildMeshes(){
       addPiece(left,left+f,bottom,top-f,frameDepth,frameMat,id);
       addPiece(right-f,right,bottom,top-f,frameDepth,frameMat,id);
       if (type === 'window') addPiece(left+f,right-f,bottom,bottom+f,frameDepth,frameMat,id);
+      const locked = open === false && type !== 'window';
       const leafMat = type === 'door'
-        ? M(0x82583c,{roughness:0.58})
-        : new T.MeshStandardMaterial({color:0x94c7cf,transparent:true,opacity:0.38,roughness:0.16,metalness:0.25});
+        ? M(locked ? 0x5b3b26 : 0x82583c,{roughness:0.58})
+        : new T.MeshStandardMaterial({color:0x94c7cf,transparent:true,opacity:locked?0.85:0.38,roughness:0.16,metalness:0.25});
       const leafBottom = bottom + (type === 'window' ? f : 0.008);
       const leaf = addPiece(left+f,right-f,leafBottom,top-f,t*0.35,leafMat,id);
-      if (type === 'sliding-glass') {
-        this.slidingLeaves.push({
-          leaf, x:leaf.position.x, z:leaf.position.z, ux, uz, width:width-2*f, open:0,
-        });
+      if (leaf && type !== 'window') {
+        /* FEAT-2026-161: FEAT161.updateLeaves() trượt lá cửa khi agent tới gần */
+        const roomL = left, roomR = len - right;
+        leaf.userData.door = {id, px:leaf.position.x, py:leaf.position.y, pz:leaf.position.z, ux, uz,
+          dir: roomR >= roomL ? 1 : -1, slide: Math.min(width-2*f-0.04, Math.max(0, Math.max(roomL,roomR)-0.02))};
       }
       pos = right;
     }
@@ -3178,15 +4185,21 @@ function fp2Load(){
   fp2MigrateRoomDoors();
   fp2Save();
 }
+function f160Snap(){ try{ return FEAT160.snap(); }catch(e){ return undefined; } }
+function f160Restore(d){ try{ if(d!==undefined) FEAT160.restore(d); }catch(e){ console.warn('[FEAT160] restore',e); } }
+/* History entries hold the floor-plan state plus desks (FEAT-2026-160) */
+function fp2HistoryEntry(state = fp2State()){ return JSON.stringify({s:state, d:f160Snap()}); }
 function fp2Snapshot(before = fp2State()){
-  FP2._history.push(before);
+  FP2._history.push(fp2HistoryEntry(before));
   if (FP2._history.length > FP2_HIST) FP2._history.shift();
   FP2._future.length = 0;
 }
 function fp2Replay(from, to){
   if (!from.length) return false;
-  to.push(fp2State());
-  fp2Restore(JSON.parse(from.pop()));
+  to.push(fp2HistoryEntry());
+  const entry = JSON.parse(from.pop());
+  fp2Restore(JSON.parse(entry.s));
+  f160Restore(entry.d);
   fp2Apply();
   return true;
 }
@@ -3241,40 +4254,122 @@ fp2Apply = function(){ _fp2ApplyOrig(); fp2DetectRooms(); };
 
 /* ---- WallGraph navgrid integration (A* path respects FP2 walls) ---- */
 function updateFP2WallBlocked(){
-  fp2WallBlocked.fill(0);
-  for(const wall of FP2.walls.values()){
-    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
-    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
-    const steps=Math.ceil(len/CS*8)+1,th=Math.max(1,Math.round(wall.thickness/CS));
-    for(let s=0;s<=steps;s++){
-      const t=s/steps,px=n0.x+dx*t,pz=n0.z+dz*t;
-      const c=Math.round(px/CS-0.5),r=Math.round(pz/CS-0.5);
-      for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
-        const nc=c+dc,nr=r+dr;
-        if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=1;
-      }
-    }
-  }
-  // Clear cells at door/window openings so agents can pass
-  for(const wall of FP2.walls.values()){
-    const n0=FP2.wallNodes.get(wall.startId),n1=FP2.wallNodes.get(wall.endId);if(!n0||!n1)continue;
-    const dx=n1.x-n0.x,dz=n1.z-n0.z,len=Math.hypot(dx,dz);
-    if (len < 1e-6) continue;
-    const ux=dx/len,uz=dz/len;
-    for (const op of WG.openingsForWall(wall,len)) {
-      const ow=op.width, steps2=Math.ceil(ow/CS*8)+1;
-      for(let s=0;s<=steps2;s++){
-        const t=s/steps2,ox=n0.x+ux*(op.offset-ow/2+ow*t),oz=n0.z+uz*(op.offset-ow/2+ow*t);
-        const c=Math.round(ox/CS-0.5),r=Math.round(oz/CS-0.5);
-        const th=Math.max(1,Math.round(wall.thickness/CS))+1;
-        for(let dc=-th;dc<=th+1;dc++) for(let dr=-th;dr<=th+1;dr++){
-          const nc=c+dc,nr=r+dr;
-          if(nc>=0&&nc<W&&nr>=0&&nr<H) fp2WallBlocked[nr*W+nc]=0;
-        }
-      }
-    }
-  }
+  /* FEAT-2026-158: precise wall grid, open pass-doors carved (see FEAT158 block below) */
+  FEAT158.refresh();
 }
+
+/* ===== FEAT-2026-158 PAGE INTEGRATION ===== */
+const FEAT158={
+  model:null, debug:false, afterRefresh:[], _dbg:null,
+  state(){return{nodes:FP2.wallNodes,walls:FP2.walls,openings:FP2.wallOpenings||[]};},
+  cfg(){return{CS,W,H};},
+  refresh(){
+    const st=this.state(),m=OfficeNav.buildDoorGrid(st,this.cfg());
+    this.model=m;fp2WallBlocked.set(m.blocked);
+    const byId=new Map(m.doors.map(d=>[d.id,d]));
+    for(const op of st.openings){
+      const d=byId.get(op.id);if(!d)continue;
+      op.open=op.open!==false;op.center=d.center;op.normal=d.normal;op.frontPt=d.frontPt;op.backPt=d.backPt;op.cells=d.cells;
+      if(op.roomA===undefined)op.roomA=null;
+      if(op.roomB===undefined)op.roomB=null;
+    }
+    for(const fn of this.afterRefresh){try{fn(m);}catch(e){console.warn('[FEAT158] hook',e);}}
+    if(this.debug)this.drawDebug();
+  },
+  validate(wallId,rawOffset,type,ignoreId){return OfficeNav.validateOpening(this.state(),wallId,rawOffset,type,0,ignoreId);},
+  msg(text,ok){const el=document.getElementById('navMsg');if(el){el.textContent=text||'';el.style.color=ok?'#34d399':'#f87171';}},
+  setDebug(on){
+    this.debug=!!on;
+    if(!this._dbg){this._dbg=new T.Group();S.add(this._dbg);}
+    if(this.debug)this.drawDebug();else this.clearDebug();
+  },
+  clearDebug(){if(!this._dbg)return;this._dbg.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});while(this._dbg.children.length)this._dbg.remove(this._dbg.children[0]);},
+  drawDebug(){
+    if(!this._dbg){this._dbg=new T.Group();S.add(this._dbg);}
+    this.clearDebug();if(!this.model)return;
+    const quad=(c,r,col)=>{const m=new T.Mesh(new T.PlaneGeometry(CS*0.9,CS*0.9),new T.MeshBasicMaterial({color:col,transparent:true,opacity:0.45,depthTest:false,side:T.DoubleSide}));m.rotation.x=-Math.PI/2;m.position.set((c+0.5)*CS,0.06,(r+0.5)*CS);m.renderOrder=20;this._dbg.add(m);};
+    for(let r=0;r<H_BASE;r++)for(let c=0;c<W;c++)if(this.model.blocked[r*W+c])quad(c,r,0xef4444);
+    for(const d of this.model.doors){
+      for(const [c,r] of d.cells)quad(c,r,d.pass&&d.open?0x22c55e:0xf59e0b);
+      if(!d.pass)continue;
+      for(const [p,col] of[[d.frontPt,0x3b82f6],[d.backPt,0xf97316]]){const s=new T.Mesh(new T.SphereGeometry(0.09,8,8),new T.MeshBasicMaterial({color:col,depthTest:false}));s.position.set(p.x,0.15,p.z);s.renderOrder=21;this._dbg.add(s);}
+    }
+  }
+};
+
+/* ===== FEAT-2026-159 PAGE INTEGRATION: đồ thị phòng-cửa, cảnh báo "Chưa có cửa" ===== */
+const FEAT159={
+  nav:null, _sig:'', group:null,
+  roomName(id){return OfficeNav.OUT_ID===id?'Ngoài trời':((this.nav&&this.nav.roomById[id]&&this.nav.roomById[id].name)||id);},
+  update(){
+    const nav=OfficeNav.buildNav(FEAT158.state(),{CS,W,H,base:null});
+    const used=new Set();
+    nav.rooms.forEach((r,i)=>{
+      let nm=null,bestA=Infinity;
+      for(const d of(FP2.detectedRooms||[])){
+        const pts=(d.wallLoop||[]).map(n=>FP2.wallNodes.get(n)).filter(Boolean);if(pts.length<3)continue;
+        const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length,cz=pts.reduce((s,p)=>s+p.z,0)/pts.length;
+        if(d.area<bestA&&OfficeNav.pointInPoly(r.poly,cx,cz)){bestA=d.area;nm=d.name;}
+      }
+      nm=nm||('Phòng '+(i+1));
+      if(used.has(nm))nm=nm+' ('+r.id+')';
+      used.add(nm);r.name=nm;
+    });
+    this.nav=nav;
+    const byId=new Map(nav.doors.map(d=>[d.id,d]));
+    for(const op of FP2.wallOpenings||[]){const d=byId.get(op.id);if(d&&d.pass){op.roomA=d.roomA;op.roomB=d.roomB;}else{op.roomA=null;op.roomB=null;}}
+    const sig=nav.noDoor.map(id=>id+':'+nav.roomById[id].name).join('|');
+    if(sig!==this._sig){this._sig=sig;this.drawWarnings();}
+    this.renderPanel();
+  },
+  syncVisibility(){if(this.group)this.group.visible=!!FP2.active;},
+  drawWarnings(){
+    if(!this.group){this.group=new T.Group();S.add(this.group);}
+    this.group.traverse(o=>{if(o.material){if(o.material.map)o.material.map.dispose();o.material.dispose();}});
+    while(this.group.children.length)this.group.remove(this.group.children[0]);
+    for(const id of this.nav.noDoor){
+      const r=this.nav.roomById[id];
+      const cv2=document.createElement('canvas');cv2.width=320;cv2.height=96;const ctx=cv2.getContext('2d');if(!ctx)continue;
+      ctx.fillStyle='rgba(185,28,28,0.92)';ctx.beginPath();ctx.roundRect?ctx.roundRect(4,4,312,88,14):ctx.rect(4,4,312,88);ctx.fill();
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 28px sans-serif';ctx.fillText('Chưa có cửa',160,44);
+      ctx.font='20px sans-serif';ctx.fillText(r.name,160,74);
+      const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(cv2),transparent:true,depthTest:false}));
+      sp.scale.set(2.8,0.84,1);sp.position.set(r.centroid.x,0.9,r.centroid.z);sp.renderOrder=30;sp.userData.noDoorRoom=id;this.group.add(sp);
+    }
+    this.syncVisibility();
+  },
+  renderPanel(){
+    const el=document.getElementById('navWarn');if(!el)return;
+    const nd=this.nav.noDoor;
+    if(!nd.length){el.style.display='none';el.innerHTML='';return;}
+    el.style.display='block';
+    el.innerHTML='<div style="color:#fca5a5;font-weight:700;font-size:11px;margin-bottom:3px;">⚠ Phòng chưa có cửa ('+nd.length+')</div>'+
+      nd.map(id=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px;"><span>${this.nav.roomById[id].name}</span><button data-nav-add="${id}" style="background:#7f1d1d;color:#fecaca;border:none;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:10px;">Thêm cửa tự động</button></div>`).join('')+
+      (nd.length>1?'<button data-nav-add="*" style="width:100%;background:#991b1b;color:#fff;border:none;border-radius:4px;padding:3px;cursor:pointer;font-size:10px;margin-top:2px;">Thêm cửa cho tất cả</button>':'');
+    el.querySelectorAll('button[data-nav-add]').forEach(b=>b.onclick=()=>{const id=b.dataset.navAdd;if(id==='*')this.addDoorForAll();else this.addDoorFor(id);});
+  },
+  addDoorFor(roomId){
+    const nm=this.roomName(roomId),s=OfficeNav.suggestDoor(FEAT158.state(),this.nav,roomId);
+    if(!s.ok){FEAT158.msg(s.reason,false);return false;}
+    fp2Snapshot();WG.addOpening(s.wallId,s.offset,'door',s.width);WG.buildMeshes();fp2Save();
+    FEAT158.msg('Đã thêm cửa cho '+nm,true);return true;
+  },
+  addDoorForAll(){let guard=0;while(this.nav.noDoor.length&&guard++<30){if(!this.addDoorFor(this.nav.noDoor[0]))break;}},
+  canAssign(roomId){
+    if(!this.nav||!this.nav.roomById[roomId])return{ok:false,reason:'Phòng không tồn tại'};
+    if(this.nav.noDoor.includes(roomId))return{ok:false,reason:this.roomName(roomId)+' chưa có cửa'};
+    if(!OfficeNav.isRoomReachable(this.nav,roomId))return{ok:false,reason:this.roomName(roomId)+' chưa tới được (mọi cửa đang đóng)'};
+    return{ok:true};
+  },
+  planRoute(from,to,opts){
+    const nav=this.nav;if(!nav)return{ok:false,reason:'Chưa dựng đồ thị phòng'};
+    nav.cfg.base=(opts&&opts.useBase)?(window.FEAT160?FEAT160.baseGrid():blocked):null; /* FEAT-160: useBase = lưới bàn tự do */
+    return OfficeNav.planRoute(nav,from,to);
+  }
+};
+FEAT158.afterRefresh.push(()=>FEAT159.update());
+/* FEAT-2026-161: thay setInterval 300 ms bằng hook đúng vào việc vào/ra Build/FP2 (setter của FP2.active) */
+{let _fp2Act=!!FP2.active;Object.defineProperty(FP2,'active',{get(){return _fp2Act;},set(v){_fp2Act=!!v;try{FEAT159.syncVisibility();}catch(e){}},enumerable:true,configurable:true});}
 
 /* ---- Wall-graph room detection (planar graph left-turn traversal) ---- */
 function _wgPolyArea(pts){let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=pts[j].x*pts[i].z-pts[i].x*pts[j].z;return Math.abs(a)/2;}
@@ -3659,14 +4754,15 @@ function spawnCustomAgent(cfg) {
   const pidx = typeof cfg.poolIdx === 'number' ? cfg.poolIdx : 0;
   const slot = DESK_POOL[pidx];
   if (!slot || A[slot.id]) return false;
-  if (!seats['d_' + slot.id]) {
-    createDetailedDesk(slot.c, slot.r, slot.screenType, false);
-    registerSeat('d_' + slot.id, [slot.c + 1, slot.r + 2], [slot.c + 1, slot.r + 3], Math.PI, false);
-  }
-  const seat = seats['d_' + slot.id];
-  if (!seat) return false;
+  /* FEAT-2026-160: bàn tự do thay cho bàn cố định DESK_POOL */
+  const desk = FEAT160.deskOf(slot.id);
+  const seat = desk ? FEAT160.seatOf(desk) : FEAT160.standbySeat(slot);
   const col = typeof cfg.color === 'number' ? cfg.color : 0x7c3aed;
   const ag = new Agent(slot.id, cfg.name, cfg.role || 'Custom Agent', col, seat, slot.dept, cfg.bio || '', cfg.shortName || cfg.name.split(' ')[0]);
+  ag._f160 = true;
+  if (desk && seat.crPt) ag.g.position.set(seat.crPt.x, 0, seat.crPt.z);
+  if (desk) seats['d_' + slot.id] = seat;
+  else { ag.sitting = false; ag.seat = null; ag.home = null; ag.noDesk = true; ag.cell = [slot.c + 1, slot.r + 3]; }
   agents.push(ag);
   A[slot.id] = ag;
   if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
@@ -3683,9 +4779,507 @@ function despawnCustomAgent(poolIdx) {
   if (ag.bb) ag.bb.remove();
   agents = agents.filter(a => a.id !== slot.id);
   delete A[slot.id];
+  { const d = FEAT160.deskOf(slot.id); if (d) { d.agentId = null; FEAT160.save(); } FEAT160.deskless = FEAT160.deskless.filter(x => x !== slot.id); FEAT160.renderPanel(); }
   if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
 }
 
+/* ===== FEAT-2026-160 PAGE INTEGRATION: bàn làm việc đặt tự do, gán agent 1-1 ===== */
+const FEAT160 = {
+  KEY: 'atelier_desks_v1', desks: [], deskless: [], next: 1, _ver: 0, _base: null, _baseVer: -1,
+  meshes: new Map(), seats: new Map(), selected: null, issues: {}, _timer: null, mark: null,
+  cellOf: v => Math.floor(v / CS),
+  baseGrid() {
+    if (!this._base || this._baseVer !== this._ver) { this._base = OfficeNav.desk.baseGrid(this.desks, { CS, W, H }); this._baseVer = this._ver; }
+    return this._base;
+  },
+  snap() { return OfficeNav.desk.serialize(this.desks, this.deskless, this.next); },
+  save() { try { localStorage.setItem(this.KEY, this.snap()); } catch (e) {} },
+  load() {
+    try { const p = OfficeNav.desk.parse(localStorage.getItem(this.KEY)); if (!p) return false; this.desks = p.desks; this.deskless = p.deskless; this.next = p.next; return true; } catch (e) { return false; }
+  },
+  /* Lần đầu tải (chưa có dữ liệu bàn): custom agent cũ (poolIdx) -> bàn tự do cùng vị trí. */
+  init() {
+    if (!this.load()) {
+      const m = OfficeNav.desk.migratePool(DESK_POOL, getCustomAgentConfigs(), CS, FEAT159.nav);
+      this.desks = m.desks; this.next = m.next; this.deskless = [];
+      this.save();
+    }
+    this.desks.forEach(d => this.buildMesh(d));
+    this._ver++;
+  },
+  validate(c) {
+    const nav = FEAT159.nav; if (!nav) return { ok: false, reason: 'Chưa dựng đồ thị phòng' };
+    const v = OfficeNav.desk.validate(FEAT158.state(), nav, this.desks, c);
+    if (v.ok) { const ca = FEAT159.canAssign(v.roomId); if (!ca.ok) return { ok: false, reason: ca.reason }; }
+    return v;
+  },
+  buildMesh(d) {
+    if (this.meshes.has(d.id)) return;
+    const group = createDetailedDesk(0, 0, d.screen || 'design', false, { x: d.x, z: d.z, rot: d.rot });
+    const chair = createErgonomicTaskChair(-1, -1, d.facing);
+    chair.position.set(d.seatPt.x, 0, d.seatPt.z); chair.rotation.y = d.facing;
+    this.meshes.set(d.id, { group, chair, key: [d.x, d.z, d.rot].join() });
+  },
+  removeMesh(id) {
+    const m = this.meshes.get(id); if (!m) return;
+    for (const o of [m.group, m.chair]) { S.remove(o); o.traverse(c => { if (c.geometry) c.geometry.dispose(); }); }
+    this.meshes.delete(id); this.seats.delete(id);
+  },
+  seatOf(d) {
+    let s = this.seats.get(d.id);
+    if (!s) {
+      const m = this.meshes.get(d.id), c = this.cellOf;
+      s = { cr: [c(d.seatPt.x), c(d.seatPt.z)], ap: [c(d.approachPt.x), c(d.approachPt.z)], apPt: d.approachPt, crPt: d.seatPt, face: d.facing, ch: m.chair, base: m.chair.position.clone(), _f160: d.id };
+      this.seats.set(d.id, s);
+    }
+    return s;
+  },
+  deskOf(agentId) { return this.desks.find(d => d.agentId === agentId) || null; },
+  deskById(id) { return this.desks.find(d => d.id === id) || null; },
+  deskLabel(d) { return 'Bàn ' + d.id + ' · ' + FEAT159.roomName(d.roomId); },
+  customAgents() { return agents.filter(a => a._f160); },
+  standbySeat(slot) { return { cr: [slot.c + 1, slot.r + 3], ap: [slot.c + 1, slot.r + 3], face: 0, ch: new T.Object3D(), base: new T.Vector3() }; },
+  /* Thêm bàn mới (đã kiểm tra) */
+  add(d) {
+    d.id = 'D' + (this.next++); this.desks.push(d); this._ver++; this.buildMesh(d); this.save(); this.renderPanel(); return d;
+  },
+  place(cand) {
+    const v = this.validate(cand);
+    if (!v.ok) return v;
+    fp2Snapshot();
+    this.add(v.desk);
+    return { ok: true, desk: v.desk };
+  },
+  /* Bàn tự động cho agent mới ở vị trí DESK_POOL (chỉ khi hợp lệ) */
+  autoDeskForSlot(slot) {
+    if (this.deskOf(slot.id)) return true;
+    const v = this.validate({ x: (slot.c + 2) * CS, z: (slot.r + 1) * CS, rot: 0 });
+    if (!v.ok) { console.warn('[FEAT160] không đặt được bàn cho', slot.id, v.reason); return false; }
+    v.desk.agentId = slot.id; v.desk.screen = slot.screenType || 'design'; this.add(v.desk); return true;
+  },
+  removeDesk(id) {
+    const d = this.deskById(id); if (!d) return;
+    fp2Snapshot();
+    this.removeMesh(id);
+    this.desks = this.desks.filter(x => x !== d); this._ver++;
+    if (d.agentId && A[d.agentId]) this._detachAgent(A[d.agentId]);
+    else if (d.agentId && !this.deskless.includes(d.agentId)) this.deskless.push(d.agentId);
+    if (this.selected === id) this.selected = null;
+    this.save(); this.renderPanel(); this.drawMarks();
+  },
+  _detachAgent(ag) {
+    if (ag.seat && ag.seat.ap) { ag.g.position.copy(wv(...ag.seat.ap)); ag.cell = ag.seat.ap; }
+    ag.sitting = false; ag.seat = null; ag.home = null; ag.noDesk = true; delete seats['d_' + ag.id];
+    if (!this.deskless.includes(ag.id)) this.deskless.push(ag.id);
+    ag.say('Chưa có bàn', 3);
+  },
+  /* Gán agent <-> bàn 1-1. agentId=null: bỏ gán. */
+  assign(deskId, agentId) {
+    const d = this.deskById(deskId); if (!d) return { ok: false, reason: 'Không có bàn' };
+    if (agentId) { const ca = FEAT159.canAssign(d.roomId); if (!ca.ok) { FEAT158.msg(ca.reason, false); this.renderPanel(); return ca; } }
+    fp2Snapshot();
+    const prev = d.agentId;
+    if (agentId) { const od = this.desks.find(x => x !== d && x.agentId === agentId); if (od) od.agentId = null; this.deskless = this.deskless.filter(x => x !== agentId); }
+    d.agentId = agentId || null;
+    if (prev && prev !== agentId && A[prev]) this._detachAgent(A[prev]);
+    else if (prev && prev !== agentId && !this.deskless.includes(prev)) this.deskless.push(prev);
+    this.save();
+    if (agentId && A[agentId]) this.bind(A[agentId], d, true);
+    this.renderPanel(); this.drawMarks(); if (typeof refreshDrawerDesk === 'function') refreshDrawerDesk();
+    return { ok: true };
+  },
+  bind(ag, d, walk) {
+    const seat = this.seatOf(d);
+    ag.home = seat; ag.noDesk = false; ag._f160 = true; seats['d_' + ag.id] = seat;
+    if (walk) this.goToDesk(ag, d);
+  },
+  nearestFree(pt) {
+    const nav = FEAT159.nav, base = this.baseGrid(); if (!nav) return pt;
+    const c0 = this.cellOf(pt.x), r0 = this.cellOf(pt.z);
+    for (let rad = 0; rad <= 5; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== rad) continue;
+      if (!OfficeNav.cellBlocked(nav.blocked, W, H, base, c0 + dc, r0 + dr)) return rad === 0 ? pt : { x: (c0 + dc + 0.5) * CS, z: (r0 + dr + 0.5) * CS };
+    }
+    return pt;
+  },
+  route(ag, to) {
+    const p = ag.g.position, from = this.nearestFree({ x: p.x, z: p.z });
+    const r = FEAT159.planRoute(from, to, { useBase: true });
+    if (r.ok && (from.x !== p.x || from.z !== p.z)) r.waypoints.unshift({ x: p.x, z: p.z });
+    return r;
+  },
+  async goToDesk(ag, d) {
+    if (ag.isTransitioning) return { ok: false, reason: 'đang di chuyển' };
+    ag.isTransitioning = true;
+    try {
+      if (ag.sitting && ag.seat) await ag.standUp();
+      const ok = await ag.sitDown(this.seatOf(d));
+      if (!ok) { const reason = (ag.navBlock && ag.navBlock.reason) || 'Không tới được bàn'; FEAT158.msg(reason, false); return { ok: false, reason }; }
+      ag.say('Về bàn ' + d.id, 2.5);
+      return { ok: true };
+    } finally { ag.isTransitioning = false; }
+  },
+  /* Hoàn tác/làm lại: đồng bộ bàn + agent */
+  restore(js) {
+    const p = OfficeNav.desk.parse(js); if (!p) return;
+    const keep = new Set(p.desks.filter(d => { const m = this.meshes.get(d.id); return m && m.key === [d.x, d.z, d.rot].join(); }).map(d => d.id));
+    for (const id of [...this.meshes.keys()]) if (!keep.has(id)) this.removeMesh(id);
+    this.desks = p.desks; this.deskless = p.deskless; this.next = Math.max(this.next, p.next); this._ver++;
+    this.desks.forEach(d => this.buildMesh(d));
+    for (const ag of this.customAgents()) {
+      const d = this.deskOf(ag.id);
+      if (d) { if (!ag.home || ag.home._f160 !== d.id || ag.home !== this.seatOf(d)) this.bind(ag, d, true); }
+      else if (!ag.noDesk) this._detachAgent(ag);
+    }
+    if (!this.deskById(this.selected)) this.selected = null;
+    this.save(); this.renderPanel(); this.drawMarks();
+  },
+  onNavChanged() {
+    const nav = FEAT159.nav; if (!nav) return;
+    let changed = false;
+    for (const d of this.desks) { const r = OfficeNav.pointInRoom(nav, d.x, d.z); if (r !== d.roomId) { d.roomId = r; changed = true; } }
+    if (changed) this.save();
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => {
+      const iss = {};
+      for (const d of this.desks) { const v = OfficeNav.desk.validate(FEAT158.state(), nav, this.desks, { id: d.id, x: d.x, z: d.z, rot: d.rot }); if (!v.ok) iss[d.id] = v.reason; }
+      this.issues = iss; this.renderPanel(); this.drawMarks();
+    }, 250);
+  },
+  drawMarks() {
+    if (!this.mark) { this.mark = new T.Group(); S.add(this.mark); }
+    this.mark.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    while (this.mark.children.length) this.mark.remove(this.mark.children[0]);
+    for (const d of this.desks) {
+      const bad = this.issues[d.id], sel = this.selected === d.id;
+      if (!bad && !sel) continue;
+      const e = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(2.1, 0.9, 1.1)), new T.LineBasicMaterial({ color: bad ? 0xef4444 : 0x22d3ee, depthTest: false }));
+      e.position.set(d.x, 0.45, d.z); e.rotation.y = d.rot * Math.PI / 2; e.renderOrder = 25; this.mark.add(e);
+    }
+    this.mark.visible = !!FP2.active;
+  },
+  renderPanel() {
+    const el = document.getElementById('deskPanel'); if (!el) return;
+    el.style.display = (FP2.active && FP2.mode === 'desk') ? 'block' : 'none';
+    if (el.style.display === 'none') return;
+    const ags = this.customAgents();
+    el.innerHTML = '<div style="font-weight:700;font-size:11px;color:#e8d5a0;margin-bottom:4px;">Bàn làm việc (' + this.desks.length + ')</div>' +
+      '<div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">Click sàn: đặt bàn · R: xoay · Click bàn: chọn · Del: xoá</div>' +
+      (this.desks.length ? '' : '<div style="font-size:11px;color:#64748b;">Chưa có bàn.</div>') +
+      this.desks.map(d => {
+        const opts = '<option value="">— chưa gán —</option>' + ags.map(a => { const od = this.deskOf(a.id); return '<option value="' + a.id + '"' + (d.agentId === a.id ? ' selected' : '') + '>' + (a.shortName || a.name) + (od && od !== d ? ' (đang ở ' + od.id + ')' : '') + '</option>'; }).join('');
+        return '<div data-desk="' + d.id + '" style="padding:3px 4px;margin-bottom:3px;border-radius:4px;background:' + (this.selected === d.id ? 'rgba(34,211,238,0.15)' : 'rgba(255,255,255,0.04)') + ';">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;gap:4px;"><span style="cursor:pointer;" data-dsel="' + d.id + '">' + this.deskLabel(d) + '</span><button data-ddel="' + d.id + '" style="background:#7f1d1d;color:#fecaca;border:none;border-radius:4px;padding:1px 6px;cursor:pointer;font-size:10px;">✕</button></div>' +
+          '<select data-dasg="' + d.id + '" style="width:100%;font-size:10px;margin-top:2px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:4px;">' + opts + '</select>' +
+          (this.issues[d.id] ? '<div style="color:#fca5a5;font-size:10px;">⚠ ' + this.issues[d.id] + '</div>' : '') + '</div>';
+      }).join('');
+    el.querySelectorAll('[data-dsel]').forEach(b => b.onclick = () => { this.selected = b.dataset.dsel; this.renderPanel(); this.drawMarks(); });
+    el.querySelectorAll('[data-ddel]').forEach(b => b.onclick = () => this.removeDesk(b.dataset.ddel));
+    el.querySelectorAll('select[data-dasg]').forEach(s => s.onchange = () => this.assign(s.dataset.dasg, s.value || null));
+  }
+};
+window.FEAT160 = FEAT160;
+/* ===== FEAT-2026-161 PAGE INTEGRATION: di chuyển như thật cho mọi agent (lõi + custom) ===== */
+const FEAT161 = {
+  M: OfficeNav.move, world: null, movers: new Map(), leaves: [], onBlocked: [], samples: null,
+  init() { this.world = this.M.createWorld((x, z) => this.blockedAt(x, z)); this.onNavChanged(); },
+  /* ô chặn tại toạ độ thế giới: tường FP2 (cửa mở đã khoét) + bàn tự do + lưới cũ */
+  blockedAt(x, z) {
+    const c = Math.floor(x / CS), r = Math.floor(z / CS);
+    if (c < 0 || r < 0 || c >= W || r >= H) return true;
+    const i = r * W + c, m = FEAT158.model;
+    return !!((m && m.blocked[i]) || blocked[i] || FEAT160.baseGrid()[i]);
+  },
+  mv(ag) {
+    let m = this.movers.get(ag.id);
+    if (!m) { const p = ag.g.position; m = this.M.createMover(ag.id, agents.indexOf(ag) + 1, p.x, p.z, ag.g.rotation.y); this.movers.set(ag.id, m); this.world.movers.push(m); }
+    return m;
+  },
+  syncMovers() {
+    if (this.movers.size === agents.length && agents.every(a => this.movers.has(a.id))) return;
+    const keep = new Set(agents.map(a => a.id));
+    for (const id of [...this.movers.keys()]) if (!keep.has(id)) { const m = this.movers.get(id); if (m.abort) m.abort(); this.movers.delete(id); this.world.movers = this.world.movers.filter(x => x !== m); }
+  },
+  /* có wall graph -> planRoute qua cửa; chưa có dữ liệu FP2 -> A* cũ (đã làm mượt) */
+  graphMode(ag) { const n = FEAT159.nav; return !!n && (!!ag._f160 || (!!window.FP2 && !!FP2.walls && FP2.walls.size > 0)); }, /* CR-4: có tường FP2 -> MỌI agent đi bằng planRoute; A* cũ chỉ khi không có tường FP2 nào */
+  /* CR-4: gieo cửa FP2 một lần từ khe lối đi của lưới cũ (mặt bằng có phòng nhưng 0 cửa), rồi auto-add FEAT-159 cho phòng còn thiếu. Cờ localStorage: không gieo lại khi người dùng đã xoá cửa. */
+  seedLegacyDoors() {
+    const Sd = OfficeNav.seed; let flag = null; try { flag = localStorage.getItem(Sd.KEY); } catch (e) {}
+    if (!FEAT159.nav) FEAT158.refresh();
+    const nav = FEAT159.nav; let added = 0, auto = 0;
+    if (!Sd.needSeed(flag, nav)) { if (!flag && nav && nav.doors.some(d => d.pass)) try { localStorage.setItem(Sd.KEY, '1'); } catch (e) {} return { seeded: 0, auto: 0 }; }
+    const specs = Sd.legacyDoorSpecs(FEAT158.state(), (x, z) => { const c = Math.floor(x / CS), r = Math.floor(z / CS); return c >= 0 && r >= 0 && c < W && r < H && !blocked[r * W + c]; });
+    for (const sp of specs) { WG.addOpening(sp.wallId, sp.offset, sp.type, sp.width); added++; }
+    if (added) WG.buildMeshes();
+    let guard = 0; while (FEAT159.nav && FEAT159.nav.noDoor.length && guard++ < 30) { if (!FEAT159.addDoorFor(FEAT159.nav.noDoor[0])) break; auto++; }
+    try { fp2Save(); } catch (e) {}
+    try { localStorage.setItem(Sd.KEY, '1'); } catch (e) {}
+    console.info('[FEAT161] gieo cửa từ khe lưới cũ:', added, 'tự thêm:', auto);
+    return { seeded: added, auto };
+  },
+  baseFor(ag) {
+    const d = FEAT160.baseGrid();
+    if (ag._f160) return d;
+    const g = new Uint8Array(W * H); for (let i = 0; i < g.length; i++) g[i] = (d[i] || blocked[i]) ? 1 : 0;
+    return g;
+  },
+  nearestFree(nav, base, pt) {
+    const c0 = Math.floor(pt.x / CS), r0 = Math.floor(pt.z / CS);
+    for (let rad = 0; rad <= 5; rad++) for (let dr = -rad; dr <= rad; dr++) for (let dc = -rad; dc <= rad; dc++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== rad) continue;
+      if (!OfficeNav.cellBlocked(nav.blocked, W, H, base, c0 + dc, r0 + dr)) return rad === 0 ? pt : { x: (c0 + dc + 0.5) * CS, z: (r0 + dr + 0.5) * CS };
+    }
+    return pt;
+  },
+  legacyGrid() { const g = new Uint8Array(blocked); if (window.FP2 && FP2.active) for (let i = 0; i < g.length; i++) if (fp2WallBlocked[i]) g[i] = 1; return g; },
+  legacyRoute(ag, to) {
+    const p = ag.g.position;
+    let tc = [Math.floor(to.x / CS), Math.floor(to.z / CS)];
+    /* đích nằm trong ô chặn của lưới cũ (vd ghế sofa/quầy bar): đi tới ô trống gần nhất, đoạn cuối do hoạt ảnh ngồi (trượt vào ghế như trước) */
+    if (isB(tc[0], tc[1])) {
+      let found = null;
+      for (let rad = 1; rad <= 4 && !found; rad++) for (let dr = -rad; dr <= rad && !found; dr++) for (let dc = -rad; dc <= rad && !found; dc++) if (Math.max(Math.abs(dc), Math.abs(dr)) === rad && !isB(tc[0] + dc, tc[1] + dr)) found = [tc[0] + dc, tc[1] + dr];
+      if (found) { tc = found; to = { x: wx(tc[0]), z: wx(tc[1]) }; }
+    }
+    let a = [Math.floor(p.x / CS), Math.floor(p.z / CS)];
+    if (isB(a[0], a[1]) && ag.cell) a = ag.cell;
+    if (a[0] === tc[0] && a[1] === tc[1]) return { ok: true, waypoints: [{ x: to.x, z: to.z }], legacy: true };
+    const path = astar(a, tc);
+    if (!path || path.length < 2) return { ok: false, reason: 'Không tìm thấy đường (lưới cũ)' };
+    let pts = path.map(([c, r]) => ({ x: wx(c), z: wx(r) }));
+    pts[0] = { x: p.x, z: p.z }; pts[pts.length - 1] = { x: to.x, z: to.z };
+    pts = OfficeNav.smoothPath(this.legacyGrid(), { CS, W, H, base: null }, pts);
+    return { ok: true, waypoints: pts, legacy: true };
+  },
+  route(ag, to) {
+    const p = ag.g.position;
+    if (!this.graphMode(ag)) return this.legacyRoute(ag, to);
+    const nav = FEAT159.nav, base = this.baseFor(ag), prev = nav.cfg.base;
+    if (!ag._f160) to = this.nearestFree(nav, base, to); /* ghế lõi nằm trong đồ nội thất cũ: đích = ô trống gần nhất */
+    const from = this.nearestFree(nav, base, { x: p.x, z: p.z });
+    nav.cfg.base = base;
+    let r; try { r = OfficeNav.planRoute(nav, from, to); } finally { nav.cfg.base = prev; }
+    if (r.ok && (from.x !== p.x || from.z !== p.z)) r.waypoints.unshift({ x: p.x, z: p.z });
+    return r;
+  },
+  apPt(s) { return s.apPt || { x: wx(s.ap[0]), z: wx(s.ap[1]) }; },
+  crPt(s) { return s.crPt || { x: wx(s.cr[0]), z: wx(s.cr[1]) }; },
+  abort(ag) { const m = this.movers.get(ag.id); if (!m) return; m.pts = null; m.v = 0; m.done = null; const f = m.abort; m.abort = null; if (f) f(false); },
+  markBlocked(ag, reason, to) {
+    ag.navBlock = { reason, to: to || null, at: sim.t, agentId: ag.id }; ag.navState = 'blocked';
+    try { ag.say(reason, 4); } catch (e) {}
+    for (const fn of this.onBlocked) { try { fn(ag, ag.navBlock); } catch (e) {} }
+  },
+  /* Đi tới điểm `to` (toạ độ thế giới). Resolve true khi tới nơi, false nếu bị chặn/huỷ. Không đường -> đứng yên + navBlock. */
+  walkTo(ag, to) {
+    this.abort(ag);
+    const m = this.mv(ag), p = ag.g.position;
+    m.x = p.x; m.z = p.z; m.yaw = ag.g.rotation.y; m.ignore = false;
+    const r = this.route(ag, to);
+    if (!r.ok) { this.markBlocked(ag, r.reason, to); return Promise.resolve(false); }
+    ag._navTarget = to;
+    return this.follow(ag, r.waypoints);
+  },
+  follow(ag, pts) {
+    const m = this.mv(ag);
+    return new Promise(res => {
+      ag.navBlock = null;
+      if (!this.M.setPath(m, pts)) { ag.navState = 'idle'; res(true); return; }
+      ag.navState = 'walking';
+      m.done = () => { ag.navState = 'idle'; res(true); };
+      m.abort = () => res(false);
+    });
+  },
+  walk(ag, tc, seat) {
+    const s = seat || ag.home;
+    const to = (s && s.apPt && s.ap === tc) ? s.apPt : { x: (tc[0] + 0.5) * CS, z: (tc[1] + 0.5) * CS };
+    return this.walkTo(ag, to);
+  },
+  replan(ag) {
+    const m = this.movers.get(ag.id); if (!m || !m.pts || !ag._navTarget) return;
+    m.needReplan = false;
+    const to = ag._navTarget, r = this.route(ag, to);
+    if (!r.ok) { const f = m.abort; m.pts = null; m.v = 0; m.done = null; m.abort = null; this.markBlocked(ag, r.reason, to); if (f) f(false); return; }
+    const done = m.done, ab = m.abort, st = m.stuckT, gh = m.ghostT; this.M.setPath(m, r.waypoints); m.done = done; m.abort = ab; m.stuckT = st; m.ghostT = gh; m.replanned = true;
+  },
+  /* quay mượt tại chỗ (tốc độ quay giới hạn) */
+  faceTo(ag, yaw) {
+    const a0 = ag.g.rotation.y, d = this.M.angDiff(a0, yaw), ad = Math.abs(d);
+    if (ad < 0.02) { ag.g.rotation.y = a0 + d; return Promise.resolve(); }
+    const dur = Math.max(0.12, ad / this.M.P.TURN * 1.6);
+    return tween(dur, k => { ag.g.rotation.y = a0 + d * (k * k * (3 - 2 * k)); });
+  },
+  /* cập nhật cửa/lá cửa khi đồ thị phòng-cửa đổi */
+  onNavChanged() {
+    if (!this.world) return;
+    const nav = FEAT159.nav, seen = new Set();
+    if (nav) for (const d of nav.doors) { if (!d.pass) continue; seen.add(d.id); this.M.addDoor(this.world, { id: d.id, center: d.center, normal: d.normal, width: d.width, locked: !d.open }); }
+    for (const id of [...this.world.doors.keys()]) if (!seen.has(id)) this.world.doors.delete(id);
+    this.leaves = (window.FP2 && FP2.wallGroup) ? FP2.wallGroup.children.filter(o => o.userData && o.userData.door) : [];
+    for (const m of this.movers.values()) if (m.pts) m.needReplan = true;
+  },
+  updateLeaves() {
+    for (const l of this.leaves) {
+      const u = l.userData.door, D = this.world.doors.get(u.id), t = D ? D.animT : 0, o = u.slide * (t * t * (3 - 2 * t)) * u.dir;
+      l.position.set(u.px + u.ux * o, u.py, u.pz + u.uz * o);
+    }
+  },
+  step(dt) {
+    if (!this.world || !(dt > 0)) return;
+    this.syncMovers();
+    const walking = [];
+    for (const ag of agents) {
+      const m = this.mv(ag);
+      if (!m.pts) { const p = ag.g.position; m.x = p.x; m.z = p.z; m.yaw = ag.g.rotation.y; m.ignore = !!ag.sitting; m.v = 0; m.vx = 0; m.vz = 0; }
+      else { m.ignore = false; walking.push(ag); }
+    }
+    if (this.samples) { /* chế độ đo: bước nhỏ 0.05 s, ghi mẫu sau mỗi bước (độc lập với FPS) */
+      const n = Math.max(1, Math.ceil(dt / 0.05)), h = dt / n;
+      for (let i = 0; i < n; i++) {
+        this.M.stepAll(this.world, h);
+        const t = sim.t - dt + (i + 1) * h;
+        for (const ag of agents) { const m = this.movers.get(ag.id); if (m) this.samples.push({ t: +t.toFixed(3), id: ag.id, x: +m.x.toFixed(3), z: +m.z.toFixed(3), yaw: +m.yaw.toFixed(3), v: +m.v.toFixed(3), st: m.pts ? m.state : (ag.sitting ? 'sit' : 'idle'), stuck: +m.stuckT.toFixed(2), sit: ag.sitting ? 1 : 0 }); }
+      }
+    } else this.M.stepAll(this.world, dt);
+    for (const ag of walking) {
+      const m = this.movers.get(ag.id); if (!m) continue;
+      ag.g.position.set(m.x, 0, m.z); ag.g.rotation.y = m.yaw; ag.cell = [Math.floor(m.x / CS), Math.floor(m.z / CS)];
+      if (m.pts) ag.navState = m.state;
+      if (m.needReplan) this.replan(ag);
+    }
+    this.updateLeaves();
+  },
+  /* bước chân đồng bộ tốc độ thật: pha = quãng đường / chiều dài sải (không trượt chân) */
+  animate(ag, dt) {
+    const m = this.movers.get(ag.id); if (!m || ag.sitting || !m.pts) return;
+    const sp = Math.hypot(m.vx, m.vz); if (sp < 0.05) return;
+    const A = 0.6 * Math.min(1, Math.max(0.4, sp / 1.2)), L = 0.46;
+    ag._f161ph = (ag._f161ph || 0) + sp * dt * Math.PI * 2 / (4 * L * Math.sin(A));
+    const st = Math.sin(ag._f161ph) * A;
+    ag.legs[0].rotation.x = st; ag.legs[1].rotation.x = -st; ag.arms[0].rotation.x = -st; ag.arms[1].rotation.x = st;
+  },
+  startSampling() { this.samples = []; },
+  stopSampling() { const s = this.samples; this.samples = null; return s; }
+};
+window.FEAT161 = FEAT161;
+Agent.prototype._followPts = function (pts) { return FEAT161.follow(this, pts); };
+Agent.prototype.walk = function (tc) { return FEAT161.walk(this, tc, null); };
+(function () {
+  const origUpdate = Agent.prototype.update;
+  Agent.prototype.update = function (dt) { origUpdate.call(this, dt); FEAT161.animate(this, dt); };
+})();
+/* Ngồi: tới approachPt -> quay về facing -> kéo ghế -> ngồi đúng seatPt. Trả về false nếu không có đường (đứng yên, navBlock). */
+Agent.prototype.sitDown = async function (s) {
+  if (!s) return false;
+  if (this.sitting && this.seat === s) return true;
+  const ap = FEAT161.apPt(s), cr = FEAT161.crPt(s), here = this.g.position;
+  if (Math.hypot(here.x - ap.x, here.z - ap.z) > 0.12) { const ok = await FEAT161.walkTo(this, ap); if (!ok) return false; }
+  await FEAT161.faceTo(this, s.face);
+  const d = new T.Vector3(ap.x - cr.x, 0, ap.z - cr.z).normalize();
+  await tween(0.35, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k));
+  const a = this.g.position.clone(), b = new T.Vector3(cr.x, 0, cr.z);
+  this.sitting = true;
+  await tween(0.5, k => { this.g.position.lerpVectors(a, b, k); s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k)); });
+  this.seat = s; this.cell = s.cr; this.navState = 'sitting'; this.navBlock = null;
+  return true;
+};
+/* Rời bàn: ngược lại (kéo ghế ra, đứng dậy ở approachPt, đẩy ghế vào). */
+Agent.prototype.standUp = async function () {
+  const s = this.seat; if (!s) return;
+  const ap = FEAT161.apPt(s), cr = FEAT161.crPt(s), d = new T.Vector3(ap.x - cr.x, 0, ap.z - cr.z).normalize();
+  const a = this.g.position.clone(), b = new T.Vector3(ap.x, 0, ap.z);
+  await tween(0.4, k => { this.g.position.lerpVectors(a, b, k); s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k); });
+  this.sitting = false;
+  await tween(0.3, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k)));
+  this.cell = s.ap; this.seat = null; this.navState = 'idle';
+};
+FEAT161.init();
+FEAT158.afterRefresh.push(() => FEAT161.onNavChanged());
+FEAT160.init();
+FEAT158.afterRefresh.push(() => FEAT160.onNavChanged());
+FEAT160.onNavChanged();
+try { FEAT161.seedLegacyDoors(); } catch (e) { console.warn('[FEAT161] seed', e); }
+/* ===== FEAT-2026-162 PAGE INTEGRATION: máy trạng thái agent, panel, nhãn, đồng bộ Paperclip ===== */
+const FEAT162 = {
+  S: OfficeNav.state, api: { ok: null, at: 0 },
+  ms(ag) { if (!ag.ms) ag.ms = this.S.createMachine(ag.noDesk ? 'no_desk' : 'idle'); return ag.ms; },
+  /* ĐƯỜNG DUY NHẤT đổi trạng thái agent: kiểm tra hợp lệ, log vòng ngắn (không console) */
+  setAgentState(ag, st, info) { return this.S.goTo(this.ms(ag), st, info, sim.t); },
+  roomOf(x, z) { const nav = FEAT159.nav; if (!nav) return null; try { return FEAT159.roomName(OfficeNav.pointInRoom(nav, x, z)); } catch (e) { return null; } },
+  targetName(ag) {
+    const to = ag._navTarget; if (!to) return '';
+    let tag = '';
+    if (ag.home) { const ap = FEAT161.apPt(ag.home); if (Math.hypot(ap.x - to.x, ap.z - to.z) < 0.4) tag = 'bàn làm việc'; }
+    const room = this.roomOf(to.x, to.z);
+    return tag ? (tag + (room ? ' · ' + room : '')) : (room || 'vị trí đã chọn');
+  },
+  observe(ag) {
+    const m = FEAT161.movers.get(ag.id), moving = !!(m && m.pts);
+    const cr = moving && m.crossings ? m.crossings[m.ci] : null;
+    return {
+      moving, doorWait: moving && m.state === 'waiting_door', doorId: cr ? cr.door : '',
+      blockReason: (ag.navBlock && ag.navState === 'blocked') ? ag.navBlock.reason : null,
+      target: moving ? this.targetName(ag) : (ag.navBlock && ag.navBlock.to ? this.targetName({ home: ag.home, _navTarget: ag.navBlock.to }) : ''),
+      sitting: !!ag.sitting, atHome: !!ag.home && ag.seat === ag.home, hasDesk: !ag.noDesk,
+      business: ag.state, task: ag.taskName, transitioning: !!ag.isTransitioning, leaving: !!ag._f162leaving
+    };
+  },
+  eta(ag) { const m = FEAT161.movers.get(ag.id); return (m && m.pts) ? this.S.etaSeconds(m.L - m.s, FEAT161.M.P.V) : null; },
+  deskText(ag) {
+    if (ag.noDesk) return 'Chưa có bàn';
+    const d = (FEAT160.desks || []).find(x => x.agentId === ag.id);
+    return d ? FEAT160.deskLabel(d) : ('Bàn của ' + (ag.shortName || ag.name));
+  },
+  /* dữ liệu cho panel + nhãn */
+  info(ag) {
+    const m = this.ms(ag), p = ag.g.position, eta = this.eta(ag);
+    return {
+      state: m.state, text: this.S.statusText(m), room: this.roomOf(p.x, p.z) || '—', target: m.target || '', eta,
+      desk: this.deskText(ag), task: (m.state === 'working' && m.task) ? m.task : (ag.activeTaskIdentifier ? ag.taskName : ''), reason: m.state === 'blocked' ? (m.reason || '') : (m.state === 'waiting_door' ? (m.reason || '') : ''),
+      tag: this.S.tagText(m, eta)
+    };
+  },
+  statusText(ag) { return this.S.statusText(this.ms(ag)); },
+  ensureTag(ag) {
+    if (!ag.lb) return null;
+    if (!ag._f162tag || ag._f162tag.parentNode !== ag.lb) { const s = document.createElement('span'); s.className = 'f162-tag'; s.style.cssText = 'font-size:9px;color:#94a3b8;font-weight:600;margin-left:4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;'; ag.lb.appendChild(s); ag._f162tag = s; }
+    return ag._f162tag;
+  },
+  updateTag(ag) { const s = this.ensureTag(ag); if (!s) return; const t = this.info(ag).tag; if (s.textContent !== t) s.textContent = t; },
+  tick(ag, force) {
+    const t = performance.now();
+    if (!force && t - (ag._f162t || 0) < 250) return;
+    ag._f162t = t;
+    const d = this.S.deriveFromNav(this.observe(ag));
+    if (d) this.setAgentState(ag, d.state, d.info);
+    if (force || t - (ag._f162u || 0) >= 500) {
+      ag._f162u = t; this.updateTag(ag);
+      try { if (typeof selectedAgent !== 'undefined' && selectedAgent === ag && drawer.style.display !== 'none') openAgentDrawer(ag); } catch (e) {}
+    }
+  },
+  /* panel agent: các dòng thêm cho dTerm */
+  panelLines(ag) {
+    const i = this.info(ag), apiTxt = this.api.ok === false ? 'mất kết nối (giữ trạng thái cục bộ)' : (this.api.ok ? 'đang đồng bộ' : 'chưa đồng bộ');
+    return `> Trạng thái: ${i.text}<br>> Phòng hiện tại: ${i.room}<br>> Đích đến: ${i.target || '—'}${i.eta != null ? ' · ETA ' + i.eta.toFixed(1) + ' s' : ''}<br>> Bàn: ${i.desk}<br>> Task: ${i.task || '—'}<br>> Lý do bị chặn: ${i.state === 'blocked' ? (i.reason || '—') : '—'}<br>> Paperclip: ${apiTxt}<br>`;
+  },
+  /* kết quả poll Paperclip (dữ liệu của luồng poll cũ, không thêm request) */
+  notePoll(ok) { this.api = { ok: !!ok, at: Date.now() }; },
+  dump(id) { const ag = A[id]; return ag && ag.ms ? ag.ms.log.slice() : []; }
+};
+window.FEAT162 = FEAT162;
+window.setAgentState = (ag, st, info) => FEAT162.setAgentState(ag, st, info);
+FEAT161.onBlocked.push((ag, nb) => { try { FEAT162.setAgentState(ag, 'blocked', { reason: nb.reason, target: FEAT162.targetName({ home: ag.home, _navTarget: nb.to }) }); FEAT162.tick(ag, true); } catch (e) {} });
+(function () {
+  const origUpdate = Agent.prototype.update;
+  Agent.prototype.update = function (dt) { origUpdate.call(this, dt); try { FEAT162.tick(this, false); } catch (e) {} };
+  const origSetStatus = Agent.prototype.setStatus;
+  Agent.prototype.setStatus = function () { const r = origSetStatus.apply(this, arguments); try { if (this.g) FEAT162.tick(this, true); } catch (e) {} return r; };
+  const origStand = Agent.prototype.standUp;
+  Agent.prototype.standUp = async function () {
+    this._f162leaving = true; try { FEAT162.setAgentState(this, 'leaving', { target: '' }); } catch (e) {}
+    try { return await origStand.apply(this, arguments); } finally { this._f162leaving = false; try { FEAT162.tick(this, true); } catch (e) {} }
+  };
+})();
 // Restore saved custom agents on startup
 getCustomAgentConfigs().forEach(cfg => spawnCustomAgent(cfg));
 
@@ -3967,6 +5561,8 @@ async function syncLiveCompanyStatus() {
 
     // 6. Ánh xạ trạng thái thực của từng Agent từ Paperclip DB vào mô hình 3D
     const liveAgents = Array.isArray(agentsData) ? agentsData : [];
+    const apiOk = Array.isArray(agentsData) && Array.isArray(issuesData); /* FEAT-2026-162: API lỗi/tắt -> giữ trạng thái cục bộ */
+    FEAT162.notePoll(apiOk);
 
     const LOUNGE_ACTIVITY_LIST = [
       { seatId: 'l_bar1', act: 'coffee', say: 'Thưởng thức Espresso thơm tại quầy bar ☕' },
@@ -3979,7 +5575,7 @@ async function syncLiveCompanyStatus() {
       { seatId: 'l_sofa2', act: 'sofa', say: 'Nghỉ ngơi thư giãn trên sofa nỉ 🛋️' }
     ];
 
-    AGENT_MAPPINGS.forEach((mapping, agentIndex) => {
+    (apiOk ? AGENT_MAPPINGS : []).forEach((mapping, agentIndex) => {
       const agent3D = A[mapping.id];
       if (!agent3D) return;
 
@@ -4173,7 +5769,7 @@ function openAgentDrawer(agent) {
   document.getElementById('dName').textContent = agent.name;
   document.getElementById('dRole').textContent = agent.role;
   const isBusy = agent.state !== 'idle';
-  const stText = agent.state === 'meeting' ? 'Đang họp tại Phòng Họp Kiến Trúc' : isBusy ? `Đang bận: ${agent.taskName || 'Đang xử lý chuyên môn'}` : 'Đang rảnh (Sẵn sàng nhận nhiệm vụ)';
+  const stText = FEAT162.statusText(agent); /* FEAT-2026-162: nguồn trạng thái mới */
   document.getElementById('dStatusTxt').textContent = stText;
   document.getElementById('dTerm').innerHTML = `
     $ ${agent.id}.getAgentStatus()<br>
@@ -4181,7 +5777,8 @@ function openAgentDrawer(agent) {
     > Chuyên môn: ${agent.role}<br>
     > Tình trạng: ${isBusy ? 'BUSY / WORKING' : 'IDLE / READY'}<br>
     > Nhiệm vụ hiện tại: ${agent.taskName || agent.bio}<br>
-    > Workstation: [${agent.cell.join(', ')}]
+    > Workstation: [${agent.cell.join(', ')}]<br>
+    ${FEAT162.panelLines(agent)}
   `;
   document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('selected'));
   if (agent.lb) agent.lb.classList.add('selected');
@@ -4331,7 +5928,7 @@ document.getElementById('btnReset').onclick = () => resetView();
   const toggle = el('btnBuildToggle');
   const orbitButton = el('btOrbit');
   const toolButtons = [...toolbar.querySelectorAll('[data-btool]')];
-  const tools = {select:'Chọn', wall:'Tường và cửa', paint:'Sàn', furniture:'Nội thất', erase:'Xóa'};
+  const tools = {select:'Chọn', wall:'Tường và cửa', paint:'Sàn', furniture:'Nội thất', desk:'Bàn làm việc', erase:'Xóa'};
   const wallTools = [
     ['wall','🧱','Vẽ tường','Kéo trên mặt bằng để vẽ một đoạn tường.'],
     ['door','🚪',OPENING_LABELS.door,'Bấm vào tường để đặt cửa gỗ.'],
@@ -4472,6 +6069,8 @@ document.getElementById('btnReset').onclick = () => resetView();
         });
       }
       status(furnitureType ? 'Bấm lên sàn để đặt. Nhấn R để xoay.' : 'Chọn một món nội thất để đặt lên sàn.');
+    } else if (FP2.mode === 'desk') {
+      status('Bấm lên sàn để đặt bàn làm việc. R xoay, Delete xóa bàn đang chọn.');
     } else {
       status(FP2.mode === 'erase'
         ? 'Bấm tường để xóa đoạn đó. Kéo từ sàn để xóa các ô.'
@@ -4517,7 +6116,8 @@ document.getElementById('btnReset').onclick = () => resetView();
       const label = OPENING_LABELS[opening.type] || 'Cửa';
       const fitted = visible.get(opening.id);
       const details = document.createElement('span');
-      details.textContent = label + ' · ' + (fitted ? meters(fitted.height) : 'Không vừa');
+      details.textContent = label + ' · ' + (fitted ? meters(fitted.height) : 'Không vừa')
+        + (opening.open === false && OfficeNav.isPassType(opening.type) ? ' · đang khóa' : '');
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'opening-remove';
@@ -4531,7 +6131,21 @@ document.getElementById('btnReset').onclick = () => resetView();
         el('fp2WallDelBtn').focus();
         save();
       };
-      item.append(details, button);
+      if (OfficeNav.isPassType(opening.type)) {
+        const lock = document.createElement('button');
+        lock.type = 'button';
+        lock.className = 'opening-remove';
+        lock.style.color = '#bfdbfe';
+        lock.textContent = opening.open === false ? 'Mở khóa' : 'Khóa';
+        lock.onclick = () => {
+          fp2Snapshot();
+          opening.open = opening.open === false;
+          WG.buildMeshes();
+          updateWallInspector();
+          save(opening.open === false ? 'Đã khóa cửa.' : 'Đã mở khóa cửa.');
+        };
+        item.append(details, lock, button);
+      } else item.append(details, button);
       list.append(item);
     }
     if (!openings.length) {
@@ -4694,6 +6308,7 @@ document.getElementById('btnReset').onclick = () => resetView();
       cancelGesture();
       clearSelection();
       removePreview();
+      try { navGhostHide(); deskGhostHide(); } catch (e) {}
       camTarget.copy(savedCamera.target);
       const {th, ph, r} = savedCamera;
       Object.assign(camOrbit,{th,ph,r});
@@ -4795,7 +6410,13 @@ document.getElementById('btnReset').onclick = () => resetView();
     const a = FP2.wallNodes.get(wall.startId), b = FP2.wallNodes.get(wall.endId);
     const dx = b.x-a.x, dz = b.z-a.z;
     const offset = ((hit.point.x-a.x)*dx+(hit.point.z-a.z)*dz)/Math.hypot(dx,dz);
-    const opening = WG.prepareOpening(id, offset, FP2.wallSubMode);
+    const check = FEAT158.validate(id, offset, FP2.wallSubMode);
+    if (!check.ok) {
+      status(check.reason || 'Không đặt được cửa ở vị trí này.', 'error');
+      FEAT158.msg(check.reason, false);
+      return;
+    }
+    const opening = WG.prepareOpening(id, check.offset, FP2.wallSubMode, check.width);
     if (!opening) {
       status('Đoạn tường quá ngắn hoặc vị trí này đã có cửa.', 'error');
       return;
@@ -5014,7 +6635,121 @@ document.getElementById('btnReset').onclick = () => resetView();
   };
   for (const button of toolButtons) button.onclick = () => setMode(button.dataset.btool);
 
-  const shortcuts = {v:'select',s:'select',w:'wall',f:'paint',u:'furniture',e:'erase',
+  /* ===== FEAT-2026-158 UI: ghost cửa + phím N bật/tắt debug lưới ===== */
+  const navGhostGroup=new T.Group();S.add(navGhostGroup);
+  let navGhost=null;
+  function navGhostHide(){if(navGhost)navGhost.visible=false;}
+  function navGhostUpdate(e){
+    const sm=FP2.wallSubMode;
+    if(!(FP2.active&&FP2.mode==='wall'&&(sm==='door'||sm==='window'||sm==='sliding-glass'))){navGhostHide();return;}
+    const rect=cv.getBoundingClientRect();
+    const ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1),cam);
+    const wh=ray.intersectObjects(FP2.wallGroup.children,true).find(h=>h.object.userData.wallId);
+    if(!wh){navGhostHide();return;}
+    const wid=wh.object.userData.wallId,g=OfficeNav.wallGeom(FEAT158.state(),FP2.walls.get(wid));
+    if(!g){navGhostHide();return;}
+    const rawOff=(wh.point.x-g.n0.x)*g.ux+(wh.point.z-g.n0.z)*g.uz;
+    const v=FEAT158.validate(wid,rawOff,sm),w=v.width||OfficeNav.defaultWidth(sm);
+    const off=v.ok?v.offset:Math.min(g.len-w/2,Math.max(w/2,rawOff));
+    const isWin=sm==='window',hgt=isWin?1.0:2.1,elev=isWin?0.8:0;
+    if(!navGhost){navGhost=new T.Mesh(new T.BoxGeometry(1,1,1),new T.MeshBasicMaterial({color:0x22c55e,transparent:true,opacity:0.5,depthTest:false}));navGhost.renderOrder=22;navGhostGroup.add(navGhost);}
+    navGhost.material.color.setHex(v.ok?0x22c55e:0xef4444);
+    navGhost.scale.set(WALL_THICKNESS+0.12,hgt,w);
+    navGhost.position.set(g.n0.x+g.ux*off,elev+hgt/2,g.n0.z+g.uz*off);
+    navGhost.rotation.y=Math.atan2(g.ux,g.uz);navGhost.visible=true;
+    FEAT158.msg(v.ok?(v.snapped?'Hợp lệ (đã hít về vị trí gần nhất)':'Vị trí hợp lệ'):v.reason,v.ok);
+  }
+  const _navPrevMove=FP2._onPointerMove;
+  FP2._onPointerMove=function(e){try{navGhostUpdate(e);}catch(err){console.warn('[FEAT158] ghost',err);}return _navPrevMove?_navPrevMove.call(this,e):undefined;};
+  FP2._navGhostHide=navGhostHide;
+  document.addEventListener('keydown',e=>{
+    if(!FP2.active||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;
+    if(e.key==='n'||e.key==='N'){FEAT158.setDebug(!FEAT158.debug);FEAT158.msg('Debug lưới '+(FEAT158.debug?'BẬT':'TẮT')+' (đỏ=chặn, xanh=ô cửa, xanh dương/cam=front/back)',true);}
+  });
+
+  /* ===== FEAT-2026-160 UI: công cụ "Bàn" (ghost, R xoay, click đặt/chọn, Del xoá, phím B) ===== */
+  const deskGhostGroup = new T.Group(); S.add(deskGhostGroup);
+  let deskGhost = null, deskRot = 0, deskPos = null, deskLast = '', deskLastV = null;
+  const deskActive = () => FP2.active && FP2.mode === 'desk';
+  function deskGhostHide() { if (deskGhost) deskGhost.visible = false; }
+  function deskGhostShow(x, z, rot, ok) {
+    if (!deskGhost) {
+      deskGhost = new T.Group();
+      const mk = (w, h, d, y) => { const m = new T.Mesh(new T.BoxGeometry(w, h, d), new T.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.5, depthTest: false })); m.position.y = y; m.renderOrder = 24; deskGhost.add(m); return m; };
+      mk(2, 0.78, 1, 0.39); mk(0.56, 0.5, 0.56, 0.25).position.z = 0.75;
+      const ap = new T.Mesh(new T.CircleGeometry(0.18, 16), new T.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8, depthTest: false }));
+      ap.rotation.x = -Math.PI / 2; ap.position.set(0, 0.03, 1.25); ap.renderOrder = 24; deskGhost.add(ap);
+      deskGhostGroup.add(deskGhost);
+    }
+    deskGhost.children.forEach((c, i) => { if (i < 2) c.material.color.setHex(ok ? 0x22c55e : 0xef4444); });
+    deskGhost.position.set(x, 0, z); deskGhost.rotation.y = rot * Math.PI / 2; deskGhost.visible = true;
+  }
+  function deskEval(pt) {
+    const x = OfficeNav.desk.snap(pt.x), z = OfficeNav.desk.snap(pt.z), key = [x, z, deskRot, FEAT160._ver, FEAT159._sig, FP2.wallOpenings ? FP2.wallOpenings.length : 0, FP2.walls.size].join();
+    if (key !== deskLast) { deskLast = key; deskLastV = FEAT160.validate({ x, z, rot: deskRot }); }
+    deskPos = { x, z };
+    deskGhostShow(x, z, deskRot, deskLastV.ok);
+    FEAT158.msg(deskLastV.ok ? 'Bàn hợp lệ — click để đặt (R xoay)' : deskLastV.reason, deskLastV.ok);
+  }
+  function deskHit(pt) {
+    const cell = { cx: pt.x, cz: pt.z, ux: 1, uz: 0, hx: 0.05, hz: 0.05 };
+    return FEAT160.desks.find(d => { const g = OfficeNav.desk.geom(d.x, d.z, d.rot); return OfficeNav.desk.obbOverlap(g.body, cell) || OfficeNav.desk.obbOverlap(g.chair, cell); });
+  }
+  const _deskPrevMove = FP2._onPointerMove;
+  FP2._onPointerMove = function (e) {
+    if (!deskActive()) { deskGhostHide(); return _deskPrevMove ? _deskPrevMove.call(this, e) : undefined; }
+    const pt = groundPoint(eventRay(e)); if (!pt) { deskGhostHide(); return; }
+    try { deskEval(pt); } catch (err) { console.warn('[FEAT160] ghost', err); }
+  };
+  const _deskPrevDown = FP2._onPointerDown;
+  FP2._onPointerDown = function (e) {
+    if (!deskActive() || e.button !== 0) return _deskPrevDown ? _deskPrevDown.call(this, e) : undefined;
+    const pt = groundPoint(eventRay(e)); if (!pt) return;
+    const hit = deskHit(pt);
+    if (hit) { FEAT160.selected = hit.id; FEAT160.renderPanel(); FEAT160.drawMarks(); FEAT158.msg('Đã chọn ' + FEAT160.deskLabel(hit), true); return; }
+    deskEval(pt);
+    const r = FEAT160.place({ x: deskPos.x, z: deskPos.z, rot: deskRot });
+    if (r.ok) { FEAT160.selected = r.desk.id; FEAT160.drawMarks(); FEAT158.msg('Đã đặt ' + FEAT160.deskLabel(r.desk), true); deskLast = ''; }
+    else FEAT158.msg(r.reason, false);
+  };
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !FP2.active) return;
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    const k = e.key.toLowerCase();
+    if (!deskActive()) return;
+    if (k === 'r') { deskRot = (deskRot + 1) % 4; deskLast = ''; if (deskPos) deskEval(deskPos); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && FEAT160.selected) { FEAT160.removeDesk(FEAT160.selected); FEAT158.msg('Đã xoá bàn', true); e.preventDefault(); }
+  });
+  let _deskLastMode = null;
+  setInterval(() => {
+    const m = FP2.active ? FP2.mode : null;
+    if (m === _deskLastMode) return;
+    _deskLastMode = m; FEAT160.renderPanel(); FEAT160.drawMarks();
+    if (m !== 'desk') deskGhostHide(); else FEAT158.msg('Công cụ Bàn: click sàn để đặt, R xoay, Del xoá', true);
+  }, 150);
+
+  /* Drawer agent: chọn bàn cho custom agent */
+  window.refreshDrawerDesk = function () {
+    const sec = document.getElementById('dDeskSec'), sel = document.getElementById('dDeskSel'), msg = document.getElementById('dDeskMsg');
+    const ag = selectedAgent;
+    if (!sec || !sel) return;
+    if (!ag || !ag._f160) { sec.style.display = 'none'; return; }
+    sec.style.display = 'block';
+    const cur = FEAT160.deskOf(ag.id);
+    sel.innerHTML = '<option value="">— chưa có bàn —</option>' + FEAT160.desks.map(d => '<option value="' + d.id + '"' + (cur && cur.id === d.id ? ' selected' : '') + '>' + FEAT160.deskLabel(d) + (d.agentId && d.agentId !== ag.id ? ' (đã có ' + ((A[d.agentId] && (A[d.agentId].shortName || A[d.agentId].name)) || d.agentId) + ')' : '') + '</option>').join('');
+    msg.textContent = cur ? 'Đang gán: ' + FEAT160.deskLabel(cur) : 'Chưa có bàn';
+    sel.onchange = () => {
+      if (sel.value) FEAT160.assign(sel.value, ag.id);
+      else if (cur) FEAT160.assign(cur.id, null);
+      refreshDrawerDesk();
+    };
+  };
+  const _openDrawer160 = openAgentDrawer;
+  openAgentDrawer = function (agent) { _openDrawer160(agent); try { refreshDrawerDesk(); } catch (e) { console.warn('[FEAT160] drawer', e); } };
+
+
+  const shortcuts = {b:'desk',v:'select',s:'select',w:'wall',f:'paint',u:'furniture',e:'erase',
     1:'paint',2:'wall',3:'furniture',4:'erase'};
   document.addEventListener('keydown', e => {
     if (!FP2.active || e.target.closest?.('input,textarea,select,[contenteditable=true]')) return;
@@ -5133,6 +6868,7 @@ function loop(now) {
     }
   }
 
+  FEAT161.step(dt);
   agents.forEach(a => a.update(dt));
 
   WG.animateSlidingDoors(agents, dt);
@@ -5362,6 +7098,7 @@ ${pcSel}
     const cfgs = getCustomAgentConfigs();
     cfgs.push(cfg);
     saveCustomAgentConfigs(cfgs);
+    FEAT160.autoDeskForSlot(DESK_POOL[cfg.poolIdx]);
     spawnCustomAgent(cfg);
     _ctaSelPoolIdx = null;
     renderCustomTeamPanel();
