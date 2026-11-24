@@ -1,6 +1,7 @@
 import type { Db } from '@paperclipai/db';
-import { costEvents } from '@paperclipai/db';
+import { costEvents, agents } from '@paperclipai/db';
 import { and, eq, gte, lte, sql, desc, asc } from 'drizzle-orm';
+import { ordinaryInputTokens } from './costs.js';
 
 export interface TokenSummary {
   totalTokens: number;
@@ -10,6 +11,7 @@ export interface TokenSummary {
   totalRuns: number;
   activeAgents: number;
   recordedCost?: { cents: number; status: string };
+  isSubscription?: boolean;
 }
 
 export interface AgentTokenUsage {
@@ -23,6 +25,7 @@ export interface AgentTokenUsage {
   runs: number;
   avgTokensPerRun: number;
   cost?: { cents: number; status: string };
+  isSubscription?: boolean;
   lastActive: Date;
 }
 
@@ -41,6 +44,7 @@ export interface ModelTokenUsage {
   cachedTokens: number;
   totalTokens: number;
   runs: number;
+  isSubscription?: boolean;
 }
 
 export interface ProjectTokenUsage {
@@ -67,6 +71,9 @@ export interface AgentRunHistory {
   projectId?: string;
 }
 
+/** Returns true when every cost event in the aggregation is subscription-billed (cost = 0 is intentional, not missing). */
+const isSubscriptionBilling = sql<boolean>`BOOL_AND(${costEvents.billingType} IN ('subscription_included', 'subscription_overage'))`;
+
 export async function getCompanyTokenSummary(
   db: Db,
   companyId: string,
@@ -75,12 +82,14 @@ export async function getCompanyTokenSummary(
 ): Promise<TokenSummary> {
   const result = await db
     .select({
-      totalInput: sql<number>`COALESCE(SUM(${costEvents.inputTokens}), 0)`,
+      // ordinaryInputTokens handles legacy Codex rows (input included cache) vs new rows (input = net)
+      totalInput: sql<number>`COALESCE(SUM(${ordinaryInputTokens}), 0)`,
       totalCached: sql<number>`COALESCE(SUM(${costEvents.cachedInputTokens}), 0)`,
       totalOutput: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       runCount: sql<number>`COUNT(DISTINCT ${costEvents.id})`,
       agentCount: sql<number>`COUNT(DISTINCT ${costEvents.agentId})`,
       totalCost: sql<string>`COALESCE(SUM(${costEvents.costCents}), '0')`,
+      allSubscription: isSubscriptionBilling,
     })
     .from(costEvents)
     .where(
@@ -92,19 +101,23 @@ export async function getCompanyTokenSummary(
     );
 
   const row = result[0];
-  const inputTokens = Number(row.totalInput) || 0;
-  const cachedTokens = Number(row.totalCached) || 0;
-  const outputTokens = Number(row.totalOutput) || 0;
-  const totalTokens = inputTokens + outputTokens + cachedTokens;
+  const inputTokens = Number(row?.totalInput) || 0;
+  const cachedTokens = Number(row?.totalCached) || 0;
+  const outputTokens = Number(row?.totalOutput) || 0;
+  const totalTokens = inputTokens + cachedTokens + outputTokens;
+  const isSubscription = Boolean(row?.allSubscription);
 
   return {
     totalTokens,
-    inputTokens: inputTokens - cachedTokens,
+    inputTokens,
     outputTokens,
     cachedTokens,
-    totalRuns: row.runCount || 0,
-    activeAgents: row.agentCount || 0,
-    recordedCost: row.totalCost ? { cents: parseInt(row.totalCost), status: 'reported' } : undefined,
+    totalRuns: Number(row?.runCount) || 0,
+    activeAgents: Number(row?.agentCount) || 0,
+    recordedCost: !isSubscription && row?.totalCost
+      ? { cents: Math.round(parseFloat(row.totalCost) * 100), status: 'reported' }
+      : undefined,
+    isSubscription,
   };
 }
 
@@ -117,15 +130,18 @@ export async function getAgentTokenUsage(
   const results = await db
     .select({
       agentId: costEvents.agentId,
+      agentName: agents.name,
       model: costEvents.model,
-      inputTokens: sql<number>`COALESCE(SUM(${costEvents.inputTokens}), 0)`,
+      inputTokens: sql<number>`COALESCE(SUM(${ordinaryInputTokens}), 0)`,
       cachedTokens: sql<number>`COALESCE(SUM(${costEvents.cachedInputTokens}), 0)`,
       outputTokens: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       runCount: sql<number>`COUNT(*)`,
       lastActive: sql<Date>`MAX(${costEvents.occurredAt})`,
       totalCost: sql<string>`COALESCE(SUM(${costEvents.costCents}), '0')`,
+      allSubscription: isSubscriptionBilling,
     })
     .from(costEvents)
+    .leftJoin(agents, eq(agents.id, costEvents.agentId))
     .where(
       and(
         eq(costEvents.companyId, companyId),
@@ -133,22 +149,33 @@ export async function getAgentTokenUsage(
         lte(costEvents.occurredAt, endDate)
       )
     )
-    .groupBy(costEvents.agentId, costEvents.model)
-    .orderBy(desc(sql`COALESCE(SUM(${costEvents.inputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0)`));
+    .groupBy(costEvents.agentId, costEvents.model, agents.name)
+    .orderBy(desc(sql`COALESCE(SUM(${ordinaryInputTokens}), 0) + COALESCE(SUM(${costEvents.cachedInputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0)`));
 
-  return results.map(r => ({
-    agentId: r.agentId || 'unknown',
-    agentName: r.agentId || 'Unknown Agent',
-    model: r.model || 'unknown',
-    inputTokens: (Number(r.inputTokens) || 0) - (Number(r.cachedTokens) || 0),
-    cachedTokens: Number(r.cachedTokens) || 0,
-    outputTokens: Number(r.outputTokens) || 0,
-    totalTokens: (Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0),
-    runs: r.runCount || 0,
-    avgTokensPerRun: r.runCount ? Math.round(((Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0)) / r.runCount) : 0,
-    cost: r.totalCost ? { cents: parseInt(r.totalCost), status: 'reported' } : undefined,
-    lastActive: r.lastActive || new Date(),
-  }));
+  return results.map(r => {
+    const input = Number(r.inputTokens) || 0;
+    const cached = Number(r.cachedTokens) || 0;
+    const output = Number(r.outputTokens) || 0;
+    const total = input + cached + output;
+    const runs = Number(r.runCount) || 0;
+    const isSubscription = Boolean(r.allSubscription);
+    return {
+      agentId: r.agentId || 'unknown',
+      agentName: r.agentName || r.agentId?.slice(0, 8) || 'Unknown Agent',
+      model: r.model || 'unknown',
+      inputTokens: input,
+      cachedTokens: cached,
+      outputTokens: output,
+      totalTokens: total,
+      runs,
+      avgTokensPerRun: runs ? Math.round(total / runs) : 0,
+      cost: !isSubscription && r.totalCost
+        ? { cents: Math.round(parseFloat(r.totalCost) * 100), status: 'reported' }
+        : undefined,
+      isSubscription,
+      lastActive: r.lastActive || new Date(),
+    };
+  });
 }
 
 export async function getTokenUsageTimeseries(
@@ -163,7 +190,7 @@ export async function getTokenUsageTimeseries(
   const results = await db
     .select({
       bucket: sql<Date>`DATE_TRUNC('${sql.raw(bucket)}', ${costEvents.occurredAt})`,
-      inputTokens: sql<number>`COALESCE(SUM(${costEvents.inputTokens}), 0)`,
+      inputTokens: sql<number>`COALESCE(SUM(${ordinaryInputTokens}), 0)`,
       outputTokens: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       cachedTokens: sql<number>`COALESCE(SUM(${costEvents.cachedInputTokens}), 0)`,
     })
@@ -196,10 +223,11 @@ export async function getModelTokenBreakdown(
     .select({
       provider: costEvents.provider,
       model: costEvents.model,
-      inputTokens: sql<number>`COALESCE(SUM(${costEvents.inputTokens}), 0)`,
+      inputTokens: sql<number>`COALESCE(SUM(${ordinaryInputTokens}), 0)`,
       outputTokens: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       cachedTokens: sql<number>`COALESCE(SUM(${costEvents.cachedInputTokens}), 0)`,
       runCount: sql<number>`COUNT(*)`,
+      allSubscription: isSubscriptionBilling,
     })
     .from(costEvents)
     .where(
@@ -210,17 +238,23 @@ export async function getModelTokenBreakdown(
       )
     )
     .groupBy(costEvents.provider, costEvents.model)
-    .orderBy(desc(sql`COALESCE(SUM(${costEvents.inputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0))`));
+    .orderBy(desc(sql`COALESCE(SUM(${ordinaryInputTokens}), 0) + COALESCE(SUM(${costEvents.cachedInputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0)`));
 
-  return results.map(r => ({
-    provider: r.provider || 'unknown',
-    model: r.model || 'unknown',
-    inputTokens: Number(r.inputTokens) || 0,
-    outputTokens: Number(r.outputTokens) || 0,
-    cachedTokens: Number(r.cachedTokens) || 0,
-    totalTokens: (Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0),
-    runs: r.runCount || 0,
-  }));
+  return results.map(r => {
+    const input = Number(r.inputTokens) || 0;
+    const cached = Number(r.cachedTokens) || 0;
+    const output = Number(r.outputTokens) || 0;
+    return {
+      provider: r.provider || 'unknown',
+      model: r.model || 'unknown',
+      inputTokens: input,
+      outputTokens: output,
+      cachedTokens: cached,
+      totalTokens: input + cached + output,
+      runs: Number(r.runCount) || 0,
+      isSubscription: Boolean(r.allSubscription),
+    };
+  });
 }
 
 export async function getProjectTokenUsage(
@@ -232,7 +266,7 @@ export async function getProjectTokenUsage(
   const results = await db
     .select({
       projectId: costEvents.projectId,
-      inputTokens: sql<number>`COALESCE(SUM(${costEvents.inputTokens}), 0)`,
+      inputTokens: sql<number>`COALESCE(SUM(${ordinaryInputTokens}), 0)`,
       outputTokens: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       cachedTokens: sql<number>`COALESCE(SUM(${costEvents.cachedInputTokens}), 0)`,
       runCount: sql<number>`COUNT(*)`,
@@ -246,16 +280,21 @@ export async function getProjectTokenUsage(
       )
     )
     .groupBy(costEvents.projectId)
-    .orderBy(desc(sql`COALESCE(SUM(${costEvents.inputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0))`));
+    .orderBy(desc(sql`COALESCE(SUM(${ordinaryInputTokens}), 0) + COALESCE(SUM(${costEvents.cachedInputTokens}), 0) + COALESCE(SUM(${costEvents.outputTokens}), 0)`));
 
-  return results.map(r => ({
-    projectId: r.projectId || undefined,
-    projectName: r.projectId || 'Unattributed',
-    totalTokens: (Number(r.inputTokens) || 0) + (Number(r.outputTokens) || 0),
-    inputTokens: Number(r.inputTokens) || 0,
-    outputTokens: Number(r.outputTokens) || 0,
-    runs: r.runCount || 0,
-  }));
+  return results.map(r => {
+    const input = Number(r.inputTokens) || 0;
+    const cached = Number(r.cachedTokens) || 0;
+    const output = Number(r.outputTokens) || 0;
+    return {
+      projectId: r.projectId || undefined,
+      projectName: r.projectId || 'Unattributed',
+      totalTokens: input + cached + output,
+      inputTokens: input,
+      outputTokens: output,
+      runs: Number(r.runCount) || 0,
+    };
+  });
 }
 
 export async function getAgentRunTokenHistory(
@@ -288,18 +327,23 @@ export async function getAgentRunTokenHistory(
     .orderBy(desc(costEvents.occurredAt))
     .limit(limit);
 
-  return results.map(r => ({
-    runId: r.id,
-    startTime: r.occurredAt || new Date(),
-    endTime: new Date((r.occurredAt?.getTime() || 0) + 1000), // Approximate duration
-    model: r.model || 'unknown',
-    inputTokens: r.inputTokens || 0,
-    outputTokens: r.outputTokens || 0,
-    cachedTokens: r.cachedTokens || 0,
-    totalTokens: (r.inputTokens || 0) + (r.outputTokens || 0),
-    duration: 1,
-    status: r.status || 'reported',
-    taskId: r.taskId,
-    projectId: r.projectId,
-  }));
+  return results.map(r => {
+    const input = r.inputTokens || 0;
+    const cached = r.cachedTokens || 0;
+    const output = r.outputTokens || 0;
+    return {
+      runId: r.id,
+      startTime: r.occurredAt || new Date(),
+      endTime: new Date((r.occurredAt?.getTime() || 0) + 1000),
+      model: r.model || 'unknown',
+      inputTokens: input,
+      outputTokens: output,
+      cachedTokens: cached,
+      totalTokens: input + cached + output,
+      duration: 1,
+      status: r.status || 'reported',
+      taskId: r.taskId,
+      projectId: r.projectId,
+    };
+  });
 }

@@ -34,6 +34,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Cpu,
+  BarChart2,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -276,6 +277,7 @@ function ClassicSidebar({ children }: { children?: ReactNode }) {
             <SidebarNavItem to="/agents" label="AI Agents" icon={Users} />
             <SidebarNavItem to="/skills" label="Skills / Skill Studio" icon={Boxes} />
             <SidebarNavItem to="/apps" label="Apps & Kết nối MCP" icon={Unplug} />
+            <SidebarNavItem to="/token-analytics" label="Token Analytics" icon={BarChart2} />
             <SidebarNavItem to="/activity" label="Lịch sử / Activity" icon={History} />
             <SidebarNavItem to="/company/settings" label="Cài đặt" icon={Settings} />
           </SidebarSection>

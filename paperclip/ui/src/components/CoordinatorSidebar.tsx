@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Inbox, Boxes, ChevronRight, CircleCheck, FolderOpen, History, LayoutDashboard, MessageCircle, MoreHorizontal, Network, Pin, PinOff, Plus, Repeat, Search, Settings, SquarePen, Unplug, Send, Cpu, type LucideIcon } from "lucide-react";
+import { Inbox, Boxes, ChevronRight, CircleCheck, FolderOpen, History, LayoutDashboard, MessageCircle, MoreHorizontal, Network, Pin, PinOff, Plus, Repeat, Search, Settings, SquarePen, Unplug, Send, Cpu, BarChart2, type LucideIcon } from "lucide-react";
 import type { Agent, Project } from "@paperclipai/shared";
 import { useCoordinatorAttentionCount } from "@/hooks/useCoordinatorAttentionCount";
 import { issuesApi } from "@/api/issues";
@@ -47,6 +47,7 @@ const moreDestinations = [
   { label: "AI Agents", to: "/agents/all", icon: Network },
   { label: "Skills / Skill Studio", to: "/skills", icon: Boxes },
   { label: "Apps & Kết nối MCP", to: "/apps", icon: Unplug },
+  { label: "Token Analytics", to: "/token-analytics", icon: BarChart2 },
   { label: "Lịch sử / Activity", to: "/activity", icon: History },
   { label: "Cài đặt", to: "/settings", icon: Settings },
 ] as const;
