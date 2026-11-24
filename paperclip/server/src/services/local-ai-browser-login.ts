@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { open } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, statSync } from "node:fs";
 import path from "node:path";
 import { runSetupTokenLogin } from "@paperclipai/adapter-claude-local/server";
 import { runDeviceLogin } from "@paperclipai/adapter-codex-local/server";
@@ -56,21 +56,57 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai" | "googl
   const driver = {
     async start(_command: string, onData: (chunk: string) => void): Promise<{ exitCode: number | null }> {
       let executable = "claude";
+      if (provider === "anthropic" && process.platform === "win32") {
+        if (process.env.APPDATA) {
+          const globalClaude = path.join(process.env.APPDATA, "npm", "node_modules", "@anthropic-ai", "claude-code", "cli.js");
+          try { if (statSync(globalClaude).isFile()) executable = globalClaude; } catch { /* ignore */ }
+        }
+      }
       if (provider === "openai") {
-        const legacyPlatform = !((process.platform === "linux" || process.platform === "darwin")
-          && (process.arch === "x64" || process.arch === "arm64"));
-        try {
-          if (legacyPlatform) {
-            await ensureCommandResolvable("codex", home, process.env);
-            executable = path.resolve(home, await resolveCommandForLogs("codex", home, process.env));
-          } else {
-            executable = resolveCodexCommand();
+        if (process.platform === "win32") {
+          let foundJs = false;
+          if (process.env.APPDATA) {
+            const globalCodex = path.join(process.env.APPDATA, "npm", "node_modules", "@openai", "codex", "bin", "codex.js");
+            try {
+              if (statSync(globalCodex).isFile()) {
+                executable = globalCodex;
+                foundJs = true;
+              }
+            } catch { /* use fallback */ }
           }
-        } catch {
-          state.error = legacyPlatform
-            ? "Codex browser sign-in requires the Codex CLI on this platform. Install Codex on this execution host and ensure codex is on Paperclip's PATH, then start sign-in again."
-            : "Codex browser sign-in requires an installed Codex CLI. Install Codex on this execution host or restore Paperclip's runtime dependencies, then start sign-in again.";
-          throw new Error("Browser login runtime unavailable");
+          if (!foundJs) {
+            try {
+              await ensureCommandResolvable("codex", home, process.env);
+              const resolved = path.resolve(home, await resolveCommandForLogs("codex", home, process.env));
+              const adjacentJs = path.join(path.dirname(resolved), "node_modules", "@openai", "codex", "bin", "codex.js");
+              try {
+                if (statSync(adjacentJs).isFile()) {
+                  executable = adjacentJs;
+                  foundJs = true;
+                }
+              } catch { /* ignore */ }
+              if (!foundJs) executable = resolved;
+            } catch {
+              state.error = "Codex browser sign-in requires an installed Codex CLI. Run 'npm install -g @openai/codex' and ensure codex is on PATH, then start sign-in again.";
+              throw new Error("Browser login runtime unavailable");
+            }
+          }
+        } else {
+          const legacyPlatform = !((process.platform === "linux" || process.platform === "darwin")
+            && (process.arch === "x64" || process.arch === "arm64"));
+          try {
+            if (legacyPlatform) {
+              await ensureCommandResolvable("codex", home, process.env);
+              executable = path.resolve(home, await resolveCommandForLogs("codex", home, process.env));
+            } else {
+              executable = resolveCodexCommand();
+            }
+          } catch {
+            state.error = legacyPlatform
+              ? "Codex browser sign-in requires the Codex CLI on this platform. Install Codex on this execution host and ensure codex is on Paperclip's PATH, then start sign-in again."
+              : "Codex browser sign-in requires an installed Codex CLI. Install Codex on this execution host or restore Paperclip's runtime dependencies, then start sign-in again.";
+            throw new Error("Browser login runtime unavailable");
+          }
         }
       }
       if (controller.signal.aborted) throw new Error("Local sign-in cancelled before launch");
@@ -82,15 +118,42 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai" | "googl
         BROWSER: "true",
       };
       return new Promise((resolve, reject) => {
-        child = spawn("python3", ["-u", "-c", PYTHON_PTY_BRIDGE, executable, ...args], { env, stdio: ["pipe", "pipe", "pipe"] });
+        // Windows commonly exposes Python as `python.exe` rather than `python3`.
+        // Using the platform-appropriate launcher keeps the local browser login
+        // flow working on both Windows and Unix hosts.
+        // The npm Codex package exposes a JavaScript launcher on Windows;
+        // execute it through the current Node runtime instead of spawning the
+        // `.js` file as a native executable.
+        let command = executable;
+        let commandArgs = args;
+        if (process.platform === "win32") {
+          if (executable.toLowerCase().endsWith(".js")) {
+            command = process.execPath;
+            commandArgs = [executable, ...args];
+            child = spawn(command, commandArgs, { env, stdio: ["pipe", "pipe", "pipe"] });
+          } else if (executable.toLowerCase().endsWith(".cmd") || executable.toLowerCase().endsWith(".bat")) {
+            command = process.env.ComSpec || "cmd.exe";
+            commandArgs = ["/d", "/s", "/c", `"${executable}"`, ...args];
+            child = spawn(command, commandArgs, { env, stdio: ["pipe", "pipe", "pipe"], windowsVerbatimArguments: true });
+          } else {
+            child = spawn(command, commandArgs, { env, stdio: ["pipe", "pipe", "pipe"] });
+          }
+        } else {
+          child = spawn("python3", ["-u", "-c", PYTHON_PTY_BRIDGE, command, ...commandArgs], { env, stdio: ["pipe", "pipe", "pipe"] });
+        }
         child.stdout.on("data", (bytes: Buffer) => onData(bytes.toString("utf8")));
         // Provider output may contain secrets. Never log or retain stderr.
         child.stderr.resume();
-        child.once("error", () => {
-          state.error = "Browser sign-in requires Python 3 and a working local terminal. Install Python 3 on this execution host, then start sign-in again.";
+        child.once("error", (error) => {
+          state.error = process.platform === "win32"
+            ? `Codex browser sign-in could not start on Windows (${(error as NodeJS.ErrnoException).code ?? "spawn error"}).`
+            : "Browser sign-in requires Python 3 and a working local terminal. Install Python 3 on this execution host, then start sign-in again.";
           reject(new Error("Browser login terminal unavailable"));
         });
-        child.once("close", (exitCode) => resolve({ exitCode }));
+        child.once("close", (exitCode) => {
+          if (exitCode !== 0 && !state.error) state.error = `Codex login process exited with code ${exitCode ?? "unknown"}.`;
+          resolve({ exitCode });
+        });
       });
     },
     write(input: string) { child?.stdin.write(input); },
@@ -104,7 +167,14 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai" | "googl
     state.submitCode = (code) => { deliverCode?.(code); deliverCode = undefined; };
     void runSetupTokenLogin(driver, {
       timeoutMs: 300_000, signal: controller.signal,
-      onPrompt: (prompt) => { state.authorizationUrl = prompt.url; },
+      onPrompt: (prompt) => {
+        state.authorizationUrl = prompt.url;
+        if (process.platform === "win32") {
+          try {
+            spawn("cmd.exe", ["/c", "start", "", prompt.url], { detached: true, stdio: "ignore" }).unref();
+          } catch { /* ignore */ }
+        }
+      },
       provideCode: (signal) => new Promise<string>((resolve, reject) => {
         const abort = () => reject(new Error("Local sign-in cancelled"));
         if (signal.aborted) { abort(); return; }
@@ -125,7 +195,15 @@ export function startLocalBrowserLogin(provider: "anthropic" | "openai" | "googl
   } else {
     void runDeviceLogin(driver, {
       timeoutMs: 300_000, signal: controller.signal,
-      onPrompt: (prompt) => { state.authorizationUrl = prompt.url; state.code = prompt.code; },
+      onPrompt: (prompt) => {
+        state.authorizationUrl = prompt.url;
+        state.code = prompt.code;
+        if (process.platform === "win32") {
+          try {
+            spawn("cmd.exe", ["/c", "start", "", prompt.url], { detached: true, stdio: "ignore" }).unref();
+          } catch { /* ignore */ }
+        }
+      },
     }).then((result) => { state.outcome = result.outcome === "success" ? "success" : "failure"; })
       .catch(() => { state.outcome = "failure"; });
   }

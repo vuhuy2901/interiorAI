@@ -40,8 +40,7 @@ export function readCurrentCameraSnapshot(): CameraSnapshot | null {
   const verticalFovDeg = Number(framing.verticalFovDeg || 45);
   const viewportAspect = Number(framing.aspectRatio || window.innerWidth / Math.max(1, window.innerHeight));
   const lensMm = 32 / (2 * Math.tan((Math.max(10, Math.min(100, verticalFovDeg)) * Math.PI) / 360));
-  // glTF/Three.js is Y-up. Blender's glTF importer maps depth with the opposite
-  // sign: (x, y, z) -> (x, -z, y). Keep the browser and Cycles views aligned.
+  // glTF/Three.js is Y-up. Keep the browser camera snapshot stable for render evidence.
   return {
     eye_m: [values[0], -values[2], values[1]],
     target_m: [values[3], -values[5], values[4]],
@@ -87,11 +86,65 @@ export function isRenderActive(status?: string) {
 export function renderStatusText(status?: string) {
   switch (status) {
     case "QUEUED": return "Đang chờ bộ máy render";
-    case "RUNNING": return "Blender Cycles đang dựng ánh sáng và kết xuất";
+    case "RUNNING": return "AI đang dựng ảnh photoreal";
     case "COMPLETED": return "Render hoàn tất";
     case "BLOCKED": return "Bộ máy render chưa sẵn sàng";
     case "FAILED": return "Render thất bại";
     case "CANCELLED": return "Đã hủy render";
     default: return "Sẵn sàng render";
   }
+}
+
+// FEAT-2026-129: render đẹp bằng AI (Codex) từ ảnh preview WebGL.
+export type AiRenderJob = {
+  job_id: string;
+  revision?: number;
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | string;
+  image_url?: string | null;
+  base_image_url?: string | null;
+  brief_hash?: string | null;
+  elapsed_s?: number;
+  codex_summary?: string | null;
+  error?: string | null;
+  missing_decisions?: string[];
+};
+
+export const AI_RENDER_POLL_MS = 5000;
+
+const MISSING_LABELS: Record<string, string> = {
+  wall_paint: "màu sơn tường",
+  accent_wall: "tường nhấn",
+  ceiling_color: "màu trần",
+  floor: "vật liệu sàn",
+  lighting: "ánh sáng",
+  wood_tone: "tông gỗ",
+  style: "phong cách",
+  furniture: "đồ nội thất",
+  room: "phòng",
+};
+
+export function aiRenderMissingText(missing?: string[]): string {
+  if (!missing || missing.length === 0) return "";
+  return `Còn chưa chốt: ${missing.map((key) => MISSING_LABELS[key] || key).join(", ")}`;
+}
+
+export function formatElapsed(seconds?: number): string {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes > 0 ? `${minutes} phút ${rest} giây` : `${rest} giây`;
+}
+
+export function aiRenderStatusText(status?: string): string {
+  switch (status) {
+    case "QUEUED": return "Đang xếp hàng (mỗi lúc chỉ chạy một ảnh AI)";
+    case "RUNNING": return "Codex đang tạo ảnh photoreal (khoảng 2–3 phút)";
+    case "COMPLETED": return "Ảnh AI hoàn tất";
+    case "FAILED": return "Render AI thất bại";
+    default: return "Sẵn sàng";
+  }
+}
+
+export function isAiRenderActive(status?: string): boolean {
+  return status === "QUEUED" || status === "RUNNING";
 }

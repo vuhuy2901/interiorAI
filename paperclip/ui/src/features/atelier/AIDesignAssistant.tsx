@@ -785,8 +785,9 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                   )}
 
                   {/* Interactive Question Request Card (ask_user interrupt) */}
-                  {m.metadata?.question && (
+                  {(m.metadata?.questions ?? (m.metadata?.question ? [m.metadata.question] : [])).map((q: any) => (
                     <div
+                      key={q.question_id}
                       className="surface-card"
                       style={{
                         marginTop: 10,
@@ -798,28 +799,47 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 12.5, color: 'var(--amber-text)' }}>
                         <HelpCircle size={14} />
-                        <span>Cần xác nhận từ bạn ({m.metadata.question.origin_agent})</span>
+                        <span>Cần xác nhận từ bạn ({q.origin_agent})</span>
                       </div>
                       <div style={{ fontWeight: 600, marginTop: 6, fontSize: 13 }}>
-                        {m.metadata.question.question_text}
+                        {q.question_text}
                       </div>
                       <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 3 }}>
-                        Vì sao cần biết: {m.metadata.question.why_needed}
+                        Vì sao cần biết: {q.why_needed}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
-                        {(m.metadata.question.choices || []).map((c: any) => (
+                        {(q.choices || []).filter((c: any) => !String(c.id).endsWith(':custom')).map((c: any) => (
                           <button
                             key={c.id}
                             className="btn btn-sm btn-primary"
                             style={{ justifyContent: 'flex-start', height: 'auto', padding: '7px 10px', whiteSpace: 'normal', textAlign: 'left' }}
-                            onClick={() => onAnswerQuestion(m.metadata.question.question_id, c.label)}
+                            onClick={() => onAnswerQuestion(q.question_id, c.label)}
                           >
                             ✓ {c.label} {c.description ? `— ${c.description}` : ''}
                           </button>
                         ))}
+                        {(q.choices || []).some((c: any) => String(c.id).endsWith(':custom')) && (
+                          <form
+                            style={{ display: 'flex', gap: 6 }}
+                            onSubmit={(e) => {
+                              e.preventDefault()
+                              const value = String(new FormData(e.currentTarget).get('custom') || '').trim()
+                              if (value) onAnswerQuestion(q.question_id, value)
+                            }}
+                          >
+                            <input
+                              name="custom"
+                              className="input"
+                              placeholder="Tự nhập (màu/mã màu/vật liệu bạn muốn)"
+                              style={{ flex: 1, minWidth: 0, fontSize: 12 }}
+                              aria-label="Tự nhập lựa chọn"
+                            />
+                            <button type="submit" className="btn btn-sm">Gửi</button>
+                          </form>
+                        )}
                       </div>
                     </div>
-                  )}
+                  ))}
 
                   {/* Interactive Proposal Card inside Chat Stream */}
                   {m.metadata?.proposal && renderProposalCard(m.metadata.proposal)}

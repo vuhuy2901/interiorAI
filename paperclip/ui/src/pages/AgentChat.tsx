@@ -126,7 +126,7 @@ export function AgentChat() {
           conversation={{ agent, issue: chat.data ?? null, ensureIssue }}
         />
       </div>
-      <ConversationAtelierSidecar agentName={agent.name} />
+      <ConversationAtelierSidecar agentName={agent.name} issueId={chat.data?.id ?? null} />
     </div>
   );
 }

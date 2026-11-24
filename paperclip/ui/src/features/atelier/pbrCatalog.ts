@@ -30,7 +30,8 @@ export interface PbrStylePreset {
   defaults_by_surface: Record<string, string>
 }
 
-export const DEFAULT_ASSET_PACK = 'sh3d-japandi'
+// Modern (mặc định) và mọi style khác dùng sh3d-classic; chỉ Japandi dùng sh3d-japandi.
+export const DEFAULT_ASSET_PACK = 'sh3d-classic'
 
 export function getAssetPackForStylePreset(stylePresetId?: string | null, briefStyle?: string | null): string {
   const sid = String(stylePresetId || '').trim().toLowerCase()
@@ -39,8 +40,8 @@ export function getAssetPackForStylePreset(stylePresetId?: string | null, briefS
     if (found?.asset_pack) return found.asset_pack
   }
   const combined = `${sid} ${String(briefStyle || '').toLowerCase()}`
-  if (/classic|cổ\s*điển|co_dien|neoclassic/.test(combined)) {
-    return 'sh3d-classic'
+  if (/japandi/.test(combined)) {
+    return 'sh3d-japandi'
   }
   return DEFAULT_ASSET_PACK
 }

@@ -154,7 +154,7 @@ VERIFIED_VIETNAM_PRODUCTS: List[RealProductItem] = [
     # Nội thất: Sofa, Bàn trà, Tủ, Giường
     RealProductItem(
         id="sofa_kuka_linen_3p",
-        name="Sofa Băng 3 Chỗ Vải Linen Thoáng Khí Phong Cách Japandi",
+        name="Sofa Băng 3 Chỗ Vải Linen Thoáng Khí Phong Cách Hiện Đại",
         brand="KUKA Home Vietnam",
         category="sofa",
         dimensions_mm=[2100.0, 880.0, 780.0],

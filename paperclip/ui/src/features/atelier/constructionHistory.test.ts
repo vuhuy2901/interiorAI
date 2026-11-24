@@ -1,10 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { attachConstructionPlayback, commandEvent, oppositeEntry, SOURCE_HASH, buildConstructionItems } from './constructionHistory'
+import { attachConstructionPlayback, commandEvent, oppositeEntry, SOURCE_HASH, SMALL_APARTMENT_HASH, buildConstructionItems } from './constructionHistory'
 import { applyWalkCycle, createDeliveryWorker } from './furnitureDeliveryAnimation'
 
 afterEach(()=>vi.unstubAllGlobals())
 describe('construction history playback',()=>{
+  it('splits the material-baked small apartment into independent install steps',()=>{
+    const root=new THREE.Group()
+    const geometry=new THREE.BufferGeometry()
+    const triangles=[
+      // Bed zone, refrigerator zone, and vanity zone in calibrated Three coordinates.
+      [1,0.4,8, 2,0.4,8, 1,1,8.5],
+      [3,0.2,5, 3.5,0.2,5, 3,1.8,5.5],
+      [3,0.3,1.5, 3.5,0.3,1.5, 3,1.2,2],
+    ].flat()
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(triangles,3))
+    const mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial());root.add(mesh)
+    const items=buildConstructionItems(root,SMALL_APARTMENT_HASH)
+    expect(items.map(item=>item.id)).toEqual(expect.arrayContaining([
+      'construction:small-bed','construction:small-refrigerator','construction:small-vanity',
+    ]))
+    expect(new Set(items.flatMap(item=>item.meshes)).size).toBe(items.flatMap(item=>item.meshes).length)
+  })
   it('enters opposite the target and preserves upper-floor height while walking and standing',()=>{
     const bounds=new THREE.Box3(new THREE.Vector3(-5,0,-5),new THREE.Vector3(5,6,5))
     expect(oppositeEntry(bounds,new THREE.Vector3(-4,3,0),3).x).toBeGreaterThan(5)
@@ -14,7 +31,7 @@ describe('construction history playback',()=>{
     applyWalkCycle(worker,1,true,2.63);expect(worker.root.position.y).toBeGreaterThanOrEqual(2.63)
     applyWalkCycle(worker,1,false,2.63);expect(worker.root.position.y).toBe(2.63)
   })
-  it('groups material parts and excludes architecture and unknown scene files',()=>{
+  it('groups material parts and falls back to semantic groups for other scene files',()=>{
     const root=new THREE.Group()
     for(const name of ['Cube002','Cube003','Cube004','Cube005','Plane','Cube','Plane001']){
       const group=new THREE.Group();group.name=name
@@ -23,7 +40,12 @@ describe('construction history playback',()=>{
     }
     const items=buildConstructionItems(root,SOURCE_HASH)
     expect(items).toHaveLength(1);expect(items[0].meshes).toHaveLength(4)
-    expect(buildConstructionItems(root,'different-file')).toEqual([])
+    const genericRoot=new THREE.Group(),semantic=new THREE.Group(),bed=new THREE.Group()
+    semantic.name='RootNode';bed.name='Bed'
+    bed.add(new THREE.Mesh(new THREE.BoxGeometry(2,.6,2),new THREE.MeshStandardMaterial()))
+    semantic.add(bed);genericRoot.add(semantic)
+    const fallback=buildConstructionItems(genericRoot,'different-file')
+    expect(fallback).toHaveLength(1);expect(fallback[0].name).toBe('Giường và nệm')
   })
   it('includes curtains and railings, while retaining concrete in mixed wall/frame nodes',()=>{
     const root=new THREE.Group()

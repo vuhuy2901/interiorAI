@@ -43,7 +43,7 @@ class StructuredRoomSpec(BaseModel):
     ceiling_type: Literal["flat_gypsum", "recessed_tray", "slatted_wood"] = "recessed_tray"
     ceiling_drop_mm: float = 150.0
     floor_material_id: str = "floor_wood_oak_straight"
-    wall_paint_id: str = "paint_dulux_japandi_ivory"
+    wall_paint_id: str = "paint_modern_pure_white"
     lighting_fixtures: List[LightingFixture] = Field(default_factory=list)
 
 
@@ -92,7 +92,7 @@ def build_default_multiroom_floorspec(scale_confirmed: bool = True, reference_le
             ceiling_type="recessed_tray",
             ceiling_drop_mm=150.0,
             floor_material_id="floor_wood_oak_straight",
-            wall_paint_id="paint_dulux_japandi_ivory",
+            wall_paint_id="paint_modern_pure_white",
             lighting_fixtures=[
                 LightingFixture(id="light_liv_cove", fixture_type="cove_led_strip", room_id="room_living", position_mm=[2000.0 * scale_factor, 2250.0 * scale_factor, 2650.0], power_watts=36.0, unit_price_vnd=650000.0),
                 LightingFixture(id="light_liv_dl_1", fixture_type="downlight_recessed", room_id="room_living", position_mm=[1000.0 * scale_factor, 1000.0 * scale_factor, 2800.0]),
@@ -109,7 +109,7 @@ def build_default_multiroom_floorspec(scale_confirmed: bool = True, reference_le
             area_sqm=round(15.75 * scale_factor * scale_factor, 1),
             ceiling_type="flat_gypsum",
             floor_material_id="floor_tile_600x600_matte_sand",
-            wall_paint_id="paint_dulux_japandi_ivory",
+            wall_paint_id="paint_modern_pure_white",
             lighting_fixtures=[
                 LightingFixture(id="light_kit_pendant", fixture_type="pendant_chandelier", room_id="room_kitchen", position_mm=[5750.0 * scale_factor, 2250.0 * scale_factor, 2100.0], brand="Đèn Thả Bàn Ăn Hiện Đại 3 Chao", unit_price_vnd=1450000.0),
                 LightingFixture(id="light_kit_dl_1", fixture_type="downlight_recessed", room_id="room_kitchen", position_mm=[5000.0 * scale_factor, 1000.0 * scale_factor, 2800.0]),
@@ -174,7 +174,7 @@ def build_default_multiroom_floorspec(scale_confirmed: bool = True, reference_le
     # Comprehensive multi-room furniture layout
     furniture = [
         # Living Room
-        FurnitureInstance(id="furn_sofa_3p", sku="VN-SF-JAP-210", name="Sofa Băng 3 Chỗ Vải Linen Japandi", category="sofa", pascal_asset_id="sofa", room_id="room_living", x_mm=1200.0 * scale_factor, y_mm=2250.0 * scale_factor, width_mm=2100.0, depth_mm=880.0, height_mm=780.0, rotation_deg=90.0, color_hex="#E8E2D8", price_vnd=14500000.0, vendor="KUKA Home Vietnam"),
+        FurnitureInstance(id="furn_sofa_3p", sku="VN-SF-LIN-210", name="Sofa Băng 3 Chỗ Vải Linen", category="sofa", pascal_asset_id="sofa", room_id="room_living", x_mm=1200.0 * scale_factor, y_mm=2250.0 * scale_factor, width_mm=2100.0, depth_mm=880.0, height_mm=780.0, rotation_deg=90.0, color_hex="#E8E2D8", price_vnd=14500000.0, vendor="KUKA Home Vietnam"),
         FurnitureInstance(id="furn_coffee_table", sku="VN-TB-OAK-D80", name="Bàn Trà Tròn Mặt Đá Ceramic & Chân Gỗ Sồi", category="coffee_table", pascal_asset_id="coffee-table", room_id="room_living", x_mm=2100.0 * scale_factor, y_mm=2250.0 * scale_factor, width_mm=800.0, depth_mm=800.0, height_mm=420.0, rotation_deg=0.0, color_hex="#F5F3EF", price_vnd=4200000.0, vendor="Nhà Xinh"),
         FurnitureInstance(id="furn_tv_console", sku="VN-TV-OAK-180", name="Kệ Tivi Treo Tường Gỗ MDF Chống Ẩm An Cường", category="tv_console", pascal_asset_id="tv-stand", room_id="room_living", x_mm=3650.0 * scale_factor, y_mm=2250.0 * scale_factor, width_mm=1800.0, depth_mm=350.0, height_mm=400.0, rotation_deg=90.0, color_hex="#D0B89C", price_vnd=5800000.0, vendor="An Cường Wood Working"),
         FurnitureInstance(id="furn_living_rug", sku="VN-RUG-JAP-2x3", name="Thảm Dệt Sợi Ngắn Tối Giản 2.0x2.8m", category="rug", pascal_asset_id="atelier-rug", room_id="room_living", x_mm=2100.0 * scale_factor, y_mm=2250.0 * scale_factor, width_mm=2800.0, depth_mm=2000.0, height_mm=15.0, rotation_deg=0.0, color_hex="#E2DBD1", price_vnd=3600000.0, vendor="JYSK Vietnam"),

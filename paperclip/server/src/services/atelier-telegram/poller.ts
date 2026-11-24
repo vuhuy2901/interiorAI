@@ -510,7 +510,7 @@ export class AtelierTelegramPoller {
       else if (a.key === "agent_furniture") icon = "🛋️";
       else if (a.key === "agent_style") icon = "🎨";
       else if (a.key === "agent_material") icon = "🪵";
-      else if (a.key === "agent_ceiling_lighting") icon = "💡";
+      else if (a.key === "agent_render") icon = "🎬";
       else if (a.key === "agent_research") icon = "🔍";
       else if (a.key === "agent_render") icon = "🖼️";
       else if (a.key === "agent_inventory") icon = "📋";

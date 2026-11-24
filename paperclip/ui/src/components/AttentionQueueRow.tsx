@@ -11,7 +11,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import type { Agent, AttentionDetailImage, AttentionItem } from "@paperclipai/shared";
+import type { Agent, AttentionDetailImage, AttentionFeed, AttentionItem, AttentionSummary } from "@paperclipai/shared";
 import { Link } from "@/lib/router";
 import { accessApi } from "../api/access";
 import { approvalsApi } from "../api/approvals";
@@ -53,6 +53,30 @@ import { StalledReviewActions } from "./StalledReviewActions";
 import { readIssueReviewPolicyMetadata } from "../lib/review-policy";
 
 const HOUR_MS = 60 * 60 * 1000;
+
+function removeResolvedAttention(queryClient: ReturnType<typeof useQueryClient>, companyId: string, item: AttentionItem) {
+  queryClient.setQueriesData<AttentionFeed>({ queryKey: queryKeys.attention(companyId) }, (feed) => {
+    if (!feed || !Array.isArray(feed.items)) return feed;
+    const removed = feed.items.some((candidate) => candidate.id === item.id);
+    if (!removed) return feed;
+    return {
+      ...feed,
+      items: feed.items.filter((candidate) => candidate.id !== item.id),
+      totalCount: Math.max(0, feed.totalCount - 1),
+      deskBadgeCount: Math.max(0, feed.deskBadgeCount - 1),
+      countsBySourceKind: { ...feed.countsBySourceKind, [item.sourceKind]: Math.max(0, feed.countsBySourceKind[item.sourceKind] - 1) },
+    };
+  });
+  queryClient.setQueriesData<AttentionSummary>({ queryKey: queryKeys.attention(companyId) }, (summary) => {
+    if (!summary || "items" in summary) return summary;
+    return {
+      ...summary,
+      totalCount: Math.max(0, summary.totalCount - 1),
+      deskBadgeCount: Math.max(0, summary.deskBadgeCount - 1),
+      countsBySourceKind: { ...summary.countsBySourceKind, [item.sourceKind]: Math.max(0, summary.countsBySourceKind[item.sourceKind] - 1) },
+    };
+  });
+}
 const DAY_MS = 24 * HOUR_MS;
 
 // Decision-action buttons: a comfortable tap target when the row is narrow
@@ -509,6 +533,7 @@ function CompactDecisionActions({
       throw new Error("This decision must be completed from its detail view.");
     },
     onSuccess: (_result, action) => {
+      removeResolvedAttention(queryClient, companyId, item);
       queryClient.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
       if (item.sourceKind === "approval") {
         queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(companyId) });
@@ -832,6 +857,7 @@ function ApprovalResolver({ item, companyId, toggle }: { item: AttentionItem; co
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
   const invalidate = () => {
+    removeResolvedAttention(queryClient, companyId, item);
     queryClient.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.approvals.list(companyId) });
   };
@@ -880,6 +906,7 @@ function ApprovalResolver({ item, companyId, toggle }: { item: AttentionItem; co
 function JoinRequestResolver({ item, companyId, toggle }: { item: AttentionItem; companyId: string; toggle: ReactNode }) {
   const queryClient = useQueryClient();
   const invalidate = () => {
+    removeResolvedAttention(queryClient, companyId, item);
     queryClient.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.access.joinRequests(companyId) });
   };

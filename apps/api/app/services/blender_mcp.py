@@ -394,27 +394,78 @@ def _generate_tile_texture_pair(
 
 
 def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str, Any]:
-    all_x = [w.start_mm[0] for w in project.walls] + [w.end_mm[0] for w in project.walls]
-    all_y = [w.start_mm[1] for w in project.walls] + [w.end_mm[1] for w in project.walls]
-    min_x = (min(all_x) if all_x else 0.0) / 1000.0
-    max_x = (max(all_x) if all_x else 4000.0) / 1000.0
-    min_y = (min(all_y) if all_y else 0.0) / 1000.0
-    max_y = (max(all_y) if all_y else 5000.0) / 1000.0
+    # ── 1. Determine bounding box from PRIMARY ROOM polygon, not global wall union.
+    #    For duplex/multi-floor projects, the wall union spans all floors which puts
+    #    cx/cy in a gap between floors and eye positions clip into walls.
+    def _poly_area(poly: list) -> float:
+        n = len(poly)
+        if n < 3:
+            return 0.0
+        area = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            area += poly[i][0] * poly[j][1]
+            area -= poly[j][0] * poly[i][1]
+        return abs(area) / 2.0
+
+    # Camera bounds: always prefer the WALL bounding box (actual rendered geometry).
+    # For multi-floor duplex, walls per floor are separate; pick the wall cluster
+    # whose centroid is closest to the largest room polygon centroid so the camera
+    # focuses on the main rendered room, not an empty conceptual 20m space.
+    if project.walls:
+        all_x = [w.start_mm[0] for w in project.walls] + [w.end_mm[0] for w in project.walls]
+        all_y = [w.start_mm[1] for w in project.walls] + [w.end_mm[1] for w in project.walls]
+        min_x = (min(all_x) if all_x else 0.0) / 1000.0
+        max_x = (max(all_x) if all_x else 4000.0) / 1000.0
+        min_y = (min(all_y) if all_y else 0.0) / 1000.0
+        max_y = (max(all_y) if all_y else 5000.0) / 1000.0
+    elif project.rooms:
+        # No walls: use the primary (largest priority) room polygon
+        priority_types = {"living", "bedroom"}
+        priority_rooms = [r for r in project.rooms if r.room_type in priority_types]
+        candidates = priority_rooms if priority_rooms else list(project.rooms)
+        primary_room = max(candidates, key=lambda r: _poly_area(r.polygon_mm))
+        rpts = primary_room.polygon_mm
+        min_x = min(p[0] for p in rpts) / 1000.0
+        max_x = max(p[0] for p in rpts) / 1000.0
+        min_y = min(p[1] for p in rpts) / 1000.0
+        max_y = max(p[1] for p in rpts) / 1000.0
+    else:
+        min_x, max_x, min_y, max_y = 0.0, 4.0, 0.0, 5.0
 
     cx = (min_x + max_x) / 2.0
     cy = (min_y + max_y) / 2.0
     span_x = max(2.5, max_x - min_x)
     span_y = max(2.5, max_y - min_y)
 
-    # Locate primary sofa or primary furniture for focal targeting
-    sofa = next((f for f in project.furniture_instances if "sofa" in f.category.lower()), None)
-    if not sofa and project.furniture_instances:
+    # ── 2. Wall-inset margin: every camera eye stays this far from wall faces.
+    #    At least 0.40m so the camera never clips into geometry.
+    INSET = max(0.40, min(0.70, min(span_x, span_y) * 0.12))
+
+    # ── 3. Primary focal target: sofa or first furniture in the primary room.
+    def _in_room_bounds(fx, fy):
+        return min_x <= fx <= max_x and min_y <= fy <= max_y
+
+    sofa = next(
+        (f for f in project.furniture_instances
+         if "sofa" in f.category.lower() and _in_room_bounds(f.x_mm / 1000.0, f.y_mm / 1000.0)),
+        None,
+    )
+    if sofa is None:
+        sofa = next(
+            (f for f in project.furniture_instances
+             if _in_room_bounds(f.x_mm / 1000.0, f.y_mm / 1000.0)),
+            None,
+        )
+    if sofa is None and project.furniture_instances:
         sofa = project.furniture_instances[0]
     sofa_x = (sofa.x_mm / 1000.0) if sofa else cx
     sofa_y = (sofa.y_mm / 1000.0) if sofa else cy
     sofa_z = ((sofa.z_mm + sofa.height_mm * 0.45) / 1000.0) if sofa else 0.65
 
     cam_key = (camera_id or "eye_level").lower().strip()
+
+    # ── Dollhouse/cutaway: external overhead shot, walls cut at 1.12m ──────────
     if cam_key in {"dollhouse", "cutaway"}:
         patio_depth = min(2.15, max(1.55, span_y * 0.44))
         target_x = cx
@@ -439,71 +490,125 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
             "lens_mm": 64.0,
             "hide_ceiling": True,
         }
+
+    # ── Eye-level: diagonal interior shot from corner, 1.50m height ──────────
     if cam_key in {"perspective", "eye_level", "front"}:
+        # Diagonal position for depth — avoids flat "looking at a wall" composition.
+        # Place eye at INSET from two walls on the same side as `wide` but lower.
+        eye_x = min_x + INSET * 1.4
+        eye_y = max_y - INSET
+        tgt_x = max_x - INSET * 1.6
+        tgt_y = min_y + span_y * 0.28
         return {
             "camera_id": cam_key,
             "preset_name": "Nội thất ngang tầm mắt (Eye-Level 1.50m, 26mm)",
             "is_dollhouse": False,
-            "eye_m": [round(min_x + span_x * 0.50, 3), round(max_y - span_y * 0.14, 3), 1.50],
-            "target_m": [round(cx, 3), round(cy - span_y * 0.08, 3), 0.78],
+            "eye_m": [round(eye_x, 3), round(eye_y, 3), 1.50],
+            "target_m": [round(tgt_x, 3), round(tgt_y, 3), 0.78],
             "lens_mm": 26.0,
             "hide_ceiling": False,
         }
+
+    # ── Corner: inside corner (min_x, min_y) looking toward far corner ────────
     if cam_key == "corner":
-        max_span = max(span_x, span_y)
+        # Place eye inside the near-left corner, inset from both walls
+        eye_x = min_x + INSET
+        eye_y = min_y + INSET
+        eye_z = max(2.0, span_x * 0.38 + span_y * 0.22)
         return {
             "camera_id": "corner",
-            # Stay outside the room envelope while filling the frame. The
-            # earlier 0.75-span offset made compact rooms look like tiny
-            # dollhouses surrounded by the HDRI background.
-            "eye_m": [
-                round(min_x - span_x * 0.45, 3),
-                round(min_y - span_y * 0.45, 3),
-                round(max(3.3, max_span * 0.80), 3),
-            ],
-            "target_m": [round(cx, 3), round(cy, 3), 0.78],
-            "lens_mm": 32.0,
+            "preset_name": "Góc phòng (Corner Inside)",
+            "is_dollhouse": False,
+            "eye_m": [round(eye_x, 3), round(eye_y, 3), round(eye_z, 3)],
+            "target_m": [round(max_x - INSET, 3), round(max_y - INSET, 3), 0.78],
+            "lens_mm": 24.0,
             "hide_ceiling": False,
         }
+
+    # ── Wide: centered on one wall face looking into the room (classic interior) ─
     if cam_key == "wide":
+        # Avoid corner proximity — position at horizontal center of far wall,
+        # INSET from wall face. No nearby perpendicular wall in frame.
+        eye_x = cx
+        eye_y = max_y - INSET
+        tgt_y = min_y + max(0.6, span_y * 0.22)
         return {
             "camera_id": "wide",
-            "eye_m": [round(max_x - span_x * 0.08, 3), round(max_y - span_y * 0.08, 3), 2.15],
-            "target_m": [round(cx, 3), round(cy, 3), 0.75],
-            "lens_mm": 22.0,
+            "preset_name": "Góc rộng từ trung tâm tường (Wide 24mm)",
+            "is_dollhouse": False,
+            "eye_m": [round(eye_x, 3), round(eye_y, 3), 2.0],
+            "target_m": [round(sofa_x, 3), round(tgt_y, 3), 0.75],
+            "lens_mm": 24.0,
             "hide_ceiling": False,
         }
+
+    # ── Door: standing just inside the doorway looking into the room ───────────
     if cam_key == "door":
+        # Find the opening nearest to max_y (main entrance) if available
+        door_x, door_y = cx, max_y - INSET
+        if project.openings:
+            main_door = max(project.openings, key=lambda o: o.offset_mm if hasattr(o, "offset_mm") else 0.0, default=None)
+            if main_door and hasattr(main_door, "wall_id"):
+                for w in project.walls:
+                    if w.id == main_door.wall_id:
+                        door_x = ((w.start_mm[0] + w.end_mm[0]) / 2.0) / 1000.0
+                        door_y = max_y - INSET
+                        break
         return {
             "camera_id": "door",
-            "eye_m": [round(min_x + 0.42, 3), round(max_y - 0.52, 3), 1.48],
-            "target_m": [round(cx + 0.18, 3), round(min_y + span_y * 0.34, 3), 0.92],
+            "preset_name": "Từ cửa vào (Doorway)",
+            "is_dollhouse": False,
+            "eye_m": [round(door_x, 3), round(door_y, 3), 1.48],
+            "target_m": [round(cx, 3), round(min_y + span_y * 0.35, 3), 0.92],
             "lens_mm": 25.0,
             "hide_ceiling": False,
         }
+
+    # ── Tour: architectural walk-through — entry corner, sweeping view ─────────
+    if cam_key in {"tour", "walkthrough", "tham_quan"}:
+        # Eye at entry corner (max_y side) looking diagonally toward opposite corner
+        eye_x = min_x + INSET * 1.2
+        eye_y = max_y - INSET
+        tgt_x = max_x - INSET * 1.5
+        tgt_y = min_y + span_y * 0.30
+        return {
+            "camera_id": "tour",
+            "preset_name": "Tham quan nội thất (Walk-Through 20mm)",
+            "is_dollhouse": False,
+            "eye_m": [round(eye_x, 3), round(eye_y, 3), 1.62],
+            "target_m": [round(tgt_x, 3), round(tgt_y, 3), 0.85],
+            "lens_mm": 20.0,
+            "hide_ceiling": False,
+        }
+
+    # ── Detail/sofa close-up ────────────────────────────────────────────────────
     if cam_key in {"detail", "detail_sofa"}:
         if sofa and sofa.category.lower() in {"bunk_bed", "bunkbed"}:
             return {
                 "camera_id": cam_key,
-                "eye_m": [round(sofa_x, 3), round(min(max_y - 0.85, sofa_y + 1.85), 3), 2.05],
+                "eye_m": [round(sofa_x, 3), round(min(max_y - INSET, sofa_y + 1.85), 3), 2.05],
                 "target_m": [round(sofa_x, 3), round(sofa_y, 3), 0.92],
                 "lens_mm": 27.0,
                 "hide_ceiling": False,
             }
-        # Position 2.1m in front of the sofa looking directly at the sofa and floor tile
         dx = cx - sofa_x
         dy = cy - sofa_y
         dist = math.hypot(dx, dy) or 1.0
         dir_x, dir_y = dx / dist, dy / dist
         if dist < 0.6:
             dir_x, dir_y = 0.7, -0.7
+        # Clamp eye to stay inside room bounds
+        eye_x = max(min_x + INSET, min(max_x - INSET, sofa_x + dir_x * 2.15))
+        eye_y = max(min_y + INSET, min(max_y - INSET, sofa_y + dir_y * 2.15))
         return {
             "camera_id": cam_key,
-            "eye_m": [round(sofa_x + dir_x * 2.15, 3), round(sofa_y + dir_y * 2.15, 3), 1.18],
+            "eye_m": [round(eye_x, 3), round(eye_y, 3), 1.18],
             "target_m": [round(sofa_x, 3), round(sofa_y, 3), round(sofa_z, 3)],
             "lens_mm": 35.0,
             "hide_ceiling": False,
         }
+
+    # ── Top-down ortho ─────────────────────────────────────────────────────────
     if cam_key == "top":
         max_span = max(span_x, span_y)
         return {
@@ -512,14 +617,14 @@ def _compute_camera_spec(project: CanonicalProject, camera_id: str) -> Dict[str,
             "target_m": [round(cx, 3), round(cy, 3), 0.0],
             "lens_mm": 32.0,
             "projection": "ORTHO",
-            # Blender's ortho_scale is the horizontal scale. A landscape
-            # render therefore needs extra width to retain the full room depth.
             "ortho_scale": round(max_span * 2.0, 3),
             "hide_ceiling": True,
         }
+
+    # ── Fallback: safe interior point ─────────────────────────────────────────
     return {
         "camera_id": cam_key,
-        "eye_m": [round(cx + span_x * 0.28, 3), round(min_y + span_y * 0.14, 3), 1.55],
+        "eye_m": [round(cx + span_x * 0.22, 3), round(min_y + INSET, 3), 1.55],
         "target_m": [round(cx, 3), round(cy, 3), 0.80],
         "lens_mm": 28.0,
         "hide_ceiling": False,
@@ -772,6 +877,31 @@ def build_scene_bridge_manifest(
         }
 
     camera_spec = _compute_camera_spec(project, camera)
+    external_scene_payload = None
+    if project.external_scene:
+        external_scene_payload = project.external_scene.model_dump()
+        source_path = project.external_scene.source_path
+        if source_path and Path(source_path).is_file():
+            external_scene_payload["disk_path"] = str(Path(source_path).resolve())
+        # The source GLB has no embedded camera. Frame the verified imported
+        # bounds in Blender coordinates (glTF Y-up becomes Blender Z-up).
+        bounds = project.external_scene.bounds_size_m
+        if len(bounds) == 3:
+            span_x, span_z, span_y = [float(v) for v in bounds]
+            bmin = project.external_scene.bounds_min_m
+            bmax = project.external_scene.bounds_max_m
+            min_x, max_x = float(bmin[0]), float(bmax[0])
+            min_y, max_y = -float(bmax[2]), -float(bmin[2])
+            min_z, max_z = float(bmin[1]), float(bmax[1])
+            external_scene_payload["blender_bounds_min_m"] = [min_x, min_y, min_z]
+            external_scene_payload["blender_bounds_max_m"] = [max_x, max_y, max_z]
+            camera_spec = {
+                "camera_id": camera,
+                "eye_m": [min_x + span_x * 0.11, min_y + span_y * 0.42, min(1.55, max_z - 0.3)],
+                "target_m": [min_x + span_x * 0.56, min_y + span_y * 0.52, min(1.20, max_z - 0.55)],
+                "lens_mm": 24.0,
+                "hide_ceiling": False,
+            }
 
     rooms_payload = []
     for r in project.rooms:
@@ -837,6 +967,7 @@ def build_scene_bridge_manifest(
             "openings": [d.model_dump() for d in project.openings],
             "windows": [win.model_dump() for win in project.windows],
         },
+        "external_scene": external_scene_payload,
         "furniture_assets": furniture_bridge,
         "canonical_material_definitions": registry_defs,
         "surface_material_overrides": {
@@ -1889,6 +2020,22 @@ def _run_render_job_worker(job_id: str, simulate_delay_ms: int = 0, force_invali
         job["status"] = "FAILED"
         job["error_code"] = "PROJECT_NOT_FOUND"
         job["error_message"] = f"Không tìm thấy dự án {job['project_id']}"
+        job["completed_at"] = _utc_iso()
+        return _save_render_job(job)
+
+    # Scene Integrity Guardian: an async job must never render a newer scene
+    # under an older snapshot. Material changes are equally revision-sensitive.
+    expected_revision = int(job.get("revision") or 0)
+    current_material_hash = compute_project_material_hash(project)
+    if project.revision != expected_revision or (
+        job.get("material_hash") and job.get("material_hash") != current_material_hash
+    ):
+        job["status"] = "BLOCKED"
+        job["error_code"] = "STALE_REVISION"
+        job["error_message"] = (
+            f"Scene đã thay đổi sau khi xếp job: expected revision {expected_revision}, "
+            f"current revision {project.revision}. Hãy tạo render job mới."
+        )
         job["completed_at"] = _utc_iso()
         return _save_render_job(job)
 

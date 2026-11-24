@@ -1,8 +1,7 @@
 /**
  * ATELIER AI — Dedicated Object and Furniture Inspector (Sections 6.3 & 11)
  * Synchronizes selection between Furniture List, Object Properties (X/Y/Z, Rotation, Dimensions, Price),
- * 3D Asset Switcher and 2D/3D Pascal Viewport. Color and material choices are
- * delegated to the AI Copilot proposal flow instead of manual preset pickers.
+ * 3D Asset Switcher and 2D/3D Pascal Viewport.
  */
 import { ConstructionHistoryPanel } from './ConstructionHistoryPanel'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
@@ -12,7 +11,6 @@ import {
   RotateCw,
   Save,
   Layers,
-  Palette,
   Box,
   Sliders,
   X,
@@ -29,7 +27,6 @@ interface ObjectInspectorProps {
   onCommitCanvasPosition: () => void
   onAssignAsset?: (objectId: string, assetId: string) => Promise<any>
   onImportAsset?: (objectId: string, file: File) => Promise<any>
-  onOpenAICopilot?: () => void
   onRequestSmartFit?: (objectId: string) => Promise<any>
   onRequestPlacementOptions?: (objectId: string) => Promise<any>
   onCreatePlacementProposal?: (objectId: string, option: any) => Promise<any>
@@ -55,7 +52,6 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
   onCommitCanvasPosition,
   onAssignAsset,
   onImportAsset,
-  onOpenAICopilot,
   onRequestSmartFit,
   onRequestPlacementOptions,
   onCreatePlacementProposal,
@@ -434,21 +430,6 @@ export const ObjectInspector: React.FC<ObjectInspectorProps> = ({
             </div>
           )}
         </div>
-
-        {!externalScene && <div className="inspector-section" data-testid="ai-material-guidance">
-          <div className="inspector-section-body" style={{ gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-              <Palette size={13} style={{ color: 'var(--accent)' }} />
-              Màu và vật liệu do AI đề xuất
-            </div>
-            <div className="text-caption">
-              Mô tả phong cách hoặc màu mong muốn. AI sẽ tìm phương án phù hợp và gửi đề xuất để bạn duyệt trước khi áp dụng.
-            </div>
-            <button type="button" className="btn btn-sm btn-primary" onClick={onOpenAICopilot}>
-              Mở AI Copilot
-            </button>
-          </div>
-        </div>}
 
         {selectedFurn && (
           <div className="inspector-section" data-testid="smart-fit-editor">

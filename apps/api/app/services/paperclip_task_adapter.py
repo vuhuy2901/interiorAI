@@ -251,3 +251,30 @@ def respond_to_interaction(
     if not isinstance(payload, dict):
         raise PaperclipTaskError("Paperclip interaction response is not an object")
     return payload
+
+
+def cancel_native_task(issue_id: str) -> Dict[str, Any]:
+    """Cancel a Paperclip issue that is stuck (e.g. process_identity_missing).
+    Sets status to cancelled so Paperclip releases the execution lock."""
+    payload = _request_json("PATCH", f"/api/issues/{issue_id}", {"status": "cancelled"})
+    if not isinstance(payload, dict):
+        raise PaperclipTaskError("Paperclip cancel response is not an object")
+    return payload
+
+
+def retry_native_task(issue_id: str) -> Dict[str, Any]:
+    """Explicitly request Paperclip to retry a failed task run."""
+    payload = _request_json("POST", f"/api/issues/{issue_id}/retry", {})
+    if not isinstance(payload, dict):
+        raise PaperclipTaskError("Paperclip retry response is not an object")
+    return payload
+
+
+def admin_force_release_task(issue_id: str) -> Dict[str, Any]:
+    """Force-release a Paperclip issue's execution lock via the admin endpoint.
+    Clears checkoutRunId/executionRunId so new execution can be queued.
+    Does NOT cancel the issue, so retry remains possible."""
+    payload = _request_json("POST", f"/api/issues/{issue_id}/admin/force-release")
+    if not isinstance(payload, dict):
+        raise PaperclipTaskError("Paperclip admin force-release response is not an object")
+    return payload

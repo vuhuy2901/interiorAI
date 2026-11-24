@@ -24,7 +24,7 @@ SH3D_JAPANDI_CATALOG_PATH = UI_PUBLIC_DIR / "assets" / "sh3d-japandi" / "catalog
 SH3D_CATALOG_PATH = SH3D_JAPANDI_CATALOG_PATH
 PBR_CATALOG_PATH = UI_PUBLIC_DIR / "assets" / "pbr" / "pbr_catalog.json"
 RENDERS_DIR = ROOT_DIR / "data" / "exports" / "renders"
-DEFAULT_ASSET_PACK = "sh3d-japandi"
+DEFAULT_ASSET_PACK = "sh3d-classic"  # Modern/mặc định; Japandi chọn sh3d-japandi theo style
 
 DEFAULT_MATERIAL_BY_SURFACE: Dict[str, str] = {
     "floor": "pbr_floor_oak_light",
@@ -77,9 +77,10 @@ def resolve_asset_pack_id(
             if str(preset.get("id", "")).strip().lower() == sid and preset.get("asset_pack"):
                 return str(preset["asset_pack"])
 
+    # Japandi dùng sh3d-japandi; mọi style còn lại (gồm Modern mặc định) dùng sh3d-classic.
     combined = f"{sid} {str(b_style or '').lower()}"
-    if re.search(r"classic|cổ\s*điển|co_dien|neoclassic", combined):
-        return "sh3d-classic"
+    if re.search(r"japandi", combined):
+        return "sh3d-japandi"
     return DEFAULT_ASSET_PACK
 
 
@@ -600,7 +601,7 @@ import math
 import os
 import re
 import sys
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Euler
 
 argv = sys.argv
 if "--" not in argv:
@@ -629,6 +630,49 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.unit_settings.system = 'METRIC'
 scene.unit_settings.scale_length = 1.0
+
+# Whole-scene GLBs are authoritative visual geometry. Import the original
+# hierarchy/materials/textures and suppress generated room/furniture proxies;
+# canonical semantics remain in the manifest for BOM and QA provenance.
+external_scene = manifest.get("external_scene") or {}
+external_glb_path = external_scene.get("disk_path")
+external_scene_imported = False
+external_mesh_count = 0
+if external_glb_path and os.path.isfile(external_glb_path):
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=external_glb_path)
+    imported = [obj for obj in bpy.data.objects if obj not in before]
+    root_transform = external_scene.get("root_transform") or {}
+    translation = root_transform.get("translation") or [0.0, 0.0, 0.0]
+    rotation_deg = root_transform.get("rotation_euler_deg") or [0.0, 0.0, 0.0]
+    scale = root_transform.get("scale") or [1.0, 1.0, 1.0]
+    # root_transform is authored in glTF/Three Y-up coordinates. Blender's
+    # importer converts the source to Z-up, so conjugate the additional root
+    # matrix through the same axis conversion before applying it to imported
+    # top-level objects. This keeps the viewer, bridge bounds and Cycles render
+    # on one reproducible transform contract.
+    three_to_blender = Matrix((
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 0.0, -1.0, 0.0),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    ))
+    three_root = (
+        Matrix.Translation(Vector((float(translation[0]), float(translation[1]), float(translation[2]))))
+        @ Euler(tuple(math.radians(float(value)) for value in rotation_deg), 'XYZ').to_matrix().to_4x4()
+        @ Matrix.Diagonal(Vector((float(scale[0]), float(scale[1]), float(scale[2]), 1.0)))
+    )
+    blender_root = three_to_blender @ three_root @ three_to_blender.inverted()
+    imported_set = set(imported)
+    for obj in imported:
+        if obj.parent not in imported_set:
+            obj.matrix_world = blender_root @ obj.matrix_world
+    bpy.context.view_layer.update()
+    external_mesh_count = len([obj for obj in imported if obj.type == 'MESH'])
+    external_scene_imported = external_mesh_count > 0
+    if external_scene_imported:
+        manifest["pascal_geometry"] = {"units": "mm", "rooms": [], "walls": [], "openings": [], "windows": []}
+        manifest["furniture_assets"] = []
 
 def hex_to_rgba(hex_str, alpha=1.0):
     h = (hex_str or "#FFFFFF").lstrip("#")
@@ -814,6 +858,16 @@ house_cx = (house_min_x + house_max_x) / 2.0
 house_cy = (house_min_y + house_max_y) / 2.0
 house_w = max(2.0, house_max_x - house_min_x)
 house_d = max(2.0, house_max_y - house_min_y)
+if external_scene_imported:
+    ext_min = external_scene.get("blender_bounds_min_m") or []
+    ext_max = external_scene.get("blender_bounds_max_m") or []
+    if len(ext_min) == 3 and len(ext_max) == 3:
+        house_min_x, house_min_y = float(ext_min[0]), float(ext_min[1])
+        house_max_x, house_max_y = float(ext_max[0]), float(ext_max[1])
+        house_cx = (house_min_x + house_max_x) / 2.0
+        house_cy = (house_min_y + house_max_y) / 2.0
+        house_w = max(2.0, house_max_x - house_min_x)
+        house_d = max(2.0, house_max_y - house_min_y)
 
 # 2. Build Floor Material & Polygonal Room Floors
 floor_tint = floor_pbr_spec.get("base_color") or floor_resolved.get("tint") or tile_tex.get("tint") or "#D8C3A5"
@@ -1673,6 +1727,8 @@ scene.collection.objects.link(sun_obj)
 # Warm Indoor Area & Point Lights from scene data
 area_data = bpy.data.lights.new(name="AREA_CEILING_FILL", type='AREA')
 area_data.energy = float(light_spec.get("interior_light_energy", 85.0 if is_dollhouse else 135.0))
+if external_scene_imported:
+    area_data.energy = max(area_data.energy, 1250.0)
 ic = light_spec.get("interior_light_color", [1.0, 0.95, 0.88])
 area_data.color = (ic[0], ic[1], ic[2])
 area_data.size = max(2.2, min(house_w, house_d) * 0.65)
@@ -1765,6 +1821,7 @@ verification = {
     "compute_device_used": compute_device_used,
     "blend_file_path": blend_out_path,
     "counts": {
+        "external_meshes": external_mesh_count,
         "expected_rooms": len(rooms),
         "actual_rooms": len(created_rooms),
         "expected_walls": len(walls),
@@ -1778,6 +1835,7 @@ verification = {
         "extra_untracked_furniture": max(0, len(all_furn_roots) - len(manifest.get("furniture_assets", []))),
     },
     "checks": {
+        "external_scene_imported": (external_scene_imported if external_scene else True),
         "exact_object_counts": (
             len(created_rooms) == len(rooms)
             and len(created_walls) == len(walls)

@@ -41,14 +41,52 @@ export interface AtelierProjectIntakeResult {
   conversationIssueId: string | null;
   initializationStatus: "ready" | "retry_required" | "blocked";
   error: string | null;
+  workflowRunId?: string;
+  rootIssueId?: string;
+  stages?: Array<{ stageKey: string; status: string; issueId: string | null; agentId: string }>;
+}
+
+export interface AtelierIssueScene {
+  issue_id: string;
+  company_id: string;
+  scene_id: string;
+  native_project_id: string | null;
+  origin: "new" | "continued";
+  created: boolean;
+}
+
+export interface AtelierSelectableProject {
+  project_id: string;
+  name: string;
+  revision?: number;
+  hidden?: boolean;
 }
 
 export const atelierApi = {
-  startProject: (companyId: string, brief: string, idempotencyKey: string) =>
+  /** Danh sách dự án có thể chọn (đã loại dự án ẩn và fixture ở phía API). */
+  listProjects: async (): Promise<AtelierSelectableProject[]> => {
+    const res = await fetch("/api/v1/projects?include_fixtures=false");
+    if (!res.ok) throw new Error(`Không thể tải danh sách dự án (${res.status})`);
+    const json = await res.json();
+    const rows: AtelierSelectableProject[] = Array.isArray(json) ? json : json.projects || [];
+    return rows.filter((item) => item && item.project_id && !item.hidden);
+  },
+  /** Scene của đúng task này; idempotent. continueSceneId chỉ truyền khi người dùng chủ động chọn tiếp tục dự án cũ. */
+  ensureIssueScene: (issueId: string, continueSceneId?: string | null) =>
+    api.post<AtelierIssueScene>(`/issues/${encodeURIComponent(issueId)}/atelier/scene`, {
+      continueSceneId: continueSceneId ?? null,
+    }),
+  issueScene: (issueId: string) =>
+    api.get<AtelierIssueScene>(`/issues/${encodeURIComponent(issueId)}/atelier/scene`),
+  startProject: (companyId: string, brief: string, idempotencyKey: string, options?: { sourceIssueId?: string; workflowDefinitionId?: string; executionMode?: "delivery" | "consultation" }) =>
     api.post<AtelierProjectIntakeResult>(`/companies/${encodeURIComponent(companyId)}/atelier/project-intakes`, {
       brief,
       idempotencyKey,
+      executionMode: "delivery",
+      decisionPolicy: "specialist_autonomy",
+      ...options,
     }),
+  deliveryRun: (runId: string) => api.get<Record<string, unknown>>(`/atelier/workflow/runs/${encodeURIComponent(runId)}`),
   workspace: (projectId: string) =>
     api.get<AtelierProjectWorkspace>(`/projects/${encodeURIComponent(projectId)}/atelier/workspace`),
   scene: (projectId: string, sceneId: string) =>

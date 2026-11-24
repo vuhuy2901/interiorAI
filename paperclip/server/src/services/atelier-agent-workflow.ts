@@ -12,7 +12,7 @@ export type AtelierAgentKey =
   | "agent_geometry"
   | "agent_furniture"
   | "agent_style"
-  | "agent_ceiling_lighting"
+  | "agent_render"
   | "agent_qa"
   | "agent_research"
   | "agent_cost";
@@ -73,11 +73,11 @@ export const ATELIER_WORKFLOW_STAGES: readonly AtelierWorkflowStage[] = [
   },
   {
     key: "lighting",
-    label: "Lighting & Visualization — trần, đèn và camera",
-    agentKey: "agent_ceiling_lighting",
+    label: "Render — camera, lighting & visualization",
+    agentKey: "agent_render",
     dependsOn: ["furniture", "style"],
     priority: "medium",
-    description: "Thiết kế trần/chiếu sáng, thiết lập camera và tạo bằng chứng phối cảnh bám sát SceneGraph.",
+    description: "Inspect canonical scene, plan cameras and lighting, run Blender Cycles render pipeline, publish gallery artifacts.",
   },
   {
     key: "research",
@@ -227,153 +227,14 @@ export async function reconcileAtelierAgentWorkflow(
   db: Db,
   input: AtelierWorkflowReconcileInput,
 ): Promise<AtelierWorkflowSummary> {
-  validateAtelierWorkflowGraph();
-  const svc = issueService(db);
-  const rootOriginId = `${ATELIER_WORKFLOW_ORIGIN}:${input.projectId}:root`;
-  const existing = await db.select().from(issues).where(eq(issues.companyId, input.companyId));
-  let root = existing.find((issue) => issue.originId === rootOriginId) ?? null;
-  if (!root) {
-    root = await svc.create(input.companyId, {
-      projectId: input.projectId,
-      goalId: input.goalId,
-      title: "[ATELIER WORKFLOW] Điều phối thiết kế nội thất end-to-end",
-      description: "Workflow root do Chief Architect quản lý. Các task con và dependency là nguồn sự thật cho handoff giữa các Atelier agents.",
-      status: "backlog",
-      priority: "high",
-      assigneeAgentId: input.chiefAgentId,
-      createdByAgentId: input.chiefAgentId,
-      responsibleUserId: "local-board",
-      originKind: "manual",
-      originId: rootOriginId,
-      idempotencyKey: rootOriginId,
-      allowDuplicate: false,
-    });
-  }
-
-  // Origin IDs identify this workflow permanently. The board may explicitly
-  // relocate its root to another project; startup must preserve that binding.
-  const boundProjectId = root.projectId ?? input.projectId;
-
-  const tasks = new Map<string, typeof issues.$inferSelect>();
-  for (const stage of ATELIER_WORKFLOW_STAGES) {
-    const agentId = input.agentIdsByKey[stage.agentKey];
-    if (!agentId) throw new Error(`Missing Atelier agent ${stage.agentKey}`);
-    const originId = `${ATELIER_WORKFLOW_ORIGIN}:${input.projectId}:stage:${stage.key}`;
-    const taskTitle = `[ATELIER • ${stage.key}] ${stage.label}`;
-    const taskDescription = `${stage.description}\n\nCurrent project binding: ${boundProjectId}. Read GET /api/v1/native-projects/${boundProjectId}/workspace on the canonical sidecar to resolve the linked scene before work. The active imported GLB, if present, is authoritative; do not reuse old bedroom/demo furniture or treat historical missing-input comments as current facts. Read current scene/revision and prior user decisions first.\n\nDecision gate: dữ liệu về ngân sách, công năng, phong cách, màu sơn/bảng màu, vật liệu hoặc nội thất chưa được người dùng xác nhận phải trả needs_input. Chỉ trình A/B/C và chờ người dùng chọn; không tự chốt, không dùng dữ liệu demo làm fact.\n\nKhi hoàn tất, chỉ handoff theo các target được công bố trong Atelier workflow.`;
-    const blockerIds = stage.dependsOn.map((dependency) => {
-      const task = tasks.get(dependency);
-      if (!task) throw new Error(`Workflow dependency ${dependency} was not reconciled before ${stage.key}`);
-      return task.id;
-    });
-    let task = existing.find((issue) => issue.originId === originId) ?? null;
-    if (!task && stage.legacyIssueNumber !== undefined) {
-      task = existing.find((issue) =>
-        issue.projectId === boundProjectId && issue.issueNumber === stage.legacyIssueNumber) ?? null;
-    }
-    if (!task) {
-      task = await svc.create(input.companyId, {
-        projectId: boundProjectId,
-        goalId: input.goalId,
-        parentId: root.id,
-        parentDepthPolicy: "allow_nested",
-        expectedParentId: root.id,
-        title: taskTitle,
-        description: taskDescription,
-        status: "todo",
-        priority: stage.priority,
-        assigneeAgentId: agentId,
-        createdByAgentId: input.chiefAgentId,
-        responsibleUserId: "local-board",
-        originKind: "manual",
-        originId,
-        blockedByIssueIds: blockerIds,
-        idempotencyKey: originId,
-        allowDuplicate: false,
-      });
-    } else {
-      const normalizeIdleInProgress = task.status === "in_progress" && !task.executionRunId && !task.checkoutRunId;
-      const updated = await svc.update(task.id, {
-        companyGuard: input.companyId,
-        projectId: boundProjectId,
-        goalId: input.goalId,
-        parentId: root.id,
-        parentDepthPolicy: "allow_nested",
-        expectedParentId: root.id,
-        title: taskTitle,
-        description: taskDescription,
-        assigneeAgentId: agentId,
-        originKind: "manual",
-        originId,
-        blockedByIssueIds: blockerIds,
-        ...(normalizeIdleInProgress ? { status: "todo", startedAt: null } : {}),
-        actorAgentId: input.chiefAgentId,
-      });
-      if (updated) task = updated;
-    }
-    tasks.set(stage.key, task);
-  }
-
-  const finalTask = tasks.get("final_review");
-  if (!finalTask) throw new Error("Atelier workflow final_review stage is missing");
-  const completion = atelierWorkflowCompletion([...tasks.values()]);
-  const updatedRoot = await svc.update(root.id, {
-    companyGuard: input.companyId,
-    projectId: boundProjectId,
-    goalId: input.goalId,
-    assigneeAgentId: input.chiefAgentId,
-    status: completion.status,
-    blockedByIssueIds: completion.blockedByIssueIds,
-    actorAgentId: input.chiefAgentId,
-  });
-  if (updatedRoot) root = updatedRoot;
-
-  const allAgentIds = Object.values(input.agentIdsByKey);
-  const agentRows = await db.select().from(agents).where(and(
-    eq(agents.companyId, input.companyId),
-    inArray(agents.id, allAgentIds),
-  ));
-  const keyById = new Map(Object.entries(input.agentIdsByKey).map(([key, id]) => [id, key as AtelierAgentKey]));
-  for (const agent of agentRows) {
-    const agentKey = keyById.get(agent.id);
-    if (!agentKey) continue;
-    const handoffTargets = atelierHandoffTargets(agentKey);
-    const metadata = (agent.metadata as Record<string, unknown> | null) ?? {};
-    const permissions = (agent.permissions as Record<string, unknown> | null) ?? {};
-    const allowedTools = new Set(Array.isArray(permissions.allowedTools) ? permissions.allowedTools.filter((tool): tool is string => typeof tool === "string") : []);
-    if (handoffTargets.length > 0) {
-      allowedTools.add("Tasks");
-      allowedTools.add("Conversations");
-    }
-    await db.update(agents).set({
-      metadata: {
-        ...metadata,
-        atelierWorkflow: {
-          version: ATELIER_WORKFLOW_VERSION,
-          stages: ATELIER_WORKFLOW_STAGES.filter((stage) => stage.agentKey === agentKey).map((stage) => stage.key),
-          handoffTargets,
-        },
-      },
-      permissions: { ...permissions, allowedTools: [...allowedTools] },
-      updatedAt: new Date(),
-    }).where(and(eq(agents.companyId, input.companyId), eq(agents.id, agent.id)));
-  }
-
-  const stageRows = [...tasks.entries()].map(([stageKey, issue]) => ({ stageKey, issue }));
+  // Bootstrap is configuration-only. Retain its historical read contract but
+  // never create or normalize delivery tasks as a side effect of a GET/startup.
+  const retained = await getAtelierIssueWorkflowView(db, input.companyId, input.projectId);
   return {
-    version: ATELIER_WORKFLOW_VERSION,
-    projectId: boundProjectId,
-    rootIssueId: root.id,
-    stages: stageRows.map(({ stageKey, issue }) => ({
-      stageKey,
-      issueId: issue.id,
-      identifier: issue.identifier,
-      status: issue.status,
-      assigneeAgentId: issue.assigneeAgentId,
-      parentId: issue.parentId,
-      blockedByIssueIds: ATELIER_WORKFLOW_STAGES.find((stage) => stage.key === stageKey)?.dependsOn
-        .map((dependency) => tasks.get(dependency)?.id)
-        .filter((id): id is string => Boolean(id)) ?? [],
-    })),
+    version: ATELIER_WORKFLOW_VERSION, projectId: input.projectId,
+    rootIssueId: retained?.rootIssue.id ?? "",
+    stages: retained?.stages.flatMap(row => row.issue ? [{ stageKey: row.stageKey, issueId: row.issue.id,
+      identifier: row.issue.identifier, status: row.issue.status, assigneeAgentId: row.issue.assigneeAgentId,
+      parentId: retained.rootIssue.id, blockedByIssueIds: [] }] : []) ?? [],
   };
 }

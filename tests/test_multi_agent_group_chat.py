@@ -197,3 +197,75 @@ def test_i_restart_readback_uses_persisted_events_without_native_calls(runtime, 
     restored = chat_sync.list_project_events("project_chat")
     assert len(restored["events"]) == 1
     assert restored["events"][0]["conversation_id"] == "conversation-1"
+
+
+def _complete_run(run_id="run_chat", *, status="COMPLETED", cost=None, cad=True, render=True):
+    events = [
+        {"node_id": "chief", "node_type": "input_intake", "executor_type": "input_intake", "status": "COMPLETED"},
+        {"node_id": "cost", "node_type": "deterministic_cost", "executor_type": "deterministic_cost", "status": "COMPLETED",
+         "output": cost},
+        {"node_id": "render", "node_type": "render_gen", "executor_type": "render_gen", "status": "COMPLETED" if render else "SKIPPED",
+         "output": {"render_url": "/api/v1/renders/a.png"} if render else {"skipped": True}},
+        {"node_id": "cad", "node_type": "cad_export", "executor_type": "cad_export", "status": "COMPLETED" if cad else "BLOCKED",
+         "output": {"dxf_path": "x.dxf", "glb_path": "x.glb", "bom_csv_path": "x.csv"} if cad else None},
+    ]
+    doc = {"run_id": run_id, "project_id": "project_chat", "status": status, "scene_revision": 7,
+           "started_at": "2026-11-13T01:00:00+00:00", "completed_at": "2026-11-13T01:02:05+00:00",
+           "workflow_snapshot": {"nodes": [{"id": "chief", "type": "input_intake", "agent_id": "lead"}], "edges": []}, "events": events}
+    conn = db.get_conn()
+    conn.execute("INSERT OR REPLACE INTO projects (project_id, name, payload_json, updated_at) VALUES ('project_chat', 'Căn hộ Demo', '{}', ?)",
+                 (db.now_iso(),))
+    conn.execute("INSERT INTO workflow_runs (run_id, workflow_id, project_id, status, payload_json, updated_at) VALUES (?, 'wf', 'project_chat', ?, ?, ?)",
+                 (run_id, status, json.dumps(doc), db.now_iso()))
+    conn.commit()
+    conn.close()
+
+
+def _completion_events():
+    return [e for e in chat_sync.list_project_events("project_chat")["events"] if e["event_type"] == "PROJECT_COMPLETED"]
+
+
+def test_j_completed_run_gets_one_idempotent_summary_with_real_numbers(runtime):
+    _complete_run(cost={"total_vnd": 125000000, "total_is_complete": True, "price_coverage_percent": 100,
+                        "priced_line_count": 10, "unpriced_line_count": 0})
+    first = chat_sync.sync_workflow_run_to_chat("run_chat", "project_chat")
+    again = chat_sync.sync_workflow_run_to_chat("run_chat", "project_chat")
+    assert [i["event_type"] for i in first] == ["PROJECT_COMPLETED"] and again == []
+    events = _completion_events()
+    assert len(events) == 1
+    completion = events[0]["payload"]["completion"]
+    assert completion["project_name"] == "Căn hộ Demo" and completion["revision"] == 7
+    assert (completion["completed_nodes"], completion["total_nodes"], completion["duration_seconds"]) == (4, 4, 125.0)
+    assert completion["cost"]["total_is_complete"] is True
+    assert [e["kind"] for e in completion["exports"]] == ["dxf", "glb", "csv"]
+    assert completion["render_url"] == "/api/v1/renders/a.png"
+    conn = db.get_conn()
+    messages = conn.execute("SELECT content FROM chat_messages WHERE project_id='project_chat'").fetchall()
+    conn.close()
+    assert len(messages) == 1 and "Tổng dự toán: 125,000,000 VNĐ" in messages[0]["content"] and "tạm tính" not in messages[0]["content"]
+
+
+def test_k_incomplete_pricing_is_labelled_provisional_and_missing_fields_say_chua_co(runtime):
+    _complete_run(cost={"total_vnd": 90000000, "total_is_complete": False, "price_coverage_percent": 60,
+                        "priced_line_count": 6, "unpriced_line_count": 4}, cad=False, render=False)
+    chat_sync.sync_workflow_run_to_chat("run_chat", "project_chat")
+    conn = db.get_conn()
+    content = conn.execute("SELECT content FROM chat_messages WHERE project_id='project_chat'").fetchone()["content"]
+    conn.close()
+    assert "Dự toán tạm tính: 90,000,000 VNĐ (tạm tính, 6/10 hạng mục có giá" in content
+    assert "Tổng dự toán" not in content
+    assert "File xuất: chưa có" in content and "Ảnh render: chưa có" in content
+    assert _completion_events()[0]["payload"]["completion"]["exports"] == []
+
+
+def test_l_cost_node_missing_is_not_invented(runtime):
+    _complete_run(cost=None)
+    chat_sync.sync_workflow_run_to_chat("run_chat", "project_chat")
+    assert _completion_events()[0]["payload"]["completion"]["cost"] is None
+
+
+@pytest.mark.parametrize("status", ["BLOCKED", "WAITING_FOR_INPUT", "WAITING_FOR_AGENT", "FAILED"])
+def test_m_non_completed_run_has_no_celebration(runtime, status):
+    _complete_run(status=status, cost={"total_vnd": 1, "total_is_complete": True})
+    chat_sync.sync_workflow_run_to_chat("run_chat", "project_chat")
+    assert _completion_events() == []

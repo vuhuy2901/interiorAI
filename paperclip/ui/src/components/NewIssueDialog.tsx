@@ -8,6 +8,8 @@ import { useDialog } from "../context/DialogContext";
 import { useCompany } from "../context/CompanyContext";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { issuesApi } from "../api/issues";
+import { atelierApi } from "../api/atelier";
+import { isAtelierAgent } from "../features/atelier/taskProjectScope";
 import { MissingUserSecretsBanner } from "../pages/secrets/MissingUserSecretsBanner";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { projectsApi } from "../api/projects";
@@ -620,6 +622,16 @@ function AccountNewIssueDialog({ ignoreDefaults }: { ignoreDefaults: boolean }) 
       const assertVerifiedOwner = () => { assertCurrentAccount(); assertCurrentOwner(); };
       assertVerifiedOwner();
       const issue = await issuesApi.create(companyId, data);
+      // FEAT-2026-131 CR-1: task atelier có scene ngay khi tạo. Không chặn việc tạo task; sidecar vẫn thử lại được.
+      if (isAtelierAgent(selectedAssigneeAgent)) {
+        // Chờ tối đa 6s để lúc mở task sidecar đã thấy scene; quá hạn hoặc lỗi thì bỏ qua (không chặn tạo task).
+        await Promise.race([
+          atelierApi.ensureIssueScene(issue.id, null),
+          new Promise((resolve) => setTimeout(resolve, 6000)),
+        ]).catch((error) => {
+          console.warn("[atelier] không tạo được dự án cho task mới, sidecar sẽ thử lại:", error);
+        });
+      }
       assertVerifiedOwner();
       const failures = await addStagedFilesToIssue({
         companyId,

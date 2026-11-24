@@ -1107,7 +1107,10 @@ def build_unified_project_boq(project_id: str) -> UnifiedProjectBOQ:
         )
     )
 
-    shipping_fee_vnd = 1500000.0
+    # Delivery depends on an address, which is intentionally outside the
+    # default proposal. Keep the optional line visible only as a zero-valued,
+    # excluded placeholder for backwards-compatible exports.
+    shipping_fee_vnd = 0.0
     items.append(
         UnifiedBOQItem(
             id=f"boq_logistics_ship_{proj.project_id}",
@@ -1128,7 +1131,7 @@ def build_unified_project_boq(project_id: str) -> UnifiedProjectBOQ:
             approval_state="PROPOSED",
             proposed_by_agent="Cost AI",
             calculation_formula=f"1 Chuyến xe tải 1.25 tấn: {shipping_fee_vnd:,.0f} ₫",
-            is_included_in_total=True,
+            is_included_in_total=False,
         )
     )
 

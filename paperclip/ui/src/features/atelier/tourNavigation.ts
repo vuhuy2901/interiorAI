@@ -36,6 +36,27 @@ export function createTourWorld(root: THREE.Object3D): TourWorld {
     const bounds=new THREE.Box3();surfaces.forEach(mesh=>bounds.union(new THREE.Box3().setFromObject(mesh)))
     floors.push({id,name:`Tầng ${id}`,height:bounds.max.y,bounds,surfaces})
   }
+  // Imported GLBs seldom use the demo scene's Plane/Cube names. When those
+  // anchors are absent, infer a walkable storey from broad, thin horizontal
+  // meshes near the bottom of the scene.
+  if (!floors.length) {
+    const rootBounds = new THREE.Box3().setFromObject(root)
+    const rootHeight = rootBounds.getSize(new THREE.Vector3()).y
+    const horizontal = probes.map(probe => {
+      const size = probe.bounds.getSize(new THREE.Vector3())
+      return { ...probe, size, area:size.x*size.z, top:probe.bounds.max.y }
+    }).filter(probe =>
+      probe.area>1 && probe.size.y<=Math.max(.35,Math.min(probe.size.x,probe.size.z)*.15)
+      && probe.top<rootBounds.min.y+Math.max(.75,rootHeight*.3)
+    )
+    const maxArea=Math.max(0,...horizontal.map(probe=>probe.area))
+    const floorSurfaces=horizontal.filter(probe=>probe.area>=Math.max(1,maxArea*.12))
+    if(floorSurfaces.length){
+      const bounds=new THREE.Box3();floorSurfaces.forEach(probe=>bounds.union(probe.bounds))
+      const height=Math.min(...floorSurfaces.map(probe=>probe.top))
+      floors.push({id:1,name:'Tầng 1',height,bounds,surfaces:floorSurfaces.map(probe=>probe.mesh)})
+    }
+  }
   const floorMeshes = new Set(floors.flatMap(floor=>floor.surfaces))
   const obstacles = probes.filter(probe=>!floorMeshes.has(probe.mesh))
   const ray = new THREE.Raycaster()
@@ -85,13 +106,29 @@ export function createTourWorld(root: THREE.Object3D): TourWorld {
   }
   const findSpawn = (floor:TourFloor,preferred?:THREE.Vector3) => {
     const wanted=preferred || new THREE.Vector3((floor.bounds.min.x+floor.bounds.max.x)/2,0,floor.bounds.max.z-1)
-    if(canStand(floor,wanted))return atEye(floor,wanted)
     const candidates:THREE.Vector3[]=[]
-    for(let x=floor.bounds.min.x+.35;x<floor.bounds.max.x-.35;x+=.5)
-      for(let z=floor.bounds.min.z+.35;z<floor.bounds.max.z-.35;z+=.5)candidates.push(new THREE.Vector3(x,0,z))
-    candidates.sort((a,b)=>Math.hypot(a.x-wanted.x,a.z-wanted.z)-Math.hypot(b.x-wanted.x,b.z-wanted.z))
-    for(const point of candidates)if(canStand(floor,point))return atEye(floor,point)
-    return null
+    if(canStand(floor,wanted))candidates.push(wanted.clone())
+    for(let x=floor.bounds.min.x+.45;x<floor.bounds.max.x-.45;x+=.6)
+      for(let z=floor.bounds.min.z+.45;z<floor.bounds.max.z-.45;z+=.6){
+        const point=new THREE.Vector3(x,0,z);if(canStand(floor,point))candidates.push(point)
+      }
+    const clearance=(point:THREE.Vector3)=>{
+      const y=support(floor,point.x,point.z)??floor.height
+      let nearest=Infinity
+      for(const probe of obstacles){
+        if(probe.bounds.max.y<=y+.12||probe.bounds.min.y>=y+TOUR_EYE_HEIGHT)continue
+        const dx=Math.max(probe.bounds.min.x-point.x,0,point.x-probe.bounds.max.x)
+        const dz=Math.max(probe.bounds.min.z-point.z,0,point.z-probe.bounds.max.z)
+        nearest=Math.min(nearest,Math.hypot(dx,dz))
+      }
+      return Number.isFinite(nearest)?nearest:10
+    }
+    candidates.sort((a,b)=>{
+      const safe=clearance(b)-clearance(a)
+      if(Math.abs(safe)>.05)return safe
+      return Math.hypot(a.x-wanted.x,a.z-wanted.z)-Math.hypot(b.x-wanted.x,b.z-wanted.z)
+    })
+    return candidates[0]?atEye(floor,candidates[0]):null
   }
   return {floors,support,canStand,move,findSpawn,dispose:()=>probeMaterial.dispose()}
 }

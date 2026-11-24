@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAtelierStudio } from "./AtelierStudioContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useBreadcrumbs } from "@/context/BreadcrumbContext";
@@ -178,8 +178,10 @@ export function UnifiedBOQPage() {
   }, [setBreadcrumbs]);
 
   // Load BOQ whenever active project changes
+  const boqRequestedPid = useRef("");
   const fetchBOQ = async (pid: string) => {
     if (!pid) return;
+    boqRequestedPid.current = pid;
     setLoading(true);
     setError(null);
     try {
@@ -188,6 +190,7 @@ export function UnifiedBOQPage() {
         throw new Error(`Không thể tải bảng dự toán BOQ (HTTP ${res.status})`);
       }
       const data: UnifiedProjectBOQ = await res.json();
+      if (boqRequestedPid.current !== pid) return; // response của dự án trước, bỏ qua
       setBoqData(data);
 
       // Default expand all returned groups
@@ -204,8 +207,10 @@ export function UnifiedBOQPage() {
   };
 
   useEffect(() => {
-    const pid = activeProjectId || (projects && projects[0]?.project_id) || "proj_kid_bedroom";
-    void fetchBOQ(pid);
+    // FEAT-2026-131: không tự mượn dự án đầu danh sách hay dự án mẫu; xóa BOQ cũ ngay khi đổi dự án.
+    setBoqData(null);
+    if (!activeProjectId) return;
+    void fetchBOQ(activeProjectId);
   }, [activeProjectId]);
 
   const handleProjectChange = async (newPid: string) => {

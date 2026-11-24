@@ -78,10 +78,11 @@ export function AtelierInventoryBOMPage() {
   }, [setBreadcrumbs]);
 
   const fetchBOM = async () => {
+    const pid = activeProjectId || project?.id || "";
+    if (!pid) return;
     setLoading(true);
     setError(null);
     try {
-      const pid = activeProjectId || project?.id || "proj_demo_4x5m";
       const res = await fetch(`/api/v1/projects/${pid}/inventory`);
       if (!res.ok) {
         throw new Error(`Không thể tải bảng BOM (HTTP ${res.status})`);
@@ -104,7 +105,8 @@ export function AtelierInventoryBOMPage() {
   }, [activeProjectId, project]);
 
   const handleExportCsv = () => {
-    const pid = activeProjectId || project?.id || "proj_demo_4x5m";
+    const pid = activeProjectId || project?.id || "";
+    if (!pid) return;
     window.open(`/api/v1/projects/${pid}/inventory/export/csv`, "_blank");
   };
 

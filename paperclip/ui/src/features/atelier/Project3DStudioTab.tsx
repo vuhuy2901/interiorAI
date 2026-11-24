@@ -425,7 +425,6 @@ export function Project3DStudioTab({
                   onCommitCanvasPosition={() => void handleSaveScene()}
                   onAssignAsset={handleAssignAsset}
                   onImportAsset={handleImportAssetAndAssign}
-                  onOpenAICopilot={() => setAssistantOpen(true)}
                   onRequestSmartFit={handleRequestSmartFit}
                   onRequestPlacementOptions={handleRequestPlacementOptions}
                   onCreatePlacementProposal={handleCreatePlacementProposal}

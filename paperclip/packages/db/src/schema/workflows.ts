@@ -11,6 +11,7 @@ export const workflows = pgTable("workflows", {
   version: integer("version").notNull().default(1),
   status: text("status").notNull().default("draft"),
   definition: jsonb("definition").$type<Record<string, unknown>>().notNull().default({}),
+  publishedSummary: text("published_summary"),
   createdByAgentId: uuid("created_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
   createdByUserId: text("created_by_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

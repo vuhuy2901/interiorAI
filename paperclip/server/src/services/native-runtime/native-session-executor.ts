@@ -2193,10 +2193,21 @@ export async function unidentifiedLocalRunnerProvenAbsent(input: { runId: string
 /** `paperclip-runnerd` is always launched with `--run-id <runId>`. A failed or
  * slow process listing proves nothing, so it keeps the caller blocked. */
 async function noLocalRunnerProcessForRun(runId: string): Promise<boolean> {
-  const listing = await new Promise<string | null>(resolve => {
-    execFile("ps", ["-axww", "-o", "command="], { encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? null : stdout));
-  });
+  const listing = await (process.platform === "win32"
+    ? new Promise<string | null>(resolve => {
+        // PowerShell's Get-WmiObject is available on all Windows versions including
+        // Windows 11 where wmic is deprecated. We retrieve only CommandLine to avoid
+        // timeout on large process tables.
+        execFile("powershell", [
+          "-NoProfile", "-NonInteractive", "-Command",
+          "Get-WmiObject Win32_Process | Select-Object -ExpandProperty CommandLine",
+        ], { encoding: "utf8", timeout: 10_000, maxBuffer: 64 * 1024 * 1024 },
+          (error, stdout) => resolve(error ? null : stdout));
+      })
+    : new Promise<string | null>(resolve => {
+        execFile("ps", ["-axww", "-o", "command="], { encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024 * 1024 },
+          (error, stdout) => resolve(error ? null : stdout));
+      }));
   return listing !== null && !listing.split("\n").some(line => line.includes(`--run-id ${runId}`));
 }
 

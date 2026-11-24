@@ -98,6 +98,8 @@ export function createStudioCameraController(
     else previousTime = null
   }
   const onKeyDown = (event: KeyboardEvent) => {
+    const target=event.target as HTMLElement|null
+    if(target && (target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.tagName==='SELECT'||target.isContentEditable))return
     if (visible && mode !== 'walk' && event.code === 'KeyH') {
       event.preventDefault()
       pressedKeys.add(event.code)
@@ -170,8 +172,8 @@ export function createStudioCameraController(
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerEnd)
   canvas.addEventListener('pointercancel', onPointerEnd)
-  canvas.addEventListener('keydown', onKeyDown)
   canvas.addEventListener('blur', onBlur)
+  window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('blur', onBlur)
 
@@ -224,8 +226,8 @@ export function createStudioCameraController(
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerEnd)
       canvas.removeEventListener('pointercancel', onPointerEnd)
-      canvas.removeEventListener('keydown', onKeyDown)
       canvas.removeEventListener('blur', onBlur)
+      window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     },

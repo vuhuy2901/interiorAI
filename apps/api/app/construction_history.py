@@ -19,6 +19,19 @@ class HistoryChange(BaseModel):
     records: list[HistoryRecord] = Field(max_length=1000)
     source_ids: list[str] = Field(default_factory=list, max_length=1000)
 
+@router.get('/api/v1/projects/{project_id}/construction-history')
+def get_construction_history(project_id: str):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(404, 'Project not found')
+    if project.external_scene is None:
+        return {'history': [], 'pending': [], 'baseline': []}
+    with get_conn() as conn:
+        conn.execute('CREATE TABLE IF NOT EXISTS construction_history (project_id TEXT NOT NULL, asset_hash TEXT NOT NULL, state_json TEXT NOT NULL, PRIMARY KEY(project_id, asset_hash))')
+        row = conn.execute('SELECT state_json FROM construction_history WHERE project_id=? AND asset_hash=?', (project_id, project.external_scene.sha256)).fetchone()
+        return json.loads(row['state_json']) if row else {'history': [], 'pending': [], 'baseline': []}
+
+
 @router.post('/api/v1/projects/{project_id}/construction-history')
 def update_construction_history(project_id: str, body: HistoryChange):
     project = get_project(project_id)
@@ -34,6 +47,13 @@ def update_construction_history(project_id: str, body: HistoryChange):
         known = {item['id'] for item in state['history'] + state['pending']}
         if body.op == 'initialize':
             source_ids = set(body.source_ids)
+            # A newer viewer may split a formerly monolithic GLB group into
+            # independently installable objects. Remove stale generated IDs so
+            # the panel and replay contain only the current source partition.
+            for key in ('history', 'pending'):
+                state[key] = [item for item in state[key]
+                              if not item['id'].startswith('construction:') or item['id'] in source_ids]
+            known = {item['id'] for item in state['history'] + state['pending']}
             existing_records = {item['id']: item for item in state['history'] + state['pending']}
             for record in body.records:
                 if row is None and record.id.startswith('furniture:'):

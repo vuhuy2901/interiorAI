@@ -193,7 +193,7 @@ export class AtelierTelegramTaskManager {
         else if (nameLower.includes("floor") || nameLower.includes("mặt bằng")) key = "agent_floorplan";
         else if (nameLower.includes("geometry") || nameLower.includes("hình học") || nameLower.includes("bim")) key = "agent_geometry";
         else if (nameLower.includes("furniture") || nameLower.includes("nội thất")) key = "agent_furniture";
-        else if (nameLower.includes("ceiling") || nameLower.includes("trần") || nameLower.includes("chiếu sáng")) key = "agent_ceiling_lighting";
+        else if (nameLower.includes("ceiling") || nameLower.includes("trần") || nameLower.includes("chiếu sáng") || nameLower.includes("visualization") || nameLower.includes("rendering")) key = "agent_render";
         else if (nameLower.includes("material") || nameLower.includes("vật liệu")) key = "agent_material";
         else if (nameLower.includes("research") || nameLower.includes("nghiên cứu") || nameLower.includes("khảo sát")) key = "agent_research";
         else if (nameLower.includes("inventory") || nameLower.includes("bom") || nameLower.includes("danh mục")) key = "agent_inventory";
@@ -239,7 +239,7 @@ export class AtelierTelegramTaskManager {
 
     // Keyword heuristics
     if (!lightingExplicitlyOutOfScope && (q.includes("trần") || q.includes("đèn") || q.includes("chiếu sáng") || q.includes("downlight") || q.includes("ceiling") || q.includes("lighting"))) {
-      return agentsList.find((a) => a.key === "agent_ceiling_lighting") || null;
+      return agentsList.find((a) => a.key === "agent_render") || null;
     }
     if (q.includes("vật liệu") || q.includes("gạch") || q.includes("an cường") || q.includes("eurotile") || q.includes("đồng tâm") || q.includes("material")) {
       return agentsList.find((a) => a.key === "agent_material") || agentsList.find((a) => a.key === "agent_style") || null;
@@ -266,7 +266,7 @@ export class AtelierTelegramTaskManager {
       return agentsList.find((a) => a.key === "agent_style") || null;
     }
     if (q.includes("render") || q.includes("phối cảnh") || q.includes("ánh sáng") || q.includes("hình ảnh")) {
-      return agentsList.find((a) => a.key === "agent_ceiling_lighting") || null;
+      return agentsList.find((a) => a.key === "agent_render") || null;
     }
     if (q.includes("dự toán") || q.includes("giá") || q.includes("chi phí") || q.includes("báo giá") || q.includes("boq") || q.includes("cost")) {
       return agentsList.find((a) => a.key === "agent_cost") || null;

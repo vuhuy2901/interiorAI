@@ -14,9 +14,18 @@ export function attachFirstPersonTour(options: {
   source:THREE.Object3D;scene:THREE.Scene;camera:THREE.PerspectiveCamera;canvas:HTMLCanvasElement
   controller:ReturnType<typeof createStudioCameraController>;key:string;render:()=>void
   onState:(state:TourState)=>void;onExit:()=>void
+  initialPose?:{eye:THREE.Vector3;target:THREE.Vector3}
+  fallbackWalkBounds?:THREE.Box2
+  fallbackFloorY?:number
 }) {
   const {source,scene,camera,canvas,controller,key,render}=options
   const world=createTourWorld(source)
+  if(!world.floors.length&&options.fallbackWalkBounds){
+    const min=options.fallbackWalkBounds.min,max=options.fallbackWalkBounds.max
+    const floorY=options.fallbackFloorY??0
+    world.floors.push({id:1,name:'Tầng 1',height:floorY,
+      bounds:new THREE.Box3(new THREE.Vector3(min.x,floorY,min.y),new THREE.Vector3(max.x,floorY+.12,max.y)),surfaces:[]})
+  }
   let state:TourState={mode:'inactive',floorId:world.floors[0]?.id||1,floors:world.floors.map(({id,name})=>({id,name})),message:''}
   const positions=new Map<number,THREE.Vector3>()
   let internalMode=false,disposed=false,dragging:number|null=null
@@ -49,7 +58,9 @@ export function attachFirstPersonTour(options: {
     if(saved){camera.position.copy(saved.position);camera.quaternion.copy(saved.quaternion);camera.fov=saved.fov;camera.near=saved.near;camera.far=saved.far;controller.controls.target.copy(saved.target);camera.updateProjectionMatrix();controller.controls.update();saved=null}
     publish();render();if(requestExit)options.onExit()
   }
-  const eyePosition=()=>positions.get(state.floorId)?.clone()||world.findSpawn(floor())
+  const eyePosition=()=>positions.get(state.floorId)?.clone()
+    || (options.initialPose?.eye.clone())
+    || world.findSpawn(floor())
   const enter=()=>{
     if(!world.floors.length){state.message='Chưa xác định được mặt sàn để tham quan.';publish();return null}
     saveOverview()
@@ -79,12 +90,25 @@ export function attachFirstPersonTour(options: {
   }
   controller.setWalkNavigation({
     spawn:enter,
-    resolve:(current,candidate)=>floor()?world.move(floor(),current,candidate):current,
+    resolve:(current,candidate)=>{
+      if(!floor())return current
+      const resolved=world.move(floor(),current,candidate)
+      if(options.fallbackWalkBounds&&resolved.distanceToSquared(current)<1e-8&&candidate.distanceToSquared(current)>1e-8){
+        const point=new THREE.Vector2(candidate.x,candidate.z).clamp(options.fallbackWalkBounds.min,options.fallbackWalkBounds.max)
+        return new THREE.Vector3(point.x,current.y,point.y)
+      }
+      return resolved
+    },
     onPosition:position=>{positions.set(state.floorId,position.clone());avatar.position.copy(position).y-=TOUR_EYE_HEIGHT;publish(false)},
     onModeChange:mode=>{
       if(internalMode)return
       if(mode==='walk'){
-        if(floor()){const center=floor().bounds.getCenter(new THREE.Vector3());camera.lookAt(center.x,camera.position.y,floor().bounds.min.z)}
+        if(floor()){
+          const center=floor().bounds.getCenter(new THREE.Vector3())
+          const target=options.initialPose?.target.clone() || new THREE.Vector3(center.x,camera.position.y,center.z)
+          if(target.distanceToSquared(camera.position)<.25)target.z-=1
+          camera.lookAt(target)
+        }
         controller.controls.enabled=false;canvas.focus({preventScroll:true});publish();render()
       }else if(state.mode!=='inactive')deactivate(false)
     },
@@ -109,7 +133,8 @@ export function attachFirstPersonTour(options: {
     event.preventDefault();event.stopImmediatePropagation()
     const hit=floorPoint(event);if(!hit)return
     const point=hit.clone().sub(offset)
-    if(world.canStand(floor(),point)){
+    const withinFallback=options.fallbackWalkBounds?.containsPoint(new THREE.Vector2(point.x,point.z))
+    if(world.canStand(floor(),point)||withinFallback){
       point.y=(world.support(floor(),point.x,point.z)??floor().height)+TOUR_EYE_HEIGHT
       positions.set(state.floorId,point);avatar.position.copy(point).y-=TOUR_EYE_HEIGHT
       state.message=''

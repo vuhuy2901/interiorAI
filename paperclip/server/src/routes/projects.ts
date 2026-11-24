@@ -32,7 +32,7 @@ import {
 import type { WorkspaceRuntimeDesiredState, WorkspaceRuntimeServiceStateMap } from "@paperclipai/shared";
 import { trackProjectCreated } from "@paperclipai/shared/telemetry";
 import { validate } from "../middleware/validate.js";
-import { accessService, projectService, logActivity, workspaceOperationService } from "../services/index.js";
+import { accessService, heartbeatService, projectService, logActivity, workspaceOperationService } from "../services/index.js";
 import { conflict, forbidden, unprocessable } from "../errors.js";
 import { externalObjectService } from "../services/external-objects.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
@@ -491,7 +491,22 @@ export function projectRoutes(db: Db) {
     if (!result) { res.status(204).end(); return; }
     if (result.project.companyId === ATELIER_COMPANY_ID) {
       try {
-        await ensureAtelierProjectWorkflow(db, { companyId: result.project.companyId, projectId: result.project.id });
+        const workflow = await ensureAtelierProjectWorkflow(db, {
+          companyId: result.project.companyId,
+          projectId: result.project.id,
+          rootIssueId: runContext?.issue.id ?? null,
+        });
+        const readyStage = workflow.stages.find((stage) => stage.status === "ready" && stage.issue && stage.agent);
+        if (readyStage?.issue && readyStage.agent) {
+          await heartbeatService(db).wakeup(readyStage.agent.id, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "atelier_workflow_stage_ready",
+            payload: { issueId: readyStage.issue.id, stageKey: readyStage.stageKey, mutation: "project_created" },
+            idempotencyKey: `atelier-workflow:${workflow.run.id}:${readyStage.stageKey}:ready`,
+            contextSnapshot: { issueId: readyStage.issue.id, taskId: readyStage.issue.id, source: "atelier.workflow.project_created" },
+          });
+        }
       } catch (error) {
         // Project creation remains idempotent and recoverable; the explicit
         // Atelier reconcile/backfill endpoint will repair a transient agent or

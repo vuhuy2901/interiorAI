@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,6 +11,17 @@ import {
 } from "react";
 import { useLocation } from "@/lib/router";
 import "./atelier-studio.css";
+import {
+  UNSCOPED_TASK_SCOPE,
+  isStaleProjectResponse,
+  mayAutoPickFirstProject,
+  nextTaskScope,
+  pickRememberedProject,
+  readLastStudioProject,
+  visibleProjectFor,
+  writeLastStudioProject,
+  type TaskProjectScope,
+} from "./taskProjectScope";
 
 export interface SpatialPinItem {
   id: string;
@@ -30,6 +42,14 @@ interface AtelierStudioContextValue {
   projects: any[];
   activeProjectId: string;
   setActiveProjectId: (id: string) => void;
+  /** Đã tải xong danh sách dự án (dùng để hiện màn chọn dự án khi studio độc lập chưa có lựa chọn hợp lệ). */
+  projectsLoaded: boolean;
+  taskScope: TaskProjectScope;
+  bindTaskScene: (issueId: string | null, sceneId: string | null, failed?: string | null) => void;
+  releaseTaskScope: () => void;
+  showHiddenProjects: boolean;
+  setShowHiddenProjects: (value: boolean) => void;
+  setProjectHidden: (projectId: string, hidden: boolean) => Promise<void>;
   project: any | null;
   estimate: any | null;
   materialsCatalog: any | null;
@@ -108,16 +128,44 @@ interface AtelierStudioContextValue {
 const AtelierStudioContext = createContext<AtelierStudioContextValue | null>(null);
 
 const API_BASE = "/api/v1";
-const PROJECT_LIST_URL = `${API_BASE}/projects?include_fixtures=false`;
+const projectListUrl = (includeHidden: boolean) =>
+  `${API_BASE}/projects?include_fixtures=false${includeHidden ? "&include_hidden=true" : ""}`;
 
 export function AtelierStudioProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const atelierProjectRouteActive = /\/(?:design-studio|floorplan-import|render-compare|cost-estimation|inventory-bom|shopping-catalog|chats\/|projects\/)/.test(pathname);
-  const surfaceCatalogRouteActive = /\/(?:design-studio|render-compare|chats\/|projects\/)/.test(pathname);
+  const atelierProjectRouteActive = /\/(?:design-studio|floorplan-import|render-compare|render-gallery|cost-estimation|inventory-bom|shopping-catalog|chats\/|projects\/)/.test(pathname);
+  const surfaceCatalogRouteActive = /\/(?:design-studio|render-compare|render-gallery|chats\/|projects\/)/.test(pathname);
   const productCatalogRouteActive = /\/(?:design-studio|shopping-catalog|projects\/)/.test(pathname);
   const studioAssetRouteActive = /\/(?:design-studio|chats\/|projects\/)/.test(pathname);
   const [projects, setProjects] = useState<any[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string>("");
+  const [activeProjectId, setActiveProjectIdState] = useState<string>("");
+  const [taskScope, setTaskScope] = useState<TaskProjectScope>(UNSCOPED_TASK_SCOPE);
+  // Ref cập nhật đồng bộ để chặn response muộn của dự án trước ghi đè dự án đang mở.
+  const activeProjectIdRef = useRef<string>("");
+  const taskScopeRef = useRef<TaskProjectScope>(UNSCOPED_TASK_SCOPE);
+  const setActiveProjectId = useCallback((id: string) => {
+    activeProjectIdRef.current = id;
+    setActiveProjectIdState(id);
+  }, []);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  // Người dùng chủ động chọn dự án ở studio độc lập thì nhớ lại; dự án do task gắn vào không được nhớ.
+  const chooseProject = useCallback((id: string) => {
+    setActiveProjectId(id);
+    if (id && !taskScopeRef.current.scoped) writeLastStudioProject(id);
+  }, [setActiveProjectId]);
+  const bindTaskScene = useCallback((issueId: string | null, sceneId: string | null, failed: string | null = null) => {
+    const next = nextTaskScope(issueId, sceneId, failed);
+    taskScopeRef.current = next.scope;
+    setTaskScope(next.scope);
+    setActiveProjectId(next.activeProjectId);
+  }, [setActiveProjectId]);
+  const releaseTaskScope = useCallback(() => {
+    taskScopeRef.current = UNSCOPED_TASK_SCOPE;
+    setTaskScope(UNSCOPED_TASK_SCOPE);
+    // Rời task: không để dự án của task trở thành "dự án đang mở" của studio độc lập.
+    setActiveProjectId("");
+  }, [setActiveProjectId]);
+  const [showHiddenProjects, setShowHiddenProjects] = useState(false);
   const [project, setProject] = useState<any | null>(null);
   const [estimate, setEstimate] = useState<any | null>(null);
   const [materialsCatalog, setMaterialsCatalog] = useState<any | null>(null);
@@ -154,6 +202,16 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
   const studioAssetLoadStarted = useRef(false);
   const backendRetryTimer = useRef<number | null>(null);
 
+  // Đổi dự án (đổi task) thì xóa sạch dữ liệu dự án trước TRƯỚC khi vẽ, không lóe dữ liệu cũ.
+  useLayoutEffect(() => {
+    setProject(null);
+    setEstimate(null);
+    setChatHistory({ messages: [], pending_questions: [], proposals: [] });
+    setRevisions([]);
+    setPins([]);
+    setSelectedEntityId(null);
+  }, [activeProjectId]);
+
   const scheduleBackendRetry = useCallback(() => {
     if (backendRetryTimer.current !== null) return;
     backendRetryTimer.current = window.setTimeout(() => {
@@ -175,13 +233,15 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
     async (pid: string = activeProjectId) => {
       try {
         if (!pid) {
-          const listRes = await fetch(PROJECT_LIST_URL);
+          // Đang gắn task: chưa có dự án của task thì chờ, tuyệt đối không mượn dự án khác.
+          if (!mayAutoPickFirstProject(taskScopeRef.current)) return;
+          const listRes = await fetch(projectListUrl(showHiddenProjects));
           if (!listRes.ok) throw new Error(`Không thể tải danh sách project (${listRes.status})`);
           const listJson = await listRes.json();
           const nextProjects = Array.isArray(listJson) ? listJson : listJson.projects || [];
           setProjects(nextProjects);
-          const firstProjectId = nextProjects[0]?.project_id;
-          if (typeof firstProjectId === "string") setActiveProjectId(firstProjectId);
+          // Không tự lấy projects[0]: dự án được nhớ (nếu hợp lệ) được chọn bởi effect bên dưới, nếu không thì hiện màn chọn.
+          setProjectsLoaded(true);
           return;
         }
         const [projRes, estRes, chatRes, listRes, pinsRes] =
@@ -189,22 +249,24 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
             fetch(`${API_BASE}/projects/${pid}`),
             fetch(`${API_BASE}/estimates/${pid}`),
             fetch(`${API_BASE}/chat/history?project_id=${encodeURIComponent(pid)}`),
-            fetch(PROJECT_LIST_URL),
+            fetch(projectListUrl(showHiddenProjects)),
             fetch(`/api/atelier/pins/${pid}`),
           ]);
         if (!projRes.ok) throw new Error(`Không thể tải Scene (${projRes.status})`);
         const projectJson = await projRes.json();
+        if (isStaleProjectResponse(pid, activeProjectIdRef.current)) return;
         setProject(projectJson);
         setRevisions(projectJson.revisions || []);
-        if (estRes.ok) setEstimate(await estRes.json());
-        if (chatRes.ok) setChatHistory(await chatRes.json());
+        if (estRes.ok) { const est = await estRes.json(); if (!isStaleProjectResponse(pid, activeProjectIdRef.current)) setEstimate(est); }
+        if (chatRes.ok) { const chat = await chatRes.json(); if (!isStaleProjectResponse(pid, activeProjectIdRef.current)) setChatHistory(chat); }
         if (listRes.ok) {
           const listJson = await listRes.json();
           setProjects(Array.isArray(listJson) ? listJson : listJson.projects || []);
+          setProjectsLoaded(true);
         }
         if (pinsRes.ok) {
           const pinsJson = await pinsRes.json();
-          setPins(pinsJson.pins || []);
+          if (!isStaleProjectResponse(pid, activeProjectIdRef.current)) setPins(pinsJson.pins || []);
         }
         setErrorMessage(null);
       } catch (error) {
@@ -213,17 +275,53 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
         setErrorMessage(error instanceof Error ? error.message : "Không thể tải dữ liệu ATELIER");
       }
     },
-    [activeProjectId, scheduleBackendRetry],
+    [activeProjectId, scheduleBackendRetry, showHiddenProjects],
   );
+
+  const setProjectHidden = useCallback(
+    async (projectId: string, hidden: boolean) => {
+      try {
+        const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/visibility`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hidden }),
+        });
+        if (!res.ok) throw new Error(`Không thể đổi trạng thái dự án (${res.status})`);
+        const listRes = await fetch(projectListUrl(showHiddenProjects));
+        if (!listRes.ok) throw new Error(`Không thể tải danh sách project (${listRes.status})`);
+        const listJson = await listRes.json();
+        const nextProjects: any[] = Array.isArray(listJson) ? listJson : listJson.projects || [];
+        setProjects(nextProjects);
+        if (hidden && projectId === activeProjectId && mayAutoPickFirstProject(taskScopeRef.current)) {
+          // Dự án đang mở vừa bị ẩn: về màn chọn dự án, không tự nhảy sang dự án khác.
+          setActiveProjectId("");
+        } else {
+          await refreshProjectBundle(activeProjectId);
+        }
+        showToast(hidden ? "Đã ẩn dự án" : "Đã bật lại dự án");
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Không thể đổi trạng thái dự án");
+      }
+    },
+    [activeProjectId, refreshProjectBundle, showHiddenProjects, showToast],
+  );
+
+  // Studio độc lập: khôi phục dự án đã chọn lần cuối nếu còn tồn tại và không ẩn.
+  useEffect(() => {
+    if (activeProjectId || taskScope.scoped || !projectsLoaded) return;
+    const remembered = pickRememberedProject(projects, readLastStudioProject());
+    if (remembered) setActiveProjectId(remembered);
+  }, [activeProjectId, taskScope.scoped, projectsLoaded, projects, setActiveProjectId]);
 
   useEffect(() => {
     if (!atelierProjectRouteActive) return;
     if (!activeProjectId) {
+      if (!mayAutoPickFirstProject(taskScopeRef.current)) return;
       if (initialProjectLoadStarted.current) return;
       initialProjectLoadStarted.current = true;
     }
     void refreshProjectBundle(activeProjectId);
-  }, [activeProjectId, atelierProjectRouteActive, backendRetryNonce, refreshProjectBundle]);
+  }, [activeProjectId, atelierProjectRouteActive, backendRetryNonce, refreshProjectBundle, taskScope.scoped]);
 
   // Section 5: Real-time Multi-Agent Chat Reconciliation Polling (every 2.5s)
   useEffect(() => {
@@ -240,7 +338,7 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
         }
         consecutiveErrors = 0;
         const data = await res.json();
-        if (!isMounted) return;
+        if (!isMounted || isStaleProjectResponse(activeProjectId, activeProjectIdRef.current)) return;
         setChatHistory((prev) => {
           if (
             prev.messages?.length !== data.messages?.length ||
@@ -371,7 +469,7 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: msg }),
+            body: JSON.stringify({ message: msg, ...(taskScopeRef.current.issueId ? { issue_id: taskScopeRef.current.issueId } : {}) }),
           },
         );
         if (res.ok) {
@@ -761,6 +859,7 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
             position_mm: input.positionMm,
             comment: input.comment,
             create_proposal: true,
+            ...(taskScopeRef.current.issueId ? { issue_id: taskScopeRef.current.issueId } : {}),
           }),
         });
         if (res.ok) {
@@ -892,8 +991,15 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
     () => ({
       projects,
       activeProjectId,
-      setActiveProjectId,
-      project,
+      setActiveProjectId: chooseProject,
+      projectsLoaded,
+      taskScope,
+      bindTaskScene,
+      releaseTaskScope,
+      showHiddenProjects,
+      setShowHiddenProjects,
+      setProjectHidden,
+      project: visibleProjectFor(project, activeProjectId),
       estimate,
       materialsCatalog,
       productsCatalog,
@@ -949,6 +1055,13 @@ export function AtelierStudioProvider({ children }: { children: ReactNode }) {
     [
       projects,
       activeProjectId,
+      chooseProject,
+      projectsLoaded,
+      taskScope,
+      bindTaskScene,
+      releaseTaskScope,
+      showHiddenProjects,
+      setProjectHidden,
       project,
       estimate,
       materialsCatalog,
