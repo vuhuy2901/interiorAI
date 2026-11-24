@@ -280,6 +280,7 @@ export {
   type AtelierWorkflowRunStatus,
   type AtelierWorkflowStageStatus,
 } from "./atelier_workflow_runs.js";
+export { atelierWorkflowSelections } from "./atelier_workflow_selections.js";
 
 export { userWorkspacePreferences } from "./user_workspace_preferences.js";
 

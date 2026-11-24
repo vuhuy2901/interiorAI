@@ -1,4 +1,6 @@
-export const ATELIER_CLARIFICATION_POLICY_VERSION = 7;
+import { specialistWorkflowEnabled } from "./atelier-delivery-contract.js";
+import { buildSpecialistInstructions } from "./atelier-specialist-instructions.js";
+export const ATELIER_CLARIFICATION_POLICY_VERSION = 10;
 
 export type AtelierDecisionState = "confirmed" | "proposal_requested" | "unknown";
 
@@ -9,6 +11,9 @@ export type AtelierDecisionKey =
   | "palette"
   | "budget";
 
+// Nhóm lựa chọn hoàn thiện (FEAT-2026-128): hỏi người dùng, KHÔNG chặn brief (không ảnh hưởng status).
+export type AtelierFinishKey = "wall_paint" | "floor_finish" | "ceiling_finish" | "lighting_tone" | "wood_tone";
+
 export type AtelierDecisionAssessment = {
   key: AtelierDecisionKey;
   label: string;
@@ -17,7 +22,7 @@ export type AtelierDecisionAssessment = {
 };
 
 export type AtelierClarificationQuestion = {
-  decision: AtelierDecisionKey;
+  decision: AtelierDecisionKey | AtelierFinishKey;
   text: string;
   options: string[];
 };
@@ -57,7 +62,7 @@ const DECISIONS: ReadonlyArray<{
     question: {
       decision: "style",
       text: "Bạn muốn chốt hướng phong cách nào? Nếu chưa chắc, tôi sẽ đưa 3 phương án để bạn chọn, không tự chọn thay.",
-      options: ["Hiện đại ấm", "Japandi", "Tối giản", "Đề xuất cho tôi 3 phương án"],
+      options: ["Hiện đại (Modern) — mặc định", "Tối giản", "Japandi", "Đề xuất cho tôi 3 phương án"],
     },
   },
   {
@@ -79,6 +84,59 @@ const DECISIONS: ReadonlyArray<{
       decision: "budget",
       text: "Ngân sách mục tiêu hoặc khoảng ngân sách bạn chấp nhận là bao nhiêu?",
       options: ["Dưới 100 triệu", "100–300 triệu", "300–700 triệu", "Tôi sẽ nhập khoảng khác"],
+    },
+  },
+] as const;
+
+// Chỉ nhóm hoàn thiện thẩm mỹ. Không bao giờ gồm địa chỉ, file báo giá, VAT, MEP hay câu hỏi của Cost/BOM.
+const FINISH_DECISIONS: ReadonlyArray<{
+  key: AtelierFinishKey;
+  signal: RegExp;
+  question: AtelierClarificationQuestion;
+}> = [
+  {
+    key: "wall_paint",
+    signal: /(?:sơn|màu tường|tường)\s*(?:màu\s*)?(?:chính\s*)?(?:trắng|kem|be|xám|ghi|xanh|nâu|đen)/iu,
+    question: {
+      decision: "wall_paint",
+      text: "Bạn muốn sơn tường chính màu nào? Tôi chỉ đề xuất, chưa áp màu cho tới khi bạn chọn.",
+      options: ["Trắng tinh (#FAFAF8)", "Ghi be (#D8D2C8)", "Xám ghi sáng (#CFCFCC)", "Tự nhập"],
+    },
+  },
+  {
+    key: "floor_finish",
+    signal: /(?:sàn\s*(?:gỗ|gạch|đá|vinyl|bê tông)|lát\s*(?:gạch|gỗ)|gạch\s*(?:porcelain|men)|gỗ sồi|óc chó)/iu,
+    question: {
+      decision: "floor_finish",
+      text: "Bạn muốn sàn vật liệu và màu nào?",
+      options: ["Gạch porcelain xám kem mờ 800×800", "Sàn gỗ sồi lát thẳng", "Sàn gỗ óc chó xương cá", "Tự nhập"],
+    },
+  },
+  {
+    key: "ceiling_finish",
+    signal: /trần[^.,;]{0,15}(?:trắng|xám|ghi|thạch cao|thả|giật cấp|hắt sáng)/iu,
+    question: {
+      decision: "ceiling_finish",
+      text: "Bạn muốn trần màu/kiểu nào?",
+      options: ["Trắng thạch cao mờ", "Trắng + hắt sáng LED viền trần", "Xám ghi nhạt", "Tự nhập"],
+    },
+  },
+  {
+    key: "lighting_tone",
+    signal: /(?:ánh sáng|đèn)[^.,;]{0,12}(?:ấm|lạnh|trung tính|vàng|trắng)|[2-6]\d00\s*k/iu,
+    question: {
+      decision: "lighting_tone",
+      text: "Bạn muốn ánh sáng ấm, trung tính hay lạnh?",
+      options: ["Ấm 2700–3000K", "Trung tính 3500–4000K", "Lạnh 5000–6500K", "Tự nhập"],
+    },
+  },
+  {
+    key: "wood_tone",
+    signal: /(?:tông gỗ|gỗ\s*(?:sồi|óc chó|tự nhiên|xám|walnut|oak))/iu,
+    question: {
+      decision: "wood_tone",
+      text: "Bạn muốn tông gỗ/màu nội thất chính nào?",
+      options: ["Gỗ sồi sáng (#C8A986)", "Gỗ óc chó đậm (#8B6547)", "Gỗ xám tro (#8E8C88)", "Tự nhập"],
     },
   },
 ] as const;
@@ -111,12 +169,18 @@ export function assessAtelierBrief(brief: string) {
     const definition = DECISIONS.find((decision) => decision.key === assessment.key)!;
     return definition.question;
   });
+  // Câu hỏi hoàn thiện: không đổi status; tổng số câu hỏi mỗi lượt vẫn tối đa 3.
+  const finishQuestions = FINISH_DECISIONS
+    .filter((decision) => !decision.signal.test(text))
+    .slice(0, Math.max(0, 3 - questions.length))
+    .map((decision) => decision.question);
   return {
     status: openDecisions.length === 0 ? "ready" as const : "needs_input" as const,
     policyVersion: ATELIER_CLARIFICATION_POLICY_VERSION,
     decisions,
     openDecisions: openDecisions.map((decision) => decision.key),
     questions,
+    finishQuestions,
   };
 }
 
@@ -125,11 +189,11 @@ const ROLE_RULES: Record<string, string> = {
   agent_floorplan: "Thiếu tỷ lệ, kích thước chuẩn hoặc chiều cao trần: gửi needs_input về Chief và dừng; tuyệt đối không tự suy từ ảnh.",
   agent_geometry: "Chỉ dựng bản chính thức từ kích thước đã xác nhận; không tự chọn vật liệu, màu hoặc đồ nội thất.",
   agent_furniture: "Đọc scene hiện tại và yêu cầu mới nhất trước khi hỏi. Chỉ hỏi dữ kiện còn thiếu có ảnh hưởng đến thao tác đang được giao. Với thao tác thêm một món đã được cho phép, giữ đồ còn lại; giá chưa có không ngăn kiểm tra hình học nhưng phải ghi rõ chưa có giá, không tự mua hàng.",
-  agent_style: "Màu sơn, bảng màu, phong cách và vật liệu thẩm mỹ là quyết định người dùng. Đưa 2–3 phương án; không áp/chốt phương án nếu chưa có lựa chọn rõ ràng.",
-  agent_ceiling_lighting: "Thiếu chiều cao trần, loại trần, nhu cầu ánh sáng hoặc nhiệt độ màu: gửi needs_input; không dùng mặc định im lặng.",
+  agent_style: "Màu sơn, bảng màu, phong cách và vật liệu thẩm mỹ là quyết định người dùng. Đưa 2–3 phương án; không áp/chốt phương án nếu chưa có lựa chọn rõ ràng. Phong cách mặc định là Hiện đại (Modern); Japandi chỉ khi người dùng nói rõ. Qua Chief, hỏi tối đa 3 câu mỗi lượt về sơn tường chính, tường nhấn, trần, sàn, tông gỗ, ánh sáng; mỗi câu 2–4 lựa chọn có tên màu/hex và \"Tự nhập\". Chưa có trả lời thì dựng phương án PROVISIONAL ghi \"đề xuất, chờ bạn chọn\", không coi là đã duyệt; không hỏi lại câu đã có decision.",
+  agent_render: "Thiếu góc camera, chất lượng render hoặc brief chưa xác nhận: dùng giá trị đề xuất nhưng phải cảnh báo rõ 'ảnh dựa trên đề xuất chưa chốt'. Sau khi render xong PHẢI chạy skill render-gallery-delivery: xác nhận file tồn tại, status COMPLETED, gallery API trả về ảnh, và ảnh xem được trong trang dự án. Không bao giờ giao ảnh của project khác hoặc ảnh thiếu watermark 'ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG.'",
   agent_research: "Không tự chọn SKU cuối. Trình các lựa chọn có nguồn, trạng thái giá và khác biệt để người dùng/Chief quyết định.",
   agent_qa: "Kiểm tra đúng phạm vi được giao bằng dữ liệu thực. Review hình học không cần tự chốt giá hoặc sở thích. Tách lỗi tồn tại trước và lỗi do thay đổi; không cho pass toàn bộ scene khi còn lỗi, nhưng có thể hoàn thành nhiệm vụ review với kết luận fail và bằng chứng.",
-  agent_cost: "Thiếu ngân sách hoặc giá xác minh thì không công bố tổng dự toán. Chỉ nêu phần đã có giá, độ phủ x/y và danh sách cần hỏi/bổ sung.",
+  agent_cost: "Không hỏi người dùng file báo giá/catalog, địa chỉ, địa điểm giao/lắp, phạm vi VAT, kích thước/khối lượng thi công, hồ sơ MEP hoặc ràng buộc site/finish chỉ để lập dự toán. Tự tra cứu catalog/nguồn giá, ghi rõ mục chưa có giá hoặc ước tính, lập khoảng giá và tiếp tục; vận chuyển/địa điểm không đưa vào tổng mặc định. Nếu người dùng đã xác nhận một dữ liệu là chưa có, coi đó là confirmed_unavailable, không hỏi lại và không chuyển needs_input. Chỉ hỏi khi thiếu dữ liệu gây rủi ro an toàn, kết cấu hoặc quyết định mua hàng không thể hoàn tác.",
 };
 
 export function buildAtelierAgentInstructions(input: {
@@ -137,6 +201,7 @@ export function buildAtelierAgentInstructions(input: {
   agentName: string;
   roleSummary: string;
 }) {
+  if (specialistWorkflowEnabled()) return buildSpecialistInstructions(input);
   const roleRule = ROLE_RULES[input.agentKey] ?? "Thiếu quyết định thuộc quyền người dùng: gửi needs_input về Chief và dừng.";
   return `# ${input.agentName} — Atelier decision-safe instructions
 
@@ -152,7 +217,7 @@ ${roleRule}
 2. Mỗi mục chỉ có một trong ba trạng thái: \`confirmed\` (người dùng đã nói rõ), \`proposal_requested\` (người dùng muốn xem phương án) hoặc \`unknown\`.
 3. Không bao giờ biến \`unknown\` hay \`proposal_requested\` thành fact đã chốt. Không dùng dữ liệu demo, thói quen thị trường hoặc sở thích của agent làm câu trả lời của người dùng.
 4. Với \`proposal_requested\`, đưa 2–3 phương án A/B/C, nêu ưu/nhược và tác động ngân sách nếu có dữ liệu xác minh; sau đó dừng để chờ người dùng chọn.
-5. Với \`unknown\` ảnh hưởng tới kết quả, trả \`status: needs_input\`, tạo câu hỏi cụ thể kèm lựa chọn, ghi vào conversation/task và dừng. Không đánh dấu task done, không handoff như thể đã có quyết định.
+5. Với \`unknown\` ảnh hưởng tới kết quả, trả \`status: needs_input\`, tạo câu hỏi cụ thể kèm lựa chọn, ghi vào conversation/task và dừng. Ngoại lệ bắt buộc: với \`agent_cost\`, thiếu giá/catalog, địa chỉ, vận chuyển, VAT, MEP hoặc site/finish chỉ là dữ liệu chưa có; phải ghi rõ giả định/ước tính và tiếp tục, không tạo câu hỏi bắt buộc. Không đánh dấu task done, không handoff như thể đã có quyết định.
 6. Specialist không tự hỏi vòng ngoài: gửi câu hỏi và lý do cho Chief Architect. Chief hỏi người dùng tối đa 3 câu ưu tiên trong một lượt.
 7. Chỉ được handoff bước tiếp theo khi mọi quyết định mà bước đó cần ở trạng thái \`confirmed\` và có bằng chứng từ lời người dùng/approval.
 8. Giá chưa xác minh phải ghi \`chưa có giá\`. Thiếu ngân sách hoặc độ phủ giá thì không được gọi con số đang có là tổng dự toán toàn công trình.
@@ -165,7 +230,7 @@ ${roleRule}
 - Trong run thực thi bình thường, phải trực tiếp hoàn thành phạm vi được giao bằng các API/tool được phép. Không được chỉ viết “hand-back”, “next path”, “task: todo” hoặc mô tả người khác sẽ làm rồi kết thúc run; những câu đó không phải deliverable và không đổi trạng thái task.
 - Nếu context xác nhận đây là run recovery chỉ sửa trạng thái (\`recoveryIntent=status_only\`, \`allowDeliverableWork=false\`), không dựng deliverable trong run đó. Đọc \`GET \${PAPERCLIP_API_URL}/api/issues/\${PAPERCLIP_TASK_ID}/recovery-actions\` để lấy đúng active \`actionId\`, rồi dùng recovery action chính thức \`POST \${PAPERCLIP_API_URL}/api/issues/\${PAPERCLIP_TASK_ID}/recovery-actions/resolve\` với \`outcome=restored\`, \`sourceIssueStatus=todo\` và \`resolutionNote\`; kiểm tra object \`issue.status\` trong response đã là \`todo\`. Không thay thế thao tác này bằng PATCH task sang \`todo\` hoặc comment “hand-back”. Lượt normal-model được wake sau đó mới thực hiện deliverable.
 - Sau thao tác ghi: đọc lại canonical scene, revision và đối tượng, lưu bằng chứng công cụ. Không kết luận hoàn thành chỉ từ lời mô tả hay mã HTTP 200.
-- Comment có chữ status không cập nhật trạng thái task. Trước khi kết thúc lượt, dùng API/task tools chính thức trong skill Paperclip để ghi disposition và kiểm tra response: có kết quả kỹ thuật cần người dùng nghiệm thu thì PATCH task sang \`in_review\` (execution policy sẽ tạo cổng duyệt); hoàn thành không cần duyệt thì \`done\`; cần người dùng bổ sung dữ liệu thì tạo interaction/câu hỏi được hỗ trợ; có lỗi thực thi thật thì \`blocked\` với nguyên nhân và điều kiện retry cụ thể. Trên Windows dùng \`Invoke-RestMethod\` hoặc \`curl.exe\`, không dùng \`Invoke-WebRequest\`. Tôn trọng các gate từ API, không sửa database trực tiếp.
+- Comment có chữ status không cập nhật trạng thái task. Trước khi kết thúc lượt, dùng API/task tools chính thức trong skill Paperclip để ghi disposition và kiểm tra response: có kết quả kỹ thuật cần người dùng nghiệm thu thì PATCH task sang \`in_review\` (execution policy sẽ tạo cổng duyệt); hoàn thành không cần duyệt thì \`done\`; cần người dùng bổ sung dữ liệu thì tạo interaction/câu hỏi được hỗ trợ (\`needs_input\`). TUYỆT ĐỐI KHÔNG ĐƯỢC CHUYỂN TASK SANG \`blocked\` KHI GẶP LỖI: nếu gặp lỗi thực thi hoặc API tạm thời, ghi chi tiết nguyên nhân vào comment/disposition và giữ nguyên trạng thái \`todo\` để hệ thống tự động retry và chạy tiếp mà không làm treo Agent, tránh gây kẹt/nghẽn cho các task khác trong dự án. Trên Windows dùng \`Invoke-RestMethod\` hoặc \`curl.exe\`, không dùng \`Invoke-WebRequest\`. Tôn trọng các gate từ API, không sửa database trực tiếp.
 - Review hoàn tất với kết luận có lỗi vẫn là hoàn tất công việc review; không đồng nghĩa thiết kế được phê duyệt. Không tự lặp retry khi chưa có dữ liệu hay sự kiện mới giải quyết blocker.
 
 ## Đầu ra tối thiểu cho mỗi lượt
@@ -174,14 +239,16 @@ ${roleRule}
 - MCP chỉ thực thi/xác minh trên snapshot đã bind. Thay đổi chỉ được coi là đã lưu khi canonical REST API trả revision mới và lần GET sau đó thấy đúng đối tượng.
 - Khi bố trí lại nội thất hiện có đã được người dùng phê duyệt, dùng PATCH \`/api/v1/projects/{canonical_scene_id}/furniture/layout\` với \`base_revision\`, \`idempotency_key\`, \`approval_evidence\` và danh sách \`moves\`. Không dùng kết quả \`move_node\` tạm thời như bằng chứng đã lưu.
 - Handoff Geometry → QA → Cost/BOQ → Final Review phải ghi cùng canonical scene ID, revision đã persist và evidence của phase. Không tạo task downstream nếu phase hiện tại chưa có deliverable/evidence bắt buộc.
-- Cost/BOM: đọc GET /api/v1/projects/{canonical_scene_id}/cost-workflow trên canonical sidecar; đây là dữ liệu cost tính xác định cùng scene_id, revision, asset hash và lines. Với external_scene, không dùng furniture/rooms cũ. Giá illustrative chỉ là giá sản phẩm đối chiếu, báo riêng reference_subtotal_vnd và missing_item_ids; thiếu giá/khối lượng trả needs_input, đủ giá vẫn cần phê duyệt. Người dùng chỉnh đơn giá trên trang Dự toán, không tự tạo SKU/giá thật cho mesh.
+- Cost/BOM: đọc GET /api/v1/projects/{canonical_scene_id}/cost-workflow trên canonical sidecar; đây là dữ liệu cost tính xác định cùng scene_id, revision, asset hash và lines. Với external_scene, không dùng furniture/rooms cũ. Giá illustrative chỉ là giá sản phẩm đối chiếu, báo riêng reference_subtotal_vnd và missing_item_ids; thiếu giá/khối lượng phải ghi là provisional/ước tính và vẫn trình bản đề xuất để phê duyệt, không trả needs_input. Người dùng chỉnh đơn giá trên trang Dự toán, không tự tạo SKU/giá thật cho mesh.
 - Native Cost adapter: POST /api/atelier/scene với operation "scene.cost", native_project_id và project_id là canonical_scene_id. Đây là thao tác đọc/tính dự toán, không sửa Scene hoặc tự hoàn tất task. Lưu snapshot_id và estimate trong output handoff.
 
-\`decision_ledger\`, \`status: done | needs_input | blocked | needs_review\`, \`questions\`, \`assumptions\`, \`handoff\`.
+\`decision_ledger\`, \`status: done | needs_input | todo | in_progress | needs_review\`, \`questions\`, \`assumptions\`, \`handoff\`.
 
 Nếu \`assumptions\` chứa một quyết định thuộc sở thích hoặc chi tiêu của người dùng, trạng thái bắt buộc là \`needs_input\`; assumption đó không được ghi vào SceneGraph, BOM, Cost hoặc task downstream.
 `;
 }
 
 export const ATELIER_CLARIFICATION_CAPABILITY =
-  "Bắt buộc dùng decision ledger: thiếu ngân sách, công năng, phong cách, màu sơn/bảng màu, vật liệu hoặc nội thất thì trả needs_input và hỏi; chỉ đề xuất A/B/C, không tự chốt thay người dùng.";
+  specialistWorkflowEnabled()
+    ? "Chief điều phối; chuyên gia tự quyết chi tiết có thể chỉnh lại trong brief, ghi bằng chứng và quyết định. Chỉ hỏi khi đổi brief, thiếu tỷ lệ, rủi ro an toàn hoặc cam kết chi tiêu. Backend quản lý subtask và handoff."
+    : "Bắt buộc dùng decision ledger: thiếu ngân sách, công năng, phong cách, màu sơn/bảng màu, vật liệu hoặc nội thất thì trả needs_input và hỏi; chỉ đề xuất A/B/C, không tự chốt thay người dùng.";

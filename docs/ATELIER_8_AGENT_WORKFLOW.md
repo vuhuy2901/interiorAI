@@ -142,14 +142,75 @@ JSON có `status`, `run_id`, `node_id`, `agent_id`, `input_artifact_ids`,
 - Không xóa project, revision, artifact hoặc handoff lịch sử.
 - Không fallback sang Chief khi agent được gán thiếu hoặc lỗi.
 
-## 7. Nghiệm thu một dự án
+## 7. Node Render — Chi tiết thực thi
+
+**Agent:** `agent_render` (Chuyên Gia Phối Cảnh Kiến Trúc & Render 3D)  
+**Vào sau:** Style và Furniture hoàn tất (song song với Cost)  
+**Bàn giao cho:** Final QA
+
+### 7.1 Skills bắt buộc (theo thứ tự thực thi)
+
+1. `canonical-scene-integrity-audit` — Kiểm tra project_id, revision, material_hash trước khi bắt đầu
+2. `blender-mcp-rendering` — Chạy Blender Cycles engine
+3. `cinematic-rendering-and-composition` — Lên kế hoạch camera và bố cục
+4. `architectural-lighting-mastery` + `ceiling-and-lighting-design` — Thiết kế ánh sáng 3 lớp
+5. `materials-and-finishes` + `luxury-materials-and-tactile-textures` — Xác nhận PBR materials
+6. `photoreal-render-evidence-gate` — QA ảnh đầu ra (resolution, camera hash, không cháy sáng)
+7. `render-brief-compliance` — Kiểm tra ảnh khớp brief và revision
+8. **`render-gallery-delivery`** — Giao ảnh vào đúng project + xác nhận gallery khả dụng
+9. `rendering-review` — Review cuối trước handoff
+
+### 7.2 API Render
+
+```text
+# Tạo render job
+POST /api/v1/projects/{project_id}/render-jobs
+{"camera_id": "wide|eye_level|orbit|corner|hero", "mode": "preview|final", "async_exec": true}
+
+# Theo dõi
+GET /api/v1/render-jobs/{job_id}
+
+# Kiểm tra gallery
+GET /api/v1/projects/{project_id}/render-gallery
+→ Phải trả count >= 1 và ảnh có render_url trỏ đúng project_id
+```
+
+### 7.3 Điều kiện PASS để handoff Final QA
+
+- `status == "COMPLETED"` và `file_size_bytes > 0`
+- `render_url` truy cập được
+- `GET /render-gallery` trả `count >= 1` (tối thiểu wide + eye_level khi workflow full)
+- `project_id` trong job PHẢI khớp dự án đang xử lý
+- Ảnh có watermark: *ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG*
+- Ảnh xem được ở panel "Ảnh render" trong 3D workspace VÀ trang `/projects/{id}/render-gallery`
+
+### 7.4 Handoff cần có
+
+```json
+{
+  "agent": "agent_render",
+  "node": "render",
+  "project_id": "proj_xxx",
+  "revision": 1,
+  "brief_hash": "abc123",
+  "renders": [
+    {"job_id": "rjob_xxx", "camera": "wide", "render_url": "/api/v1/renders/...", "file_size_bytes": 1234567},
+    {"job_id": "rjob_yyy", "camera": "eye_level", "render_url": "/api/v1/renders/...", "file_size_bytes": 987654}
+  ],
+  "gallery_count": 2,
+  "gallery_url": "/api/v1/projects/proj_xxx/render-gallery",
+  "ui_accessible": true
+}
+```
+
+## 8. Nghiệm thu một dự án
 
 Một dự án chỉ được bàn giao khi:
 
 1. Floorplan source có SHA-256 và Floorplan QA PASS.
 2. SceneGraph mở lại được và cửa/cửa sổ là lỗ mở thật.
 3. Nội thất giữ đúng anchor từ bản vẽ hoặc có approval cho thay đổi.
-4. Render lưu được vào Gallery và gắn đúng Scene Revision.
+4. Render lưu được vào Gallery (`render-gallery-delivery` PASS), gắn đúng project_id và Scene Revision, xem được trong cả 3D workspace và trang dự án.
 5. QA đối chiếu Floorplan → SceneGraph → Render và có bằng chứng.
 6. Cost nêu rõ coverage; mọi giá đều có trạng thái và nguồn.
 

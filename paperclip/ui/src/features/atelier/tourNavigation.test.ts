@@ -37,4 +37,14 @@ describe('first person navigation',()=>{
     expect(slide.y).toBeCloseTo(TOUR_EYE_HEIGHT)
     world.dispose()
   })
+  it('infers a walkable floor when an imported GLB has no Plane/Cube anchors',()=>{
+    const root=new THREE.Group(),material=new THREE.MeshStandardMaterial()
+    const architecture=new THREE.Group();architecture.name='ApartmentShell'
+    const floor=new THREE.Mesh(new THREE.BoxGeometry(12,.08,7),material);floor.position.y=.04
+    architecture.add(floor);root.add(architecture)
+    const world=createTourWorld(root)
+    expect(world.floors.map(item=>item.name)).toEqual(['Tầng 1'])
+    expect(world.findSpawn(world.floors[0])).not.toBeNull()
+    world.dispose()
+  })
 })

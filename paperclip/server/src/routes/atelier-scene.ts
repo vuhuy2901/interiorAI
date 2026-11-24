@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { fetchAtelierSidecar as fetch } from "../services/atelier-sidecar-fetch.js";
 
 type SceneLocks = Map<string, { holder: string; acquiredAt: number }>;
 type Json = Record<string, any>;

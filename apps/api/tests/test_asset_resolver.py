@@ -93,8 +93,11 @@ def test_console_table_named_parts() -> None:
 
 def test_style_preset_switches_asset_pack_without_deleting_classic() -> None:
     assert resolve_asset_pack_id("japandi") == "sh3d-japandi"
-    assert resolve_asset_pack_id("minimalist") == "sh3d-japandi"
-    assert resolve_asset_pack_id(None) == "sh3d-japandi"
+    # Mặc định đổi sang Hiện đại (FEAT-2026-128): chỉ Japandi dùng pack japandi, còn lại dùng classic.
+    assert resolve_asset_pack_id("minimalist") == "sh3d-classic"
+    assert resolve_asset_pack_id(None) == "sh3d-classic"
+    assert resolve_asset_pack_id(None, brief_style="Modern") == "sh3d-classic"
+    assert resolve_asset_pack_id(None, brief_style="Japandi") == "sh3d-japandi"
     assert resolve_asset_pack_id("warm_classic") == "sh3d-classic"
     assert resolve_asset_pack_id(None, brief_style="Cổ điển sang trọng") == "sh3d-classic"
 

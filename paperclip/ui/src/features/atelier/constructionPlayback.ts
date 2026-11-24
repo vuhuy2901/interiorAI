@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { cameraBlend, easeInOutCubic, focusPose, ITEM_GAP_SECONDS, landingPose, LAND_START, ringPose, type CameraPose } from './constructionMotion'
 import { applyWalkCycle, createDeliveryWorker, type DeliveryWorker } from './furnitureDeliveryAnimation'
 import { oppositeEntry, commandEvent, stateEvent,
   type ConstructionAction, type ConstructionItem, type ConstructionState,
@@ -10,15 +11,23 @@ export const CONSTRUCTION_WORKERS = [
   { id: 'worker-3', name: 'Thợ 3', shirtColor: '#ea580c' },
 ] as const
 const pageSpeeds = new Map<string, PlaybackSpeed>()
+const aim = new THREE.Object3D()
+const prefersReducedMotion = () => typeof window !== 'undefined' && typeof (window as any).matchMedia === 'function'
+  && !!(window as any).matchMedia('(prefers-reduced-motion: reduce)').matches
+export interface CinematicCamera {
+  camera: THREE.Camera; target: THREE.Vector3; enabled?: boolean; onChange?: () => void
+}
 interface Job {
   item: ConstructionItem; worker: DeliveryWorker; cargo: THREE.Group
   entry: THREE.Vector3; approach: THREE.Vector3; target: THREE.Vector3
   duration: number; elapsed: number; placed: boolean; phase: ConstructionWorkerState['phase']
+  landing: THREE.Group; landingMaterials: THREE.Material[]; pivotY: number; ordinal: number
   cleanup: () => void
 }
 export function attachConstructionPlayback(options: {
   key: string; projectId: string; hash: string; items: ConstructionItem[]; scene: THREE.Scene
   sourceBounds: THREE.Box3; render: () => void; fit: (bounds: THREE.Box3) => void
+  cinematicCamera?: CinematicCamera
 }) {
   const { key, items, scene, render } = options
   const byId = new Map(items.map(item => [item.id, item]))
@@ -28,11 +37,34 @@ export function attachConstructionPlayback(options: {
   let state: ConstructionState = { history: [], pending: [], speed: pageSpeeds.get(key) || 1, workers: [] }
   let dead = false, frame: number | null = null, last = 0
   let queue: string[] = [], highlight: THREE.Box3Helper | null = null
+  const gaps = [0, 0, 0]
+  const rings: Array<{ mesh: THREE.Mesh; age: number }> = []
+  let replayTotal = 0, replayDone = 0, replayStarted = 0
+  let basePose: CameraPose | null = null
+  const cinema = options.cinematicCamera
+  const cinematic = () => !!cinema && cinema.enabled !== false && !prefersReducedMotion()
+  const restoreCamera = () => {
+    if (!cinema || !basePose) return
+    cinema.camera.position.copy(basePose.position); cinema.target.copy(basePose.target)
+    cinema.camera.lookAt(cinema.target); cinema.onChange?.(); basePose = null
+  }
+  const disposeRing = (ring: { mesh: THREE.Mesh }) => {
+    scene.remove(ring.mesh); ring.mesh.geometry.dispose(); (ring.mesh.material as THREE.Material).dispose()
+  }
+  const spawnRing = (job: Job) => {
+    const size = job.item.bounds.getSize(new THREE.Vector3())
+    const radius = Math.max(.25, Math.min(1.5, Math.max(size.x, size.z) / 2))
+    const geometry = new THREE.RingGeometry(radius * .9, radius, 48); geometry.rotateX(-Math.PI / 2)
+    const material = new THREE.MeshBasicMaterial({ color: '#5eead4', transparent: true, opacity: .7, side: THREE.DoubleSide, depthWrite: false })
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(job.target.x, job.item.groundY + .02, job.target.z); scene.add(mesh)
+    rings.push({ mesh, age: 0 })
+  }
   const url = `/api/v1/projects/${encodeURIComponent(options.projectId)}/construction-history`
   const workerStates = (): ConstructionWorkerState[] => CONSTRUCTION_WORKERS.map((worker, index) => {
     const job = jobs[index]
     return { id: worker.id, name: worker.name, color: worker.shirtColor,
-      itemId: job?.item.id, itemName: job?.item.name, phase: job?.phase || 'idle',
+      itemId: job?.item.id, itemName: job?.item.name, ordinal: job?.ordinal, phase: job?.phase || 'idle',
       progress: job ? Math.min(1, job.elapsed / job.duration) : 0 }
   })
   const diagnostics = () => {
@@ -49,7 +81,8 @@ export function attachConstructionPlayback(options: {
     }
   }
   const publish = () => {
-    state = { ...state, active: jobs.find(job => job !== null)?.item.id, workers: workerStates() }
+    state = { ...state, active: jobs.find(job => job !== null)?.item.id, workers: workerStates(),
+      replay: replayTotal ? { done: replayDone, total: replayTotal } : undefined }
     diagnostics()
     window.dispatchEvent(new CustomEvent(stateEvent, { detail: { key, ...state } }))
   }
@@ -73,7 +106,8 @@ export function attachConstructionPlayback(options: {
   }
   const stop = () => {
     if (frame !== null) cancelAnimationFrame(frame)
-    frame = null; queue = []
+    frame = null; queue = []; replayTotal = 0; replayDone = 0; replayStarted = 0
+    gaps.fill(0); rings.splice(0).forEach(disposeRing); restoreCamera()
     jobs.forEach((job,index) => { job?.cleanup(); jobs[index] = null })
     original.forEach((visible,mesh) => { mesh.visible = visible })
     state.paused = false
@@ -100,8 +134,22 @@ export function attachConstructionPlayback(options: {
     cargo.scale.setScalar(Math.min(1, .85 / Math.max(.001, size.x, size.y, size.z)))
     cargo.position.set(0,.9,.65); worker.root.add(cargo); scene.add(worker.root)
     const borrowed = new Set(copies.children)
+    // Landing proxy: cloned transparent materials; the real meshes keep their transform and material untouched.
+    const center = item.bounds.getCenter(new THREE.Vector3())
+    const pivot = new THREE.Vector3(center.x, item.bounds.min.y, center.z)
+    const landing = new THREE.Group(), landingInner = new THREE.Group(), landingMaterials: THREE.Material[] = []
+    landingInner.position.copy(pivot).negate(); landing.position.copy(pivot); landing.visible = false
+    const ghost = (material: THREE.Material) => {
+      const clone = material.clone(); clone.userData.baseOpacity = material.opacity
+      clone.transparent = true; clone.opacity = 0; landingMaterials.push(clone); return clone
+    }
+    item.meshes.forEach(mesh => {
+      const copy = new THREE.Mesh(mesh.geometry, Array.isArray(mesh.material) ? mesh.material.map(ghost) : ghost(mesh.material))
+      copy.applyMatrix4(mesh.matrixWorld); landingInner.add(copy)
+    })
+    landing.add(landingInner); scene.add(landing)
     const cleanup = () => {
-      scene.remove(worker.root)
+      scene.remove(worker.root); scene.remove(landing); landingMaterials.forEach(material => material.dispose())
       const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>()
       worker.root.traverse(node => {
         if (!(node as THREE.Mesh).isMesh || borrowed.has(node)) return
@@ -111,11 +159,12 @@ export function attachConstructionPlayback(options: {
       geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose())
     }
     return { item, worker, cargo, entry, target, approach, cleanup, elapsed:0, placed:false, phase:'moving',
+      landing, landingMaterials, pivotY: pivot.y, ordinal: ++replayStarted,
       duration:Math.max(6,entry.distanceTo(approach)*.65+3) }
   }
   const fillSlots = () => {
     for (let index = 0; index < jobs.length && queue.length; index++) {
-      if (jobs[index]) continue
+      if (jobs[index] || gaps[index] > 0) continue
       const item = byId.get(queue.shift()!)
       if (item) jobs[index] = makeJob(item,index)
     }
@@ -136,32 +185,66 @@ export function attachConstructionPlayback(options: {
         if (p >= .66 && !job.placed) {
           job.placed = true; job.cargo.visible = false
           job.item.meshes.forEach(mesh => { mesh.visible = original.get(mesh) ?? true })
+          spawnRing(job)
           if (state.pending.some(record => record.id === job.item.id)) void save('complete', [{id:job.item.id,name:job.item.name,floor:job.item.floor}])
         }
+        const pose = landingPose(p)
+        if (p >= LAND_START) job.cargo.visible = false
+        job.landing.visible = pose.active
+        if (pose.active) {
+          job.landing.position.y = job.pivotY + pose.yOffset; job.landing.scale.setScalar(pose.scale)
+          job.landingMaterials.forEach(material => { material.opacity = (material.userData.baseOpacity ?? 1) * pose.opacity })
+        }
+        const turn = 1 - Math.exp(-12 * delta * (state.speed || 1))
+        const face = (point: THREE.Vector3) => {
+          if (Math.hypot(point.x - job.worker.root.position.x, point.z - job.worker.root.position.z) < 1e-4) return
+          aim.position.copy(job.worker.root.position); aim.lookAt(point.x, aim.position.y, point.z)
+          job.worker.root.quaternion.slerp(aim.quaternion, turn)
+        }
         if (phase === 'moving') {
-          job.worker.root.position.lerpVectors(job.entry,job.approach,THREE.MathUtils.smoothstep(p/.55,0,1))
-          job.worker.root.lookAt(job.approach)
-        } else if (phase === 'placing') job.worker.root.position.copy(job.approach)
+          job.worker.root.position.lerpVectors(job.entry,job.approach,easeInOutCubic(p/.55))
+          face(job.approach)
+        } else if (phase === 'placing') { job.worker.root.position.copy(job.approach); face(job.target) }
         else {
-          job.worker.root.position.lerpVectors(job.approach,job.entry,THREE.MathUtils.smoothstep((p-.73)/.27,0,1))
-          job.worker.root.lookAt(job.entry)
+          job.worker.root.position.lerpVectors(job.approach,job.entry,easeInOutCubic((p-.73)/.27))
+          face(job.entry)
         }
         applyWalkCycle(job.worker,job.elapsed,phase!=='placing' && p<1,job.item.groundY)
         if (phase === 'placing') job.worker.leftArm.rotation.x = job.worker.rightArm.rotation.x = -.7
-        if (p >= 1) { job.cleanup(); jobs[index] = null; changed = true }
+        if (p >= 1) { job.cleanup(); jobs[index] = null; gaps[index] = ITEM_GAP_SECONDS; replayDone++; changed = true }
+      }
+      for (let index = 0; index < gaps.length; index++) if (!jobs[index] && gaps[index] > 0) gaps[index] -= delta * (state.speed || 1)
+      for (let index = rings.length - 1; index >= 0; index--) {
+        const ring = rings[index]; ring.age += delta
+        const ringState = ringPose(ring.age)
+        ring.mesh.scale.setScalar(ringState.scale); (ring.mesh.material as THREE.MeshBasicMaterial).opacity = ringState.opacity
+        if (!ringState.alive) { disposeRing(ring); rings.splice(index, 1) }
       }
       fillSlots()
+      const lead = jobs.find(Boolean)
+      if (cinema && lead && cinematic()) {
+        basePose ||= { position: cinema.camera.position.clone(), target: cinema.target.clone() }
+        const desired = focusPose(basePose, lead.item.bounds.getCenter(new THREE.Vector3()), options.sourceBounds,
+          cameraBlend(Math.min(1, lead.elapsed / lead.duration)))
+        const ease = 1 - Math.exp(-6 * delta)
+        cinema.camera.position.lerp(desired.position, ease); cinema.target.lerp(desired.target, ease)
+        cinema.camera.lookAt(cinema.target); cinema.onChange?.()
+      }
     }
+    if (!jobs.some(Boolean) && !queue.length) restoreCamera()
     if (changed) publish(); else diagnostics()
     render()
-    if (jobs.some(Boolean)) frame = requestAnimationFrame(tick)
+    if (jobs.some(Boolean) || queue.length || rings.length) frame = requestAnimationFrame(tick)
     else publish()
   }
   const play = (ids: string[]) => {
     stop(); if (highlight) highlight.visible = false
     queue = [...new Set(ids)].filter(id => byId.has(id)); if (!queue.length) return
     queue.forEach(id => byId.get(id)!.meshes.forEach(mesh => { mesh.visible = false }))
-    options.fit(options.sourceBounds); fillSlots(); publish()
+    replayTotal = queue.length; replayDone = 0; replayStarted = 0
+    options.fit(options.sourceBounds)
+    if (cinema && cinematic()) basePose = { position: cinema.camera.position.clone(), target: cinema.target.clone() }
+    fillSlots(); publish()
     last = performance.now(); frame = requestAnimationFrame(tick)
   }
   const listener = (event: Event) => {

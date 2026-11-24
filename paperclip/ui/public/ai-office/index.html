@@ -1,0 +1,3298 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HOME&CO Interior · Luxury Architecture &amp; Interior Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #07090c;
+  --panel: rgba(13, 16, 22, 0.94);
+  --panel-border: rgba(255, 255, 255, 0.09);
+  --ink: #f8fafc;
+  --ink-dim: #94a3b8;
+  --accent: #d4a373;
+  --accent-gold: #e2a053;
+  --amber-led: #ffb84d;
+  --cyan: #38bdf8;
+  --green: #4ade80;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+#c {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#c:active { cursor: grabbing; }
+
+/* ===== TOP BAR & GLASS PANELS ===== */
+#topBar {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 20;
+}
+.glass {
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(226, 160, 83, 0.08);
+  border-radius: 14px;
+  pointer-events: auto;
+}
+#brandBadge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+}
+#brandBadge .logo-mark {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #e2a053, #9e5b22);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13.5px;
+  color: #0f1217;
+  box-shadow: 0 0 20px rgba(226, 160, 83, 0.5);
+}
+#brandBadge .brand-text { display: flex; flex-direction: column; }
+#brandBadge .brand-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+#brandBadge .brand-title .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+  animation: pulseDot 2s infinite;
+}
+@keyframes pulseDot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+#brandBadge .brand-sub {
+  font-size: 10px;
+  color: var(--accent);
+  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+/* Department Tabs */
+#deptTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+}
+.tab-btn {
+  background: transparent;
+  color: var(--ink-dim);
+  border: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.tab-btn.active {
+  color: #0b0e14;
+  background: linear-gradient(135deg, #e2a053, #c5863d);
+  box-shadow: 0 4px 16px rgba(226, 160, 83, 0.4);
+  font-weight: 700;
+}
+
+/* Quick Controls */
+#controlsCluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+}
+.ctrl-btn {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  border: 1px solid var(--panel-border);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.ctrl-btn.active {
+  background: rgba(226, 160, 83, 0.2);
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
+
+/* Status Strip - Project & Agent Status Dashboard */
+#statusStrip {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  padding: 13px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+  pointer-events: auto;
+  max-width: 470px;
+  min-width: 360px;
+  border-radius: 14px;
+  background: rgba(13, 16, 22, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+}
+#statusStrip .status-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#statusStrip .phase-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-gold);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#statusStrip .project-box {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #e2e8f0;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+#statusStrip .project-box .proj-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--cyan);
+}
+#statusStrip .phase-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.4;
+}
+#statusStrip .metrics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: "Space Grotesk", sans-serif;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#statusStrip .metrics-row .agent-summary {
+  display: flex;
+  gap: 10px;
+}
+#statusStrip .agent-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  max-height: 70px;
+  overflow-y: auto;
+}
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.agent-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-gold);
+}
+.agent-chip.busy {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+}
+.agent-chip.meeting {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #86efac;
+}
+.agent-chip.idle {
+  color: #64748b;
+  opacity: 0.75;
+}
+.agent-chip .chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+/* ===== 3D HTML LABELS WITH 2D COLLISION AVOIDANCE ===== */
+#L { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
+.agent-pill {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(12, 15, 20, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform .15s, border-color .15s, opacity .2s, box-shadow .2s;
+  z-index: 12;
+}
+.agent-pill.busy {
+  border-color: rgba(56, 189, 248, 0.85);
+  background: rgba(10, 24, 44, 0.94);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.4), 0 4px 14px rgba(0,0,0,0.7);
+  animation: pulseBusy 2.5s infinite;
+}
+@keyframes pulseBusy {
+  0%, 100% { border-color: rgba(56, 189, 248, 0.8); box-shadow: 0 0 14px rgba(56, 189, 248, 0.35); }
+  50% { border-color: rgba(56, 189, 248, 1); box-shadow: 0 0 22px rgba(56, 189, 248, 0.65); }
+}
+.agent-pill.idle {
+  border-color: rgba(74, 222, 128, 0.6);
+  background: rgba(12, 28, 18, 0.92);
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.25), 0 4px 14px rgba(0,0,0,0.6);
+}
+.agent-pill.error {
+  border-color: rgba(248, 113, 113, 0.9);
+  background: rgba(35, 14, 18, 0.95);
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.5), 0 4px 14px rgba(0,0,0,0.7);
+}
+.agent-pill:hover {
+  transform: translate(-50%, -106%) scale(1.06);
+  border-color: var(--accent-gold);
+  z-index: 25 !important;
+}
+.agent-pill.speaking, .agent-pill.selected {
+  border-color: var(--accent-gold);
+  background: rgba(22, 26, 36, 0.95);
+  box-shadow: 0 0 16px rgba(226, 160, 83, 0.4), 0 4px 16px rgba(0,0,0,0.7);
+  z-index: 26 !important;
+}
+.agent-pill .role-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.speech-bubble {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  max-width: 240px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(18, 22, 30, 0.96);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--accent-gold);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.7), 0 0 20px rgba(226, 160, 83, 0.25);
+  display: none;
+  z-index: 28;
+  pointer-events: none;
+}
+.speech-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: var(--accent-gold) transparent transparent;
+}
+
+/* Agent Dossier Drawer */
+#agentDrawer {
+  position: fixed;
+  top: 72px;
+  right: 14px;
+  width: 330px;
+  padding: 18px;
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 30;
+  animation: slideDrawer .25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes slideDrawer { from{opacity:0;transform:translateX(18px)} to{opacity:1;transform:translateX(0)} }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.drawer-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+}
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+.drawer-close:hover { color: #fff; }
+.drawer-name { font-size: 16px; font-weight: 700; color: #fff; margin-top: 6px; }
+.drawer-role { font-size: 12px; color: var(--accent-gold); font-weight: 600; }
+.drawer-section { display: flex; flex-direction: column; gap: 6px; }
+.drawer-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
+.status-pill-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  width: fit-content;
+}
+.term-box {
+  background: #07090d;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  color: #a5d6ff;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.drawer-actions { display: flex; gap: 8px; }
+.drawer-btn {
+  flex: 1;
+  padding: 9px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  cursor: pointer;
+  transition: all .15s;
+}
+.drawer-btn:hover { background: rgba(255,255,255,0.12); }
+.drawer-btn.primary { background: linear-gradient(135deg, #e2a053, #c5863d); color: #0b0e14; border: none; font-weight: 700; }
+
+/* ===== 24-HOUR TIMELAPSE & LIGHTING CONTROLLER ===== */
+#timeBar {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  padding: 10px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 25;
+  width: 480px;
+  max-width: calc(100vw - 420px);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 28px rgba(226, 160, 83, 0.12);
+  border-radius: 14px;
+  pointer-events: auto;
+}
+.time-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.time-readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Space Grotesk", sans-serif;
+}
+#timeIcon {
+  font-size: 16px;
+  filter: drop-shadow(0 0 6px rgba(226, 160, 83, 0.6));
+}
+#timeClock {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fff;
+  min-width: 50px;
+}
+.period-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(226, 160, 83, 0.15);
+  color: var(--accent-gold);
+  border: 1px solid rgba(226, 160, 83, 0.3);
+}
+.time-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.time-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  border: 1px solid var(--panel-border);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all .18s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.time-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+.time-btn.active {
+  background: rgba(226, 160, 83, 0.25);
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+  box-shadow: 0 0 10px rgba(226, 160, 83, 0.3);
+}
+.time-btn.play-btn {
+  background: linear-gradient(135deg, #e2a053, #c5863d);
+  color: #0b0e14;
+  border: none;
+  font-weight: 700;
+}
+.time-btn.play-btn:hover {
+  background: linear-gradient(135deg, #f0b065, #d6954b);
+  box-shadow: 0 0 14px rgba(226, 160, 83, 0.5);
+}
+.time-btn.play-btn.active {
+  background: #f87171;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(248, 113, 113, 0.5);
+}
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.slider-hint {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  font-family: "Space Grotesk", sans-serif;
+  min-width: 34px;
+}
+#timeSlider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(to right, #f59e0b 0%, #fef3c7 25%, #fffbeb 50%, #f97316 75%, #38bdf8 88%, #1e293b 100%);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+#timeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent-gold);
+  box-shadow: 0 0 8px rgba(226, 160, 83, 0.8);
+  cursor: pointer;
+  transition: transform .1s;
+}
+#timeSlider::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+@media(max-width: 860px) {
+  #timeBar {
+    left: 14px;
+    right: 14px;
+    transform: none;
+    width: auto;
+    max-width: none;
+    bottom: 175px;
+  }
+  #statusStrip {
+    width: auto;
+    max-width: calc(100vw - 28px);
+  }
+}
+
+@media(max-width: 900px) {
+  #deptTabs { display: none; }
+  #agentDrawer { width: calc(100vw - 28px); right: 14px; }
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="L"></div>
+
+<!-- Top Bar -->
+<div id="topBar">
+  <div id="brandBadge" class="glass">
+    <div class="logo-mark">H&C</div>
+    <div class="brand-text">
+      <span class="brand-title"><span class="live-dot"></span> HOME&amp;CO Atelier</span>
+      <span class="brand-sub">LUXURY ARCHITECTURAL &amp; INTERIOR STUDIO</span>
+    </div>
+  </div>
+
+  <div id="deptTabs" class="glass">
+    <button class="tab-btn active" data-dept="all">Toàn cảnh</button>
+    <button class="tab-btn" data-dept="ops">☕ Nghỉ Ngơi · Gym</button>
+    <button class="tab-btn" data-dept="meet">Họp Kiến Trúc</button>
+    <button class="tab-btn" data-dept="mira">KTS Trưởng</button>
+    <button class="tab-btn" data-dept="design">Xưởng Thiết Kế</button>
+    <button class="tab-btn" data-dept="bim">Dựng Hình · BIM</button>
+    <button class="tab-btn" data-dept="cost">Kho &amp; Kế Toán</button>
+    <button class="tab-btn" data-dept="qa">QA · DevOps</button>
+  </div>
+
+  <div id="controlsCluster" class="glass">
+    <button class="ctrl-btn" id="btnSpeed" title="Chuyển đổi tốc độ mô phỏng">⚡ x1</button>
+    <button class="ctrl-btn active" id="btnLed" title="Bật/Tắt hệ thống Warm LED Strip">💡 LED Strip</button>
+    <button class="ctrl-btn" id="btnNight" title="Bật/Tắt ánh sáng ban đêm">🌙 Đêm</button>
+    <button class="ctrl-btn" id="btnGrid" title="Hiện/Ẩn lưới tìm đường A*">📐 Lưới</button>
+    <button class="ctrl-btn" id="btnReset" title="Đặt lại góc nhìn">⟲ Reset</button>
+  </div>
+</div>
+
+<!-- Bottom Status Strip - Project & Agent Status Dashboard -->
+<div id="statusStrip" class="glass">
+  <div class="status-top-bar">
+    <div class="phase-badge"><span class="live-dot"></span> <span id="clockTxt">09:00 AM</span> · TRẠNG THÁI DOANH NGHIỆP</div>
+    <span style="font-size: 10px; color: var(--accent-gold); font-weight: 700; letter-spacing: 0.05em;" id="runningTaskBadge">⚡ ĐANG CHẠY</span>
+  </div>
+
+  <div class="project-box">
+    <span class="proj-tag">Dự án</span>
+    <span id="projNameTxt" class="proj-name">Căn hộ Japandi 4×5m (Rev #15 · Phòng khách)</span>
+  </div>
+
+  <div class="phase-title" id="phaseTxt">Đang tải trạng thái điều hành Đa Agent...</div>
+
+  <div class="metrics-row">
+    <div class="agent-summary">
+      <span style="color:#38bdf8;">● <b id="busyCountTxt">0 Bận</b></span>
+      <span style="color:#94a3b8;">○ <b id="idleCountTxt">9 Rảnh</b></span>
+    </div>
+    <span>Nhiệm vụ: <b id="doneTxt" style="color:#fff;">0 hoàn thành</b></span>
+  </div>
+
+  <div class="agent-chips-row" id="agentChipsRow">
+    <!-- Populated dynamically with agent chips -->
+  </div>
+</div>
+
+<!-- 24-Hour Timelapse & Lighting Controller Bar -->
+<div id="timeBar" class="glass">
+  <div class="time-header">
+    <div class="time-readout">
+      <span id="timeIcon">☀️</span>
+      <span id="timeClock">09:00</span>
+      <span id="timePeriod" class="period-badge">Ban ngày</span>
+    </div>
+    <div class="time-actions">
+      <button class="time-btn play-btn" id="btnTimelapse" title="Tự động tua chu kỳ ánh sáng 24h">▶ Timelapse</button>
+      <button class="time-btn time-preset-btn" data-hour="7.5" id="btnPresetDawn" title="07:30 Bình minh">🌅 Sáng</button>
+      <button class="time-btn time-preset-btn active" data-hour="12.0" id="btnPresetNoon" title="12:00 Ban trưa">☀️ Trưa</button>
+      <button class="time-btn time-preset-btn" data-hour="17.5" id="btnPresetSunset" title="17:30 Hoàng hôn">🌇 Hoàng Hôn</button>
+      <button class="time-btn time-preset-btn" data-hour="21.5" id="btnPresetNight" title="21:30 Đêm Atelier">🌙 Đêm</button>
+    </div>
+  </div>
+  <div class="slider-row">
+    <span class="slider-hint">06:00</span>
+    <input type="range" id="timeSlider" min="6" max="24" step="0.05" value="9" title="Kéo thanh trượt để đổi giờ trong ngày">
+    <span class="slider-hint">24:00</span>
+  </div>
+</div>
+
+<!-- Agent Dossier Drawer -->
+<div id="agentDrawer" class="glass">
+  <div class="drawer-head">
+    <div style="display:flex;gap:12px;align-items:center;">
+      <div class="drawer-avatar" id="dAvatar">M</div>
+      <div>
+        <div class="drawer-name" id="dName">Mira</div>
+        <div class="drawer-role" id="dRole">Kiến trúc sư trưởng</div>
+      </div>
+    </div>
+    <button class="drawer-close" id="dClose">&times;</button>
+  </div>
+
+  <div class="drawer-section">
+    <span class="drawer-lbl">Trạng thái công việc</span>
+    <div class="status-pill-lg" id="dStatus">
+      <span class="role-dot" style="background:#4ade80;"></span>
+      <span id="dStatusTxt">Đang làm việc tại bàn</span>
+    </div>
+  </div>
+
+  <div class="drawer-section">
+    <span class="drawer-lbl">Live Screen / Terminal Tool Calls</span>
+    <div class="term-box" id="dTerm">
+      $ agent.connect(mesh_cluster)<br>
+      > Status: READY<br>
+      > Listening to orchestrator events...
+    </div>
+  </div>
+
+  <div class="drawer-actions">
+    <button class="drawer-btn primary" id="dBtnFocus">Focus Camera</button>
+    <button class="drawer-btn" id="dBtnPing">Gửi chỉ thị</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+"use strict";
+
+/* =========================================================================
+   1. GRID, COORDINATES & NAVIGATION (60x40 Cells, 0.5m/cell)
+   ========================================================================= */
+const T = THREE, CS = 0.5, W = 60, H = 40, blocked = new Uint8Array(W * H);
+const B = (c, r) => { if (c >= 0 && r >= 0 && c < W && r < H) blocked[r * W + c] = 1; };
+const isB = (c, r) => c < 0 || r < 0 || c >= W || r >= H || blocked[r * W + c];
+const wx = c => (c + 0.5) * CS;
+const wv = (c, r) => new T.Vector3(wx(c), 0, wx(r));
+const blk = (c0, r0, c1, r1) => { for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) B(c, r); };
+
+/* =========================================================================
+   2. THREE.JS NATURAL DISTRIBUTED LIGHTING SETUP
+   ========================================================================= */
+const cv = document.getElementById('c');
+const R = new T.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
+R.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+R.setSize(window.innerWidth, window.innerHeight);
+R.toneMapping = T.ACESFilmicToneMapping;
+R.toneMappingExposure = 1.22;
+R.outputEncoding = T.sRGBEncoding;
+R.shadowMap.enabled = true;
+R.shadowMap.type = T.PCFSoftShadowMap;
+
+const S = new T.Scene();
+const BG_DARK = new T.Color(0x07080b);
+S.background = BG_DARK.clone();
+
+const cam = new T.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 400);
+
+/* Master Ambient Lighting (Balanced & Clear, Natural Fill) */
+const hemi = new T.HemisphereLight(0x526078, 0x30251c, 1.15);
+S.add(hemi);
+
+/* Warm Key Directional Sunlight */
+const sun = new T.DirectionalLight(0xfff6ec, 1.35);
+sun.position.set(22, 36, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 100;
+sun.shadow.camera.left = -22;
+sun.shadow.camera.right = 22;
+sun.shadow.camera.top = 22;
+sun.shadow.camera.bottom = -22;
+sun.shadow.bias = -0.0003;
+sun.shadow.radius = 2.5;
+sun.target.position.set(15, 0, 10);
+S.add(sun, sun.target);
+
+/* Soft Secondary Fill Light */
+const fillLight = new T.DirectionalLight(0x6b8db8, 0.45);
+fillLight.position.set(-18, 24, -14);
+S.add(fillLight);
+
+/* High-Altitude Ambient Soft Diffuser */
+const ledGroup = new T.Group();
+S.add(ledGroup);
+
+const softCeilingDiffuser = new T.PointLight(0xffbe5c, 0.75, 45, 0.8);
+softCeilingDiffuser.position.set(15, 6.5, 10);
+ledGroup.add(softCeilingDiffuser);
+
+/* Material Caching System */
+const mats = {};
+const M = (c, opt = {}) => {
+  const key = `${c}_${opt.roughness ?? 0.7}_${opt.metalness ?? 0.1}_${opt.emissive ?? 0}_${opt.transparent ?? false}`;
+  if (!mats[key]) {
+    mats[key] = new T.MeshStandardMaterial({
+      color: c,
+      roughness: opt.roughness !== undefined ? opt.roughness : 0.7,
+      metalness: opt.metalness !== undefined ? opt.metalness : 0.1,
+      ...opt
+    });
+  }
+  return mats[key];
+};
+
+function makeCanvasTexture(w, h, drawFn) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  drawFn(c.getContext('2d'), w, h);
+  const tex = new T.CanvasTexture(c);
+  tex.anisotropy = 4;
+  tex._canvas = c;
+  return tex;
+}
+
+// Parquet Wood Planks
+const walnutTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#2f2218'; ctx.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 32) {
+    ctx.fillStyle = (y / 32) % 2 === 0 ? '#3b2b1e' : '#33251a';
+    ctx.fillRect(0, y, w, 30);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, y + 30, w, 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let i = 0; i < 5; i++) {
+      ctx.fillRect(Math.random() * w, y + Math.random() * 26, Math.random() * 80 + 30, 1);
+    }
+  }
+});
+walnutTex.wrapS = walnutTex.wrapT = T.RepeatWrapping;
+walnutTex.repeat.set(4, 4);
+
+// Beige Stone Tile
+const stoneTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#e4dcce'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#c9bfae'; ctx.lineWidth = 3;
+  ctx.strokeRect(0, 0, w, h);
+  ctx.strokeRect(w/2, 0, w/2, h/2);
+  ctx.strokeRect(0, h/2, w/2, h/2);
+  const flecks = ['#918370', '#baa995', '#d4c5b0', '#5a4e3e'];
+  for (let i = 0; i < 300; i++) {
+    ctx.fillStyle = flecks[Math.floor(Math.random() * flecks.length)];
+    ctx.fillRect(Math.random() * w, Math.random() * h, Math.random() * 3 + 1, Math.random() * 3 + 1);
+  }
+});
+stoneTex.wrapS = stoneTex.wrapT = T.RepeatWrapping;
+stoneTex.repeat.set(6, 4);
+
+// Calacatta Gold Marble
+const marbleTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
+  ctx.fillStyle = '#faf8f5'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(140, 130, 120, 0.25)'; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(30, 20); ctx.bezierCurveTo(150, 80, 280, 40, 480, 190);
+  ctx.moveTo(100, 240); ctx.bezierCurveTo(240, 180, 360, 220, 500, 60);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(224, 160, 83, 0.35)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(40, 25); ctx.bezierCurveTo(160, 85, 290, 45, 490, 195);
+  ctx.stroke();
+});
+
+// Herringbone Parquet Wood Planks for Lounge & Wellness
+const herringboneTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#cbb89e';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#a49177';
+  ctx.lineWidth = 2.5;
+  const step = 32;
+  for (let x = -w; x < w * 2; x += step) {
+    for (let y = 0; y < h; y += step) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + step, y + step);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + step, y + step);
+      ctx.lineTo(x, y + step * 2);
+      ctx.stroke();
+    }
+  }
+});
+herringboneTex.wrapS = herringboneTex.wrapT = T.RepeatWrapping;
+herringboneTex.repeat.set(4, 4);
+
+/* Helper Primitives */
+function bx(x, y, z, w, h, d, c, p = S, opt = {}) {
+  const m = new T.Mesh(new T.BoxGeometry(w, h, d), M(c, opt));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  p.add(m);
+  return m;
+}
+
+function cb(c0, r0, c1, r1, h, col, y0 = 0, p = S, opt = {}) {
+  return bx((c0 + c1 + 1) / 2 * CS, y0 + h / 2, (r0 + r1 + 1) / 2 * CS, (c1 - c0 + 1) * CS, h, (r1 - r0 + 1) * CS, col, p, opt);
+}
+
+function cyl(x, y, z, r, l, c, rz = 0, p = S, opt = {}) {
+  const m = new T.Mesh(new T.CylinderGeometry(r, r, l, 16), M(c, opt));
+  m.position.set(x, y, z);
+  m.rotation.z = rz;
+  m.castShadow = true;
+  p.add(m);
+  return m;
+}
+
+function plane(t, w, h, x, y, z, rx, ry, p = S) {
+  const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ map: t, transparent: true }));
+  m.position.set(x, y, z);
+  m.rotation.set(rx, ry, 0);
+  p.add(m);
+  return m;
+}
+
+/* =========================================================================
+   3. ARCHITECTURAL FLOATING PLINTH & WARM LED PERIMETER COVE
+   ========================================================================= */
+const plinthW = (W + 2) * CS, plinthD = (H + 2) * CS, plinthH = 0.38;
+bx(W / 2 * CS, -plinthH / 2, H / 2 * CS, plinthW, plinthH, plinthD, 0x111318, S, { roughness: 0.9 });
+bx(W / 2 * CS, 0.015, H / 2 * CS, plinthW + 0.12, 0.035, plinthD + 0.12, 0x3d2f23, S, { roughness: 0.4, metalness: 0.7 });
+
+const ledMat = new T.MeshStandardMaterial({
+  color: 0xffb84d,
+  emissive: 0xffa033,
+  emissiveIntensity: 1.3,
+  roughness: 0.2
+});
+const coveStrip = new T.Mesh(new T.BoxGeometry(plinthW + 0.16, 0.02, plinthD + 0.16), ledMat);
+coveStrip.position.set(W / 2 * CS, -0.01, H / 2 * CS);
+ledGroup.add(coveStrip);
+
+const groundPlane = new T.Mesh(new T.PlaneGeometry(160, 160), M(0x07080b, { roughness: 0.95 }));
+groundPlane.rotation.x = -Math.PI / 2;
+groundPlane.position.set(W / 2 * CS, -plinthH, H / 2 * CS);
+groundPlane.receiveShadow = true;
+S.add(groundPlane);
+
+/* =========================================================================
+   4. ROOMS, FLOOR TEXTURES & WALL ARCHITECTURE
+   ========================================================================= */
+const rooms = [
+  { id: 'ops', n: 'LOUNGE & WELLNESS · NGHỈ NGƠI & GYM', r: [0, 0, 16, 16], tex: herringboneTex, col: 0xd9cbb8, d: [6, 15], camPos: [4.0, 6.5, 6.0], target: [4.0, 0.5, 4.0] },
+  { id: 'meet', n: 'PHÒNG HỌP KIẾN TRÚC', r: [15, 0, 40, 16], tex: walnutTex, col: 0x4a382c, d: [25, 15], camPos: [13.75, 7.5, 6.0], target: [13.75, 0.5, 4.0] },
+  { id: 'mira', n: 'KIẾN TRÚC SƯ TRƯỞNG & ĐIỀU PHỐI', r: [39, 0, 60, 16], tex: walnutTex, col: 0x403126, d: [47, 15], camPos: [24.5, 6.5, 6.0], target: [24.5, 0.5, 4.0] },
+  { id: 'design', n: 'XƯỞNG THIẾT KẾ', r: [0, 22, 20, 40], tex: stoneTex, col: 0xe2d9cb, d: [8, 22], camPos: [5.0, 6.5, 12.0], target: [5.0, 0.5, 15.5] },
+  { id: 'bim', n: 'XƯỞNG DỰNG HÌNH · BIM', r: [19, 22, 38, 40], tex: stoneTex, col: 0xd4dde4, d: [26, 22], camPos: [14.0, 6.5, 12.0], target: [14.0, 0.5, 15.5] },
+  { id: 'cost', n: 'KHO & KẾ TOÁN', r: [37, 22, 52, 40], tex: stoneTex, col: 0xdcd6cc, d: [45, 22], camPos: [22.0, 6.5, 12.0], target: [22.0, 0.5, 15.5] },
+  { id: 'qa', n: 'QA & DEVOPS', r: [51, 22, 60, 40], tex: stoneTex, col: 0xc9d8cd, d: [53, 22], camPos: [27.0, 6.5, 12.0], target: [27.0, 0.5, 15.5] }
+];
+
+function customFloor(c0, r0, c1, r1, texMap, col = 0xffffff, y = 0.015) {
+  const mat = new T.MeshStandardMaterial({
+    color: col,
+    map: texMap,
+    roughness: 0.65,
+    metalness: 0.08
+  });
+  const m = new T.Mesh(new T.PlaneGeometry((c1 - c0) * CS, (r1 - r0) * CS), mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set((c0 + c1) / 2 * CS, y, (r0 + r1) / 2 * CS);
+  m.receiveShadow = true;
+  S.add(m);
+  return m;
+}
+
+rooms.forEach(o => customFloor(...o.r, o.tex, o.col, 0.016));
+
+customFloor(0, 16, 60, 22, stoneTex, 0xeee6d8, 0.012);
+bx(30 * CS, 0.019, 16 * CS, 60 * CS, 0.005, 0.08, 0xd4af37, S, { roughness: 0.3, metalness: 0.85 });
+bx(30 * CS, 0.019, 22 * CS, 60 * CS, 0.005, 0.08, 0xd4af37, S, { roughness: 0.3, metalness: 0.85 });
+
+/* Wall System */
+const wall = new Map();
+rooms.forEach(o => {
+  const [c0, r0, c1, r1] = o.r;
+  for (let c = c0; c < c1; c++) {
+    for (let r = r0; r < r1; r++) {
+      if (c === c0 || c === c1 - 1 || r === r0 || r === r1 - 1) wall.set(c + ',' + r, 1);
+    }
+  }
+});
+for (let r = 16; r < 22; r++) {
+  wall.set('0,' + r, 1);
+  wall.set('59,' + r, 1);
+}
+rooms.forEach(o => {
+  for (let i = 0; i < 4; i++) wall.delete((o.d[0] + i) + ',' + o.d[1]);
+});
+
+const wk = [...wall.keys()];
+
+// Wainscoting (Rich Walnut Wood Panels)
+const walnutWallMat = M(0x38281d, { roughness: 0.55 });
+const wm = new T.InstancedMesh(new T.BoxGeometry(CS, 1, CS), walnutWallMat, wk.length);
+const dm = new T.Object3D();
+wk.forEach((k, i) => {
+  const [c, r] = k.split(',').map(Number);
+  B(c, r);
+  const isOuterBack = (r === 0 || c === 0 || c === 59);
+  const h = isOuterBack ? 2.6 : 0.85;
+  dm.position.set(wx(c), h / 2, wx(r));
+  dm.scale.set(1, h, 1);
+  dm.updateMatrix();
+  wm.setMatrixAt(i, dm.matrix);
+});
+wm.castShadow = true;
+wm.receiveShadow = true;
+S.add(wm);
+
+// Baseboard Trim
+const bbMat = M(0x231d17, { roughness: 0.5, metalness: 0.6 });
+const bbMesh = new T.InstancedMesh(new T.BoxGeometry(CS, 0.08, CS + 0.02), bbMat, wk.length);
+wk.forEach((k, i) => {
+  const [c, r] = k.split(',').map(Number);
+  dm.position.set(wx(c), 0.04, wx(r));
+  dm.scale.set(1, 1, 1);
+  dm.updateMatrix();
+  bbMesh.setMatrixAt(i, dm.matrix);
+});
+S.add(bbMesh);
+
+// Warm LED Kickboard Strip
+const wallLedMesh = new T.InstancedMesh(new T.BoxGeometry(CS, 0.015, CS + 0.025), ledMat, wk.length);
+wk.forEach((k, i) => {
+  const [c, r] = k.split(',').map(Number);
+  dm.position.set(wx(c), 0.012, wx(r));
+  dm.scale.set(1, 1, 1);
+  dm.updateMatrix();
+  wallLedMesh.setMatrixAt(i, dm.matrix);
+});
+ledGroup.add(wallLedMesh);
+
+// Upper Glass Partitions
+const glassMat = new T.MeshStandardMaterial({
+  color: 0xebf4ff,
+  transparent: true,
+  opacity: 0.28,
+  roughness: 0.1,
+  metalness: 0.4
+});
+const glassM = new T.InstancedMesh(new T.BoxGeometry(CS, 0.75, 0.035), glassMat, wk.length);
+wk.forEach((k, i) => {
+  const [c, r] = k.split(',').map(Number);
+  const isOuterBack = (r === 0 || c === 0 || c === 59);
+  if (!isOuterBack && (r === 15 || r === 22)) {
+    dm.position.set(wx(c), 1.25, wx(r));
+    dm.scale.set(1, 1, 1);
+  } else {
+    dm.scale.set(0, 0, 0);
+  }
+  dm.updateMatrix();
+  glassM.setMatrixAt(i, dm.matrix);
+});
+S.add(glassM);
+
+// Floor Labels
+function flabel(s, c, r, w) {
+  plane(makeCanvasTexture(640, 64, (ctx, a, b) => {
+    ctx.font = '700 28px "Space Grotesk", sans-serif';
+    ctx.fillStyle = 'rgba(224, 160, 83, 0.7)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(s, a / 2, b / 2);
+  }), w, w / 10, wx(c), 0.022, wx(r), -Math.PI / 2, 0);
+}
+rooms.forEach(o => {
+  const [c0, r0, c1, r1] = o.r;
+  flabel(o.n, (c0 + c1) / 2, r0 < 10 ? r1 - 3 : r1 - 2, 7);
+});
+flabel('HÀNH LANG TRUNG TÂM · ATELIER CORRIDOR', 30, 19, 9);
+
+// Sliding Glass Doors
+const doors = rooms.map(o => {
+  const x = wx(o.d[0] + 1.5), z = wx(o.d[1]), w = 4 * CS;
+  bx(x - w / 2 - 0.04, 0.6, z, 0.08, 1.25, CS + 0.08, 0x181a1f, S, { roughness: 0.4, metalness: 0.8 });
+  bx(x + w / 2 + 0.04, 0.6, z, 0.08, 1.25, CS + 0.08, 0x181a1f, S, { roughness: 0.4, metalness: 0.8 });
+  const leaf = bx(x, 0.55, z, w, 1.15, 0.05, 0xa0b8cf, S, { transparent: true, opacity: 0.4, roughness: 0.2 });
+  bx(x + 0.4, 0.55, z, 0.04, 0.4, 0.08, 0xd4a373, leaf, { roughness: 0.3, metalness: 0.85 });
+  return { x, z, w, leaf, o: 0 };
+});
+
+/* =========================================================================
+   5. REUSABLE COMPONENTS: 3D FRAMED ARTWORKS, SCALE MODELS & SHOWROOM
+   ========================================================================= */
+
+// High-DPI Canvas Interior Artworks
+const artworks = {
+  villa_living: makeCanvasTexture(512, 384, (ctx, w, h) => {
+    ctx.fillStyle = '#1c1b18'; ctx.fillRect(0, 0, w, h);
+    // Double height living room glass window with night greenery
+    ctx.fillStyle = '#141e28'; ctx.fillRect(40, 30, 240, 240);
+    ctx.fillStyle = '#223824'; ctx.beginPath(); ctx.arc(160, 270, 120, Math.PI, 2 * Math.PI); ctx.fill();
+    // Warm linear fireplace
+    ctx.fillStyle = '#2d241c'; ctx.fillRect(320, 180, 160, 140);
+    ctx.fillStyle = '#ea580c'; ctx.fillRect(340, 260, 120, 20);
+    ctx.fillStyle = '#fde047'; ctx.fillRect(360, 264, 80, 12);
+    // Modern low-profile curved sofa
+    ctx.fillStyle = '#eae4da'; ctx.beginPath(); ctx.ellipse(180, 300, 120, 45, 0, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = '#3a2b1f'; ctx.fillRect(140, 280, 80, 25); // coffee table
+    ctx.fillStyle = '#d4a373'; ctx.font = '700 22px "Plus Jakarta Sans"';
+    ctx.fillText('MODERN LUXURY VILLA', 40, 360);
+  }),
+
+  master_bed: makeCanvasTexture(512, 384, (ctx, w, h) => {
+    ctx.fillStyle = '#201d1a'; ctx.fillRect(0, 0, w, h);
+    // Fluted acoustic wall backdrop
+    for (let x = 60; x < 450; x += 16) {
+      ctx.fillStyle = (x / 16) % 2 === 0 ? '#38281b' : '#2b1e14';
+      ctx.fillRect(x, 40, 12, 220);
+    }
+    // Warm LED cove backlight behind headboard
+    ctx.fillStyle = 'rgba(255, 184, 77, 0.4)'; ctx.fillRect(100, 150, 310, 20);
+    // King Bed with upholstered headboard & crisp white linens
+    ctx.fillStyle = '#423326'; ctx.fillRect(110, 160, 290, 80);
+    ctx.fillStyle = '#f8fafc'; ctx.fillRect(130, 220, 250, 110);
+    // Accent bedside pendant lights
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.arc(100, 140, 10, 0, 2 * Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(410, 140, 10, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = '#e2a053'; ctx.font = '700 22px "Plus Jakarta Sans"';
+    ctx.fillText('MASTER BEDROOM SUITE', 40, 360);
+  }),
+
+  luxury_kitchen: makeCanvasTexture(512, 384, (ctx, w, h) => {
+    ctx.fillStyle = '#17191e'; ctx.fillRect(0, 0, w, h);
+    // Waterfall Calacatta Marble Island
+    ctx.fillStyle = '#f1f5f9'; ctx.fillRect(100, 160, 310, 140);
+    ctx.fillStyle = '#94a3b8'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(140, 170); ctx.lineTo(260, 240); ctx.moveTo(280, 180); ctx.lineTo(380, 260); ctx.stroke();
+    // Matte black tall cabinetry with warm LED shelf underglow
+    ctx.fillStyle = '#0f1115'; ctx.fillRect(40, 40, 430, 90);
+    ctx.fillStyle = '#ffb84d'; ctx.fillRect(40, 128, 430, 5);
+    ctx.fillStyle = '#cbd5e1'; ctx.font = '700 22px "Plus Jakarta Sans"';
+    ctx.fillText('CHEF KITCHEN & DINING', 40, 360);
+  }),
+
+  japandi_lounge: makeCanvasTexture(512, 384, (ctx, w, h) => {
+    ctx.fillStyle = '#eadecd'; ctx.fillRect(0, 0, w, h);
+    // Washi paper lantern pendant
+    ctx.fillStyle = '#fffdf7'; ctx.beginPath(); ctx.arc(256, 100, 45, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 2; ctx.stroke();
+    // Low platform oak sofa with neutral linen
+    ctx.fillStyle = '#bfa588'; ctx.fillRect(80, 220, 350, 40);
+    ctx.fillStyle = '#f5f0ea'; ctx.fillRect(100, 200, 310, 50);
+    // Ceramic vase with bonsai branch
+    ctx.fillStyle = '#443d35'; ctx.beginPath(); ctx.arc(130, 180, 20, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = '#3a5a40'; ctx.beginPath(); ctx.arc(125, 145, 25, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = '#5c4837'; ctx.font = '700 22px "Plus Jakarta Sans"';
+    ctx.fillText('JAPANDI HARMONY LIVING', 40, 360);
+  }),
+
+  townhouse_facade: makeCanvasTexture(512, 384, (ctx, w, h) => {
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, w, h);
+    // Modern 3-story Townhouse Facade with timber louvers
+    ctx.fillStyle = '#cbd5e1'; ctx.fillRect(140, 40, 230, 280);
+    // Vertical wood louvers
+    for (let x = 160; x < 350; x += 14) {
+      ctx.fillStyle = '#b45309'; ctx.fillRect(x, 80, 8, 140);
+    }
+    // Glowing floor-to-ceiling windows
+    ctx.fillStyle = '#fef08a'; ctx.fillRect(170, 240, 80, 80);
+    ctx.fillStyle = '#38bdf8'; ctx.font = '700 22px "Space Grotesk"';
+    ctx.fillText('URBAN TOWNHOUSE 3-STOREY', 40, 360);
+  })
+};
+
+// 1. FramedArtwork3D Component
+function createFramedArtwork(x, y, z, w, h, ry = 0, artKey = 'villa_living', hasSpotlight = true) {
+  const g = new T.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = ry;
+
+  // Dark Bronze / Matte Black Outer Frame
+  const frameMat = M(0x1a1917, { roughness: 0.4, metalness: 0.8 });
+  const d = 0.05;
+  // Border moldings
+  bx(0, h / 2 + 0.02, 0, w + 0.08, 0.04, d, 0x1a1917, g, { metalness: 0.8 });
+  bx(0, -h / 2 - 0.02, 0, w + 0.08, 0.04, d, 0x1a1917, g, { metalness: 0.8 });
+  bx(-w / 2 - 0.02, 0, 0, 0.04, h, d, 0x1a1917, g, { metalness: 0.8 });
+  bx(w / 2 + 0.02, 0, 0, 0.04, h, d, 0x1a1917, g, { metalness: 0.8 });
+
+  // Recessed Canvas Painting
+  const canvasMat = new T.MeshBasicMaterial({ map: artworks[artKey] || artworks.villa_living });
+  const canvasMesh = new T.Mesh(new T.PlaneGeometry(w, h), canvasMat);
+  canvasMesh.position.z = 0.015;
+  g.add(canvasMesh);
+
+  // Subtle Protective Glass Glazing
+  const glassGlaze = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshStandardMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.15,
+    roughness: 0.05,
+    metalness: 0.9
+  }));
+  glassGlaze.position.z = 0.02;
+  g.add(glassGlaze);
+
+  // Gallery Picture Spotlight (Dedicated downward lighting fixture)
+  if (hasSpotlight) {
+    const spotArm = new T.Group();
+    spotArm.position.set(0, h / 2 + 0.14, 0.22);
+    // Brass articulating arm
+    cyl(0, 0, -0.1, 0.008, 0.24, 0xd4af37, Math.PI / 2, spotArm, { metalness: 0.85 });
+    // Cylindrical light head casting warm light onto painting
+    cyl(0, 0, 0.02, 0.025, w * 0.5, 0x221d19, Math.PI / 2, spotArm);
+    bx(0, -0.01, 0.02, w * 0.46, 0.008, 0.02, 0xffbe5c, spotArm, { emissive: 0xffa033, emissiveIntensity: 1.4 });
+    g.add(spotArm);
+  }
+
+  S.add(g);
+  return g;
+}
+
+// 2. ArchitecturalScaleModel Component (Miniature 3D Architectural Mockup)
+function createArchitecturalScaleModel(c, r, modelType = 'villa2') {
+  const g = new T.Group();
+  const posX = wx(c), posZ = wx(r);
+  g.position.set(posX, 0, posZ);
+
+  // Heavy Display Pedestal (Dark Nero Marquina or Oak)
+  const pedW = 1.3, pedD = 1.1, pedH = 0.75;
+  bx(0, pedH / 2, 0, pedW, pedH, pedD, 0x221c17, g, { roughness: 0.4 });
+  // Brass top edge trim
+  bx(0, pedH + 0.01, 0, pedW + 0.04, 0.02, pedD + 0.04, 0xd4af37, g, { metalness: 0.85, roughness: 0.2 });
+
+  // Plaque with title
+  plane(makeCanvasTexture(256, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#0f1115'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 2; ctx.strokeRect(2, 2, w - 4, h - 4);
+    ctx.fillStyle = '#e2a053'; ctx.font = '700 13px "Space Grotesk"';
+    ctx.textAlign = 'center';
+    ctx.fillText(modelType === 'villa2' ? 'VILLA MODEL 1:50' : 'CUTAWAY SUITE 1:25', w / 2, 38);
+  }), 0.4, 0.1, 0, pedH * 0.7, pedD / 2 + 0.01, 0, 0, g);
+
+  // Model Assembly
+  const modelGroup = new T.Group();
+  modelGroup.position.set(0, pedH + 0.02, 0);
+
+  if (modelType === 'villa2') {
+    // 2-Storey Modern Luxury Cantilevered Villa
+    // Ground floor white volume
+    bx(-0.15, 0.1, 0, 0.65, 0.2, 0.55, 0xf1efe9, modelGroup);
+    // Glazed glass living room facade
+    bx(-0.12, 0.1, 0.28, 0.55, 0.18, 0.02, 0x38bdf8, modelGroup, { transparent: true, opacity: 0.6 });
+    // First floor cantilevered volume (dark timber clad)
+    bx(0.1, 0.28, -0.05, 0.65, 0.16, 0.6, 0x3d2c1f, modelGroup);
+    // Glass balcony railing
+    bx(0.1, 0.38, 0.26, 0.6, 0.05, 0.01, 0x88ccff, modelGroup, { transparent: true, opacity: 0.5 });
+    // Miniature turquoise swimming pool with timber deck
+    bx(0.35, 0.01, 0.1, 0.35, 0.02, 0.5, 0x422f20, modelGroup); // deck
+    bx(0.38, 0.02, 0.1, 0.24, 0.015, 0.34, 0x38bdf8, modelGroup, { roughness: 0.1 }); // pool
+    // Tiny scale architectural trees
+    cyl(-0.45, 0.12, -0.2, 0.05, 0.24, 0x3d6e47, 0, modelGroup);
+    cyl(0.48, 0.1, -0.2, 0.04, 0.2, 0x2e5936, 0, modelGroup);
+  } else {
+    // Cutaway Apartment Interior Mockup (Dollhouse View)
+    // Floor slab
+    bx(0, 0.01, 0, 0.9, 0.02, 0.7, 0xdec6a2, modelGroup);
+    // Interior cutaway partition walls
+    bx(-0.1, 0.12, 0, 0.03, 0.22, 0.65, 0xf0ece2, modelGroup);
+    bx(0.2, 0.12, -0.1, 0.55, 0.22, 0.03, 0xf0ece2, modelGroup);
+    // Tiny bedroom (bed with tiny pillows & wardrobe)
+    bx(-0.28, 0.06, -0.15, 0.26, 0.08, 0.32, 0xffffff, modelGroup);
+    bx(-0.28, 0.12, -0.28, 0.26, 0.04, 0.06, 0xb86334, modelGroup);
+    bx(-0.4, 0.14, 0.1, 0.08, 0.24, 0.24, 0x3a281c, modelGroup);
+    // Tiny living room (sofa + coffee table)
+    bx(0.2, 0.06, 0.15, 0.35, 0.08, 0.18, 0x475569, modelGroup);
+    bx(0.2, 0.04, 0.02, 0.16, 0.04, 0.1, 0xd4af37, modelGroup);
+  }
+  g.add(modelGroup);
+
+  // Transparent Acrylic Display Cloche / Protective Vitrine
+  const clocheMat = new T.MeshStandardMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.22,
+    roughness: 0.05,
+    metalness: 0.9
+  });
+  const cloche = new T.Mesh(new T.BoxGeometry(pedW - 0.08, 0.55, pedD - 0.08), clocheMat);
+  cloche.position.set(0, pedH + 0.28, 0);
+  g.add(cloche);
+
+  S.add(g);
+  blk(c - 1, r - 1, c + 1, r + 1); // block navgrid around pedestal
+  return g;
+}
+
+// 3. MaterialSampleBoard & Showroom Stand Component
+function createMaterialShowroomStand(c, r, ry = 0) {
+  const g = new T.Group();
+  g.position.set(wx(c), 0, wx(r));
+  g.rotation.y = ry;
+
+  // Walnut Showroom Stand Frame
+  bx(0, 0.9, 0, 1.6, 1.8, 0.25, 0x2e2016, g, { roughness: 0.6 });
+  // Base plinth
+  bx(0, 0.08, 0, 1.7, 0.16, 0.45, 0x1f1711, g);
+
+  // Showroom Header with Backlight
+  plane(makeCanvasTexture(384, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#0f1115'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#e2a053'; ctx.font = '700 16px "Space Grotesk"';
+    ctx.textAlign = 'center';
+    ctx.fillText('FINISHES & HARDWARE GALLERY', w / 2, 38);
+  }), 1.4, 0.22, 0, 1.65, 0.13, 0, 0, g);
+
+  // Mounted Real Material Sample Tiles
+  const sampleData = [
+    { name: 'Calacatta Gold', col: 0xf5f3ed, w: 0.32, h: 0.38 },
+    { name: 'Nero Marquina', col: 0x1e2025, w: 0.32, h: 0.38 },
+    { name: 'Smoked Walnut', col: 0x3d281a, w: 0.32, h: 0.38 },
+    { name: 'Natural White Oak', col: 0xd4b896, w: 0.32, h: 0.38 },
+    { name: 'Cognac Saddle Leather', col: 0xb86334, w: 0.32, h: 0.38 },
+    { name: 'Boucle Wool Linen', col: 0xe8e2d8, w: 0.32, h: 0.38 }
+  ];
+
+  sampleData.forEach((s, idx) => {
+    const colIdx = idx % 3;
+    const rowIdx = Math.floor(idx / 3);
+    const tileX = (colIdx - 1) * 0.46;
+    const tileY = 1.3 - rowIdx * 0.48;
+    bx(tileX, tileY, 0.135, s.w, s.h, 0.02, s.col, g, { roughness: 0.35 });
+    // Brushed brass hardware handle sample mounted on middle tile
+    if (idx === 1) {
+      cyl(tileX, tileY, 0.17, 0.008, 0.22, 0xd4af37, 0, g, { metalness: 0.85 });
+    }
+  });
+
+  S.add(g);
+  blk(c - 1, r, c + 1, r);
+  return g;
+}
+
+/* =========================================================================
+   6. DEPLOYING SHOWROOM & GALLERY ELEMENTS ACROSS ALL ROOMS
+   ========================================================================= */
+
+// 1. PHÒNG MIRA (KTS TRƯỞNG · PM)
+// North Wall Paintings
+createFramedArtwork(wx(45), 1.7, wx(1) + 0.03, 2.2, 1.4, 0, 'villa_living');
+createFramedArtwork(wx(52), 1.7, wx(1) + 0.03, 1.8, 1.3, 0, 'townhouse_facade');
+// Display Pedestal with 2-Storey Villa Scale Model
+createArchitecturalScaleModel(43, 11, 'villa2');
+// Architectural Monograph Credenza
+cb(54, 3, 58, 4, 0.75, 0x332317, 0, S, { roughness: 0.5 });
+blk(54, 3, 58, 4);
+
+// 2. PHÒNG BẢO (XƯỞNG THIẾT KẾ NỘI THẤT)
+// North Partition Gallery Artworks
+createFramedArtwork(wx(6), 1.6, wx(23) + 0.03, 1.8, 1.25, 0, 'master_bed');
+createFramedArtwork(wx(14), 1.6, wx(23) + 0.03, 1.8, 1.25, 0, 'luxury_kitchen');
+// Showroom Material Swatch Stand
+createMaterialShowroomStand(17, 30, Math.PI / 2);
+
+// 3. PHÒNG NGHỈ NGƠI & GYM (ATELIER LOUNGE & WELLNESS - xem phần khởi tạo chi tiết bên dưới)
+
+// 4. PHÒNG HỌP KIẾN TRÚC TRUNG TÂM
+// North Gallery Artworks
+createFramedArtwork(wx(20), 1.8, wx(1) + 0.03, 2.4, 1.5, 0, 'villa_living');
+createFramedArtwork(wx(34), 1.8, wx(1) + 0.03, 2.4, 1.5, 0, 'japandi_lounge');
+// Credenza with scale model on East wall of conference room
+createArchitecturalScaleModel(36, 11, 'villa2');
+
+// 5. HÀNH LANG CHÍNH (MAIN CENTRAL CORRIDOR)
+// Rhythmic Artworks along North & South Corridor Portals
+createFramedArtwork(wx(5), 1.55, wx(16) - 0.03, 2.0, 1.2, Math.PI, 'japandi_lounge');
+createFramedArtwork(wx(54), 1.55, wx(16) - 0.03, 2.0, 1.2, Math.PI, 'luxury_kitchen');
+
+/* =========================================================================
+   7. REALISTIC 3D CHAIR MODELS (ERGONOMIC & COGNAC LEATHER)
+   ========================================================================= */
+const seats = {};
+
+// Employee Ergonomic Task Chair
+function createErgonomicTaskChair(c, r, face, col = 0x22262d) {
+  const g = new T.Group();
+
+  bx(0, 0.44, 0.02, 0.48, 0.07, 0.46, col, g, { roughness: 0.75 });
+  bx(0, 0.78, -0.21, 0.44, 0.56, 0.04, 0x1c1f24, g, { roughness: 0.85 });
+  cyl(0, 0.76, -0.23, 0.02, 0.45, 0x111317, 0, g);
+
+  [-0.24, 0.24].forEach(x => {
+    bx(x, 0.58, -0.04, 0.06, 0.03, 0.28, 0x14171c, g, { roughness: 0.7 });
+    bx(x, 0.48, -0.04, 0.02, 0.18, 0.02, 0x555555, g, { metalness: 0.8, roughness: 0.3 });
+  });
+
+  cyl(0, 0.24, 0, 0.032, 0.36, 0x777777, 0, g, { metalness: 0.85, roughness: 0.2 });
+
+  for (let i = 0; i < 5; i++) {
+    const ang = (i * Math.PI * 2) / 5;
+    const legX = Math.sin(ang) * 0.17, legZ = Math.cos(ang) * 0.17;
+    const arm = bx(legX, 0.06, legZ, 0.035, 0.03, 0.26, 0x1b1d22, g, { metalness: 0.5 });
+    arm.rotation.y = -ang;
+    const wheelX = Math.sin(ang) * 0.25, wheelZ = Math.cos(ang) * 0.25;
+    cyl(wheelX, 0.03, wheelZ, 0.025, 0.02, 0x111111, Math.PI / 2, g);
+  }
+
+  g.position.set(wx(c), 0, wx(r));
+  g.rotation.y = face;
+  S.add(g);
+  B(c, r);
+  return g;
+}
+
+// Cognac Leather Conference Chair
+function createCognacConferenceChair(c, r, face) {
+  const g = new T.Group();
+  const leatherCol = 0xb86334;
+
+  bx(0, 0.45, 0.02, 0.47, 0.08, 0.45, leatherCol, g, { roughness: 0.55 });
+  bx(0, 0.77, -0.2, 0.45, 0.54, 0.06, leatherCol, g, { roughness: 0.55 });
+  bx(0, 0.77, -0.17, 0.41, 0.015, 0.01, 0x8a4520, g);
+
+  [-0.23, 0.23].forEach(x => {
+    bx(x, 0.56, -0.02, 0.04, 0.025, 0.26, 0x8a4520, g);
+    bx(x, 0.46, -0.02, 0.02, 0.18, 0.02, 0x888888, g, { metalness: 0.9, roughness: 0.2 });
+  });
+
+  cyl(0, 0.24, 0, 0.03, 0.36, 0xd4af37, 0, g, { metalness: 0.8, roughness: 0.3 });
+  for (let i = 0; i < 4; i++) {
+    const ang = (i * Math.PI * 2) / 4;
+    bx(Math.sin(ang) * 0.16, 0.05, Math.cos(ang) * 0.16, 0.035, 0.03, 0.24, 0x3d3024, g, { metalness: 0.7 }).rotation.y = -ang;
+  }
+
+  g.position.set(wx(c), 0, wx(r));
+  g.rotation.y = face;
+  S.add(g);
+  B(c, r);
+  return g;
+}
+
+function registerSeat(id, cr, ap, face, isConference = false) {
+  const ch = isConference ? createCognacConferenceChair(cr[0], cr[1], face) : createErgonomicTaskChair(cr[0], cr[1], face);
+  seats[id] = { cr, ap, face, ch, base: ch.position.clone() };
+}
+
+/* =========================================================================
+   8. ROLE-SPECIFIC SCREENS & HIGH-DETAIL DESKS
+   ========================================================================= */
+const agentScreens = {};
+const renderScreenState = { timer: null, original: null };
+
+const screenTextures = {
+  bim: makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+    ctx.strokeRect(40, 40, 180, 190);
+    ctx.strokeRect(80, 20, 180, 190);
+    ctx.beginPath();
+    ctx.moveTo(40, 40); ctx.lineTo(80, 20);
+    ctx.moveTo(220, 40); ctx.lineTo(260, 20);
+    ctx.moveTo(40, 230); ctx.lineTo(80, 210);
+    ctx.moveTo(220, 230); ctx.lineTo(260, 210);
+    ctx.stroke();
+    ctx.fillStyle = '#4ade80'; ctx.font = '700 16px "Space Grotesk"';
+    ctx.fillText('BIM / IFC CLASH: 0 DETECTED', 280, 60);
+    ctx.fillStyle = '#94a3b8'; ctx.font = '13px monospace';
+    ctx.fillText('> Column_C1: PASS', 280, 95);
+    ctx.fillText('> Slab_L2: OK (120mm)', 280, 125);
+    ctx.fillText('> Duct_MEP: CLEAR', 280, 155);
+  }),
+  design: makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#1e1b18'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#d4a373'; ctx.font = '700 18px "Plus Jakarta Sans"';
+    ctx.fillText('3D INTERIOR RENDERING', 30, 45);
+    ctx.fillStyle = 'rgba(212, 163, 115, 0.4)'; ctx.fillRect(30, 65, 240, 150);
+    ctx.fillStyle = '#fff'; ctx.fillRect(50, 90, 80, 90);
+    ctx.fillStyle = '#e2a053'; ctx.fillRect(150, 90, 40, 80);
+    ctx.fillStyle = '#38bdf8'; ctx.font = '14px "Space Grotesk"';
+    ctx.fillText('Ván An Cường Walnut', 290, 90);
+    ctx.fillText('Đèn thả trần 3000K', 290, 125);
+    ctx.fillText('Sàn đá Travertine', 290, 160);
+  }),
+  lux: makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#0a0d14'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#e2a053'; ctx.font = '700 17px "Space Grotesk"';
+    ctx.fillText('DIALUX PHOTOMETRIC CONTOUR', 30, 40);
+    const grad = ctx.createLinearGradient(30, 70, 260, 210);
+    grad.addColorStop(0, '#38bdf8'); grad.addColorStop(0.5, '#facc15'); grad.addColorStop(1, '#ef4444');
+    ctx.fillStyle = grad; ctx.fillRect(30, 70, 230, 140);
+    ctx.fillStyle = '#fff'; ctx.font = '14px monospace';
+    ctx.fillText('Avg: 380 Lux', 280, 100);
+    ctx.fillText('Target: 350 Lux', 280, 135);
+    ctx.fillStyle = '#4ade80'; ctx.fillText('UGR < 19: OK', 280, 170);
+  }),
+  cost: makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#0b1120'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#38bdf8'; ctx.font = '700 18px "Space Grotesk"';
+    ctx.fillText('BẢNG DỰ TOÁN & BOM (VNĐ)', 30, 45);
+    ctx.fillStyle = '#94a3b8'; ctx.font = '14px monospace';
+    ctx.fillText('1. Giường tầng gỗ sồi: 18.500.000', 30, 90);
+    ctx.fillText('2. Tủ áo MDF An Cường:  7.500.000', 30, 125);
+    ctx.fillText('3. Bàn học + đợt gỗ:    6.200.000', 30, 160);
+    ctx.fillStyle = '#4ade80'; ctx.font = '700 16px "Space Grotesk"';
+    ctx.fillText('TỔNG: 38.800.000đ (DƯỚI 40TR)', 30, 210);
+  }),
+  qa: makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#090d16'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#4ade80'; ctx.font = '700 18px monospace';
+    ctx.fillText('[CI/CD] TEST PIPELINE: PASSED', 30, 45);
+    ctx.fillStyle = '#94a3b8'; ctx.font = '14px monospace';
+    ctx.fillText('[✓] astar_150_routes: PASS', 30, 90);
+    ctx.fillText('[✓] zero_wall_collision: PASS', 30, 125);
+    ctx.fillText('[✓] agent_duty_fsm: PASS', 30, 160);
+    ctx.fillStyle = '#38bdf8'; ctx.fillText('Build #418 - Production Ready', 30, 205);
+  })
+};
+
+function createDetailedDesk(c, r, screenType = 'design', dualMon = false, agentId = null) {
+  const deskGroup = new T.Group();
+  const x = (c + 2) * CS, z = (r + 1) * CS;
+  deskGroup.position.set(x, 0, z);
+
+  bx(0, 0.74, 0, 4 * CS - 0.08, 0.05, 2 * CS - 0.08, 0x3d2c1f, deskGroup, { roughness: 0.45 });
+  bx(0, 0.768, 0.06, 1.25, 0.008, 0.58, 0x1f2229, deskGroup, { roughness: 0.9 });
+  [-1.5 * CS + 0.1, 1.5 * CS - 0.1].forEach(lx => {
+    bx(lx, 0.36, 0, 0.06, 0.72, 1.6 * CS, 0x181a1f, deskGroup, { roughness: 0.4, metalness: 0.7 });
+  });
+
+  bx(1.2 * CS, 0.36, 0, 0.55, 0.7, 0.75, 0x281d15, deskGroup, { roughness: 0.6 });
+  bx(1.2 * CS, 0.52, 0.39, 0.22, 0.02, 0.02, 0xd4af37, deskGroup, { metalness: 0.8, roughness: 0.2 });
+  bx(1.2 * CS, 0.24, 0.39, 0.22, 0.02, 0.02, 0xd4af37, deskGroup, { metalness: 0.8, roughness: 0.2 });
+
+  const monTex = screenTextures[screenType] || screenTextures.design;
+  const createMonitor = (offsetX, angle = 0) => {
+    const mg = new T.Group();
+    mg.position.set(offsetX, 0.77, -0.22);
+    mg.rotation.y = angle;
+    cyl(0, 0.15, 0, 0.015, 0.3, 0x666666, 0, mg, { metalness: 0.85 });
+    bx(0, 0.01, 0, 0.18, 0.01, 0.14, 0x222222, mg);
+    bx(0, 0.22, 0, 0.68, 0.38, 0.02, 0x111317, mg);
+    const scrMat = new T.MeshBasicMaterial({ map: monTex });
+    const scr = new T.Mesh(new T.PlaneGeometry(0.64, 0.34), scrMat);
+    scr.position.set(0, 0.22, 0.012);
+    mg.add(scr);
+    if (agentId && !agentScreens[agentId]) agentScreens[agentId] = { screen: scr, original: monTex };
+    deskGroup.add(mg);
+  };
+
+  createMonitor(dualMon ? -0.34 : 0, dualMon ? 0.14 : 0);
+  if (dualMon) createMonitor(0.34, -0.14);
+
+  bx(0, 0.775, 0.15, 0.44, 0.012, 0.14, 0x14161b, deskGroup);
+  bx(0.32, 0.775, 0.15, 0.08, 0.016, 0.12, 0x20242c, deskGroup);
+
+  const lamp = new T.Group();
+  lamp.position.set(dualMon ? 0.75 : -0.75, 0.765, -0.15);
+  bx(0, 0.01, 0, 0.1, 0.02, 0.1, 0x1e2025, lamp);
+  cyl(0, 0.18, 0, 0.01, 0.36, 0xd4af37, 0.2, lamp, { metalness: 0.8 });
+  cyl(0.06, 0.36, 0, 0.05, 0.08, 0xffe0a0, 0.8, lamp, { emissive: 0xffb84d, emissiveIntensity: 0.9 });
+  deskGroup.add(lamp);
+
+  const plantPot = cyl(dualMon ? -0.72 : 0.72, 0.81, 0.1, 0.045, 0.09, 0xd9c5b2, 0, deskGroup);
+  cyl(0, 0.05, 0, 0.04, 0.05, 0x3d7048, 0, plantPot);
+
+  S.add(deskGroup);
+  blk(c, r, c + 3, r + 1);
+}
+
+function createSculpturalPlant(c, r, isTall = false) {
+  const g = new T.Group();
+  g.position.set(wx(c), 0, wx(r));
+  cyl(0, 0.24, 0, 0.2, 0.48, 0x242220, 0, g, { roughness: 0.6 });
+  cyl(0, 0.47, 0, 0.19, 0.02, 0x1a1410, 0, g);
+  const plantMat = new T.MeshStandardMaterial({ color: 0x2e6138, roughness: 0.45 });
+  const leaves = isTall ? 8 : 6;
+  for (let i = 0; i < leaves; i++) {
+    const ang = (i * Math.PI * 2) / leaves + Math.random() * 0.25;
+    const leaf = new T.Mesh(new T.CylinderGeometry(0.02, 0.16, 0.44, 8), plantMat);
+    leaf.position.set(Math.sin(ang) * 0.14, 0.52 + i * 0.08, Math.cos(ang) * 0.14);
+    leaf.rotation.set(0.42, ang, 0.35);
+    leaf.castShadow = true;
+    g.add(leaf);
+  }
+  S.add(g);
+  B(c, r);
+}
+
+/* =========================================================================
+   9. AGENTS DEFINITION & WORKSTATIONS SETUP
+   ========================================================================= */
+const AG = [
+  ['mira', 'Chief Architect', 'Kiến Trúc Sư Trưởng & Điều Phối Đa Agent', 0xba4141, 44, 4, 'po', 'Chỉ đạo concept, Design Brief, điều phối 8 agent & phê duyệt hồ sơ', 'bim', 'Chief Architect'],
+  ['an', 'Floorplan Specialist', 'Chuyên viên Mặt Bằng 2D & Tỷ Lệ Chuẩn', 0xd98c2c, 3, 27, 'design', 'Phân tích mặt bằng 2D, xác nhận tỷ lệ chuẩn & phân vùng công năng', 'design', 'Floorplan Agent'],
+  ['bao', 'Furniture Planner', 'Chuyên viên Bố Cục Nội Thất & Va Chạm', 0xc45770, 13, 27, 'design', 'Bố cục nội thất Co-Layout, khoảng hở thông thủy & kiểm tra va chạm đồ rời', 'design', 'Furniture Agent'],
+  ['duy', 'Research Agent', 'Chuyên viên Nghiên Cứu Sản Phẩm & Nguồn Hàng', 0x419656, 3, 34, 'design', 'Đối chiếu catalog nhà cung cấp, kiểm tra giá thật & spec vật tư', 'cost', 'Research Agent'],
+  ['minh', 'Geometry & BIM Agent', 'Chuyên viên Hình Học 3D & Mô Hình BIM', 0x3d7cc9, 22, 27, 'bim', 'Dựng hình Pascal 3D SceneGraph, xuất CAD/GLB & kiểm tra va chạm IFC', 'bim', 'BIM Agent'],
+  ['nhi', 'Architectural Visualization & Rendering Agent', 'Scene inspection, camera, lighting, PBR, Cycles & quality QA', 0xd4a824, 30, 27, 'bim', 'Đọc canonical scene, kết xuất theo revision và lưu evidence vào gallery', 'lux', 'Render Agent'],
+  ['chi', 'Cost Estimator', 'Chuyên viên Bóc Tách Khối Lượng & Dự Toán BOQ', 0xc75c2e, 39, 27, 'cost', 'Bóc tách khối lượng BOQ xác định, kiểm soát ngân sách & phân rã chi phí', 'cost', 'Cost Estimator'],
+  ['quan', 'Style & Materials Consultant', 'Chuyên viên Phong Cách, Vật Liệu & Hoàn Thiện', 0x7474b8, 39, 34, 'cost', 'Lập bảng vật liệu cơ sở, phân biệt baked appearance với spec, đối chiếu moodboard', 'cost', 'Style Agent'],
+  ['linh', 'QA Specialist', 'Chuyên viên Kiểm Định Quy Chuẩn & An Toàn', 0x8b939b, 54, 34, 'qa', 'Kiểm tra quy chuẩn lưu thông, nghiệm thu an toàn va chạm & gating CI', 'qa', 'QA Specialist']
+];
+
+AG.forEach(([id, , , , c, r, , , screenType]) => {
+  createDetailedDesk(c, r, screenType, id === 'minh' || id === 'mira', id);
+  registerSeat('d_' + id, [c + 1, r + 2], [c + 1, r + 3], Math.PI, false);
+});
+
+/* =========================================================================
+   ATELIER LOUNGE, PANTRY & WELLNESS STUDIO (PHÒNG NGHỈ NGƠI, ĂN UỐNG & TẬP THỂ DỤC)
+   ========================================================================= */
+const loungeGroup = new T.Group();
+
+// 1. Cozy Scandinavian Warm Wood Flooring for Lounge
+customFloor(1, 1, 15, 15, herringboneTex || woodTex, 0xe2d7c5, 0.02);
+
+// 2. BIỂN HIỆU PHÒNG PHÁT SÁNG GẮN TRƯỚC CỬA ĐI (ILLUMINATED DOOR SIGNBOARD)
+// Cửa đi tại d: [6, 15], tọa độ thế giới x = wx(7.5) = 4.0m, z = 7.72m
+const doorSignGroup = new T.Group();
+doorSignGroup.position.set(wx(7.5), 2.15, 7.72);
+
+// Khung kim loại viền vàng PVD & tấm nền acrylic đen bóng
+bx(0, 0, 0, 2.5, 0.52, 0.08, 0xd4af37, doorSignGroup, { metalness: 0.85, roughness: 0.25 });
+bx(0, 0, 0.042, 2.44, 0.46, 0.015, 0x0f141d, doorSignGroup, { roughness: 0.3 });
+
+// Mặt biển hộp đèn phát sáng độ nét cao
+const doorSignTexture = makeCanvasTexture(640, 160, (ctx, w, h) => {
+  ctx.fillStyle = '#0b0f17';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Viền vàng kép hoàng gia & viền cyan
+  ctx.strokeStyle = '#d4af37';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(8, 8, w - 16, h - 16);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(14, 14, w - 28, h - 28);
+  
+  // Icon & Tiêu đề chính
+  ctx.fillStyle = '#f59e0b';
+  ctx.font = '700 24px "Space Grotesk", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('☕ 💤 🏃 LOUNGE & WELLNESS STUDIO', w / 2, 54);
+  
+  // Tiêu đề phụ tiếng Việt rõ nét
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 22px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('PHÒNG NGHỈ NGƠI · CAFE · TẬP THỂ DỤC', w / 2, 98);
+  
+  // Phân vùng
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '600 14px "Space Grotesk", sans-serif';
+  ctx.fillText('ATELIER AI · KHU TIỆN ÍCH DÀNH CHO CÁC AGENT', w / 2, 134);
+});
+
+const signMesh = new T.Mesh(new T.PlaneGeometry(2.4, 0.44), new T.MeshBasicMaterial({ map: doorSignTexture }));
+signMesh.position.set(0, 0, 0.052);
+doorSignGroup.add(signMesh);
+
+// 2 Đèn rọi spotlight vàng ấm hắt sáng biển hiệu
+[-0.9, 0.9].forEach(lx => {
+  cyl(lx, 0.32, 0.08, 0.035, 0.12, 0x181a20, Math.PI / 4, doorSignGroup);
+  bx(lx, 0.25, 0.12, 0.06, 0.02, 0.06, 0xfff0c2, doorSignGroup, {
+    emissive: 0xffe29a,
+    emissiveIntensity: 1.8
+  });
+});
+loungeGroup.add(doorSignGroup);
+
+// Bảng thông tin đồng thau gắn tường hành lang cạnh cửa
+plane(makeCanvasTexture(320, 200, (ctx, w, h) => {
+  ctx.fillStyle = '#1c150c'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#d4af37'; ctx.lineWidth = 4; ctx.strokeRect(6, 6, w - 12, h - 12);
+  ctx.fillStyle = '#e2a053'; ctx.font = '700 22px "Space Grotesk"'; ctx.textAlign = 'center';
+  ctx.fillText('ATELIER LOUNGE', w / 2, 50);
+  ctx.fillStyle = '#cbd5e1'; ctx.font = '14px "Plus Jakarta Sans"';
+  ctx.fillText('• Quầy Bar Espresso & Tea', w / 2, 85);
+  ctx.fillText('• Giường Daybed Ngủ Trưa', w / 2, 115);
+  ctx.fillText('• Máy Chạy Bộ & Thảm Yoga', w / 2, 145);
+  ctx.fillStyle = '#4ade80'; ctx.font = '600 13px "Space Grotesk"';
+  ctx.fillText('✓ KHU THƯ GIÃN 24/7', w / 2, 178);
+}), 0.7, 0.45, wx(4.8), 1.5, 7.72, 0, 0);
+
+// 3. TRANH NGHỆ THUẬT ĐƯƠNG ĐẠI TREO TƯỜNG PHÍA BẮC (thay thế bảng Gantt cũ)
+plane(makeCanvasTexture(800, 360, (ctx, w, h) => {
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Khối hình học nghệ thuật Japandi Abstract
+  ctx.fillStyle = '#312e81';
+  ctx.beginPath(); ctx.arc(150, 180, 120, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ea580c';
+  ctx.beginPath(); ctx.arc(420, 160, 140, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0d9488';
+  ctx.fillRect(520, 80, 220, 200);
+  
+  // Lớp phủ Gradient mịn
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, 'rgba(15, 23, 42, 0.88)');
+  grad.addColorStop(0.5, 'rgba(15, 23, 42, 0.45)');
+  grad.addColorStop(1, 'rgba(15, 23, 42, 0.88)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  
+  // Slogan & Chữ nghệ thuật tinh tế
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '800 36px "Space Grotesk", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('WORK WITH PASSION · REST WITH PEACE', w / 2, 155);
+  
+  ctx.fillStyle = '#e2a053';
+  ctx.font = '600 20px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('ATELIER WELLNESS · COFFEE, NAP & FITNESS OASIS', w / 2, 205);
+  
+  ctx.strokeStyle = '#d4af37';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(20, 20, w - 40, h - 40);
+}), 5.4, 2.4, wx(8), 1.6, 0.52, 0, 0);
+
+// 4. QUẦY BAR CAFE & PANTRY (KITCHEN & COFFEE BAR)
+const barCounter = new T.Group();
+barCounter.position.set(wx(11.5), 0, wx(4.0));
+
+// Thân quầy gỗ sồi đen có chỉ kim loại vàng PVD
+bx(0, 0.45, 0, 2.8, 0.9, 0.85, 0x1c1a17, barCounter, { roughness: 0.6 });
+// Mặt đá cẩm thạch trắng Calacatta vân xám bóng
+bx(0, 0.92, 0, 2.9, 0.05, 0.95, 0xf1efe7, barCounter, { roughness: 0.2, metalness: 0.1 });
+// Viền chân mạ vàng
+bx(0, 0.04, 0, 2.84, 0.08, 0.88, 0xd4af37, barCounter, { metalness: 0.9, roughness: 0.2 });
+
+// Máy pha cà phê Espresso chuyên nghiệp
+const coffeeMachine = new T.Group();
+coffeeMachine.position.set(-0.7, 0.95, 0);
+bx(0, 0.22, 0, 0.65, 0.42, 0.48, 0xd4d8df, coffeeMachine, { metalness: 0.92, roughness: 0.15 });
+cyl(0.18, 0.28, 0.245, 0.035, 0.02, 0xd4af37, Math.PI / 2, coffeeMachine);
+cyl(-0.18, 0.28, 0.245, 0.035, 0.02, 0x38bdf8, Math.PI / 2, coffeeMachine);
+[-0.12, 0.12].forEach(px => {
+  cyl(px, 0.14, 0.24, 0.025, 0.08, 0x111111, 0, coffeeMachine);
+  cyl(px, 0.1, 0.32, 0.015, 0.14, 0x111111, Math.PI / 2, coffeeMachine);
+});
+[-0.2, 0, 0.2].forEach(lx => {
+  cyl(lx, 0.46, 0, 0.04, 0.06, 0xffffff, 0, coffeeMachine, { roughness: 0.2 });
+});
+barCounter.add(coffeeMachine);
+
+// Máy xay hạt cà phê (Coffee Grinder)
+const grinder = new T.Group();
+grinder.position.set(-0.15, 0.95, -0.05);
+bx(0, 0.18, 0, 0.18, 0.35, 0.22, 0x181a20, grinder, { roughness: 0.5 });
+cyl(0, 0.42, 0, 0.09, 0.16, 0x785535, 0, grinder, { roughness: 0.3, transparent: true, opacity: 0.85 });
+barCounter.add(grinder);
+
+// Đĩa trái cây tươi nhiều màu
+const fruitPlate = new T.Group();
+fruitPlate.position.set(0.45, 0.95, 0);
+cyl(0, 0.015, 0, 0.22, 0.03, 0xf8fafc, 0, fruitPlate, { roughness: 0.2 });
+cyl(-0.06, 0.06, -0.05, 0.055, 0.07, 0xef4444, 0, fruitPlate, { roughness: 0.4 });
+cyl(0.06, 0.06, 0.04, 0.055, 0.07, 0xf59e0b, 0, fruitPlate, { roughness: 0.4 });
+bx(0, 0.05, 0.08, 0.04, 0.04, 0.16, 0xfacc15, fruitPlate, { roughness: 0.4 });
+barCounter.add(fruitPlate);
+
+// Bình nước detox thủy tinh
+const detoxBottle = new T.Group();
+detoxBottle.position.set(0.95, 0.95, -0.05);
+cyl(0, 0.16, 0, 0.075, 0.32, 0xe0f2fe, 0, detoxBottle, { transparent: true, opacity: 0.75, roughness: 0.1 });
+cyl(0, 0.34, 0, 0.045, 0.04, 0xd4a373, 0, detoxBottle);
+barCounter.add(detoxBottle);
+
+loungeGroup.add(barCounter);
+
+// Tủ lạnh mini kính đen có đèn LED hắt xanh
+const miniFridge = new T.Group();
+miniFridge.position.set(wx(14.5), 0, wx(2.5));
+bx(0, 0.6, 0, 0.7, 1.2, 0.65, 0x111317, miniFridge, { roughness: 0.4, metalness: 0.8 });
+bx(-0.355, 0.6, 0, 0.02, 1.1, 0.58, 0x38bdf8, miniFridge, {
+  transparent: true, opacity: 0.45, emissive: 0x38bdf8, emissiveIntensity: 0.4
+});
+for (let f = 0; f < 4; f++) {
+  cyl(-0.15, 0.3 + (f % 2) * 0.4, (f < 2 ? -0.12 : 0.12), 0.035, 0.12, f % 2 === 0 ? 0xef4444 : 0x10b981, 0, miniFridge);
+}
+loungeGroup.add(miniFridge);
+
+// 3 Đèn thả đồng thau trên quầy bar
+[-0.8, 0, 0.8].forEach(px => {
+  const pLight = new T.Group();
+  pLight.position.set(wx(11.5) + px, 2.2, wx(4.0));
+  cyl(0, 0.4, 0, 0.005, 0.8, 0x111111, 0, pLight);
+  cyl(0, 0, 0, 0.14, 0.16, 0xd4af37, 0, pLight, { metalness: 0.9, roughness: 0.2 });
+  bx(0, -0.06, 0, 0.1, 0.02, 0.1, 0xfff3d4, pLight, { emissive: 0xffcc66, emissiveIntensity: 1.5 });
+  ledGroup.add(pLight);
+});
+
+// Ghế Bar Stools bọc da bò Cognac
+function createBarStoolMesh(c, r, face) {
+  const g = new T.Group();
+  g.position.copy(wv(c, r));
+  g.rotation.y = face;
+  cyl(0, 0.68, 0, 0.22, 0.08, 0xb86334, 0, g, { roughness: 0.6 });
+  bx(0, 0.82, -0.16, 0.32, 0.18, 0.04, 0xb86334, g, { roughness: 0.6 });
+  cyl(0, 0.34, 0, 0.025, 0.64, 0x111317, 0, g, { metalness: 0.8, roughness: 0.3 });
+  cyl(0, 0.25, 0, 0.18, 0.02, 0xd4af37, 0, g, { metalness: 0.9, roughness: 0.2 });
+  cyl(0, 0.02, 0, 0.24, 0.03, 0x111317, 0, g, { metalness: 0.8, roughness: 0.3 });
+  S.add(g);
+  return g;
+}
+
+const bs1 = createBarStoolMesh(10, 5, 0);
+seats['l_bar1'] = { cr: [10, 5], ap: [10, 6], face: 0, ch: bs1, base: bs1.position.clone() };
+
+const bs2 = createBarStoolMesh(12, 5, 0);
+seats['l_bar2'] = { cr: [12, 5], ap: [12, 6], face: 0, ch: bs2, base: bs2.position.clone() };
+
+const bs3 = createBarStoolMesh(14, 5, 0);
+
+// 5. KHU THƯ GIÃN, SOFA & GIƯỜNG NGỦ TRƯA (LOUNGE & NAP AREA)
+// Thảm trải sàn họa tiết Bắc Âu dưới sofa
+const rugTex = makeCanvasTexture(512, 512, (ctx, w, h) => {
+  ctx.fillStyle = '#d5cfc4'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 3;
+  for (let x = 0; x < w; x += 64) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 64, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 64, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+});
+const rugMesh = new T.Mesh(new T.PlaneGeometry(3.2, 2.4), new T.MeshStandardMaterial({ map: rugTex, roughness: 0.85 }));
+rugMesh.rotation.x = -Math.PI / 2;
+rugMesh.position.set(wx(4.0), 0.025, wx(3.2));
+loungeGroup.add(rugMesh);
+
+// Ghế Sofa nỉ màu be cao cấp (L-Sofa)
+const sofaGroup = new T.Group();
+sofaGroup.position.set(wx(4.0), 0, wx(2.2));
+bx(0, 0.25, 0, 2.6, 0.45, 0.9, 0xd0c7ba, sofaGroup, { roughness: 0.75 });
+bx(0, 0.58, -0.36, 2.6, 0.48, 0.22, 0xc5beb1, sofaGroup, { roughness: 0.75 });
+[-1.22, 1.22].forEach(sx => {
+  bx(sx, 0.42, 0.05, 0.22, 0.42, 0.92, 0xc0b8aa, sofaGroup, { roughness: 0.75 });
+});
+[-0.8, -0.2, 0.4, 0.9].forEach((gx, idx) => {
+  const gCol = idx % 2 === 0 ? 0xc25e36 : 0x5a7d65;
+  const pillow = bx(gx, 0.46, -0.2, 0.36, 0.32, 0.12, gCol, sofaGroup, { roughness: 0.6 });
+  pillow.rotation.x = -0.2;
+});
+loungeGroup.add(sofaGroup);
+
+const sf1 = new T.Group(); sf1.position.set(wx(3.0), 0, wx(2.4)); S.add(sf1);
+seats['l_sofa1'] = { cr: [3, 2], ap: [3, 3], face: Math.PI, ch: sf1, base: sf1.position.clone() };
+
+const sf2 = new T.Group(); sf2.position.set(wx(5.0), 0, wx(2.4)); S.add(sf2);
+seats['l_sofa2'] = { cr: [5, 2], ap: [5, 3], face: Math.PI, ch: sf2, base: sf2.position.clone() };
+
+// Bàn trà tròn gỗ sồi (Coffee Table)
+const coffeeTable = new T.Group();
+coffeeTable.position.set(wx(4.0), 0, wx(3.5));
+cyl(0, 0.38, 0, 0.55, 0.04, 0x5a412b, 0, coffeeTable, { roughness: 0.5 });
+cyl(0, 0.19, 0, 0.06, 0.36, 0x181a20, 0, coffeeTable);
+cyl(0, 0.02, 0, 0.35, 0.03, 0x181a20, 0, coffeeTable);
+bx(-0.15, 0.41, 0, 0.24, 0.015, 0.18, 0xffffff, coffeeTable);
+cyl(0.2, 0.44, 0.08, 0.045, 0.07, 0x8a9ea7, 0, coffeeTable);
+loungeGroup.add(coffeeTable);
+
+// Giường Nghỉ Ngơi / Nap Daybed (cho Agent nằm ngủ trưa)
+const daybed = new T.Group();
+daybed.position.set(wx(2.2), 0, wx(6.5));
+bx(0, 0.2, 0, 0.95, 0.35, 1.95, 0x3d2c1f, daybed, { roughness: 0.6 });
+bx(0, 0.42, 0, 0.9, 0.18, 1.9, 0xe6e1d8, daybed, { roughness: 0.8 });
+const bedPillow = bx(0, 0.56, -0.7, 0.65, 0.14, 0.38, 0xffffff, daybed, { roughness: 0.6 });
+bedPillow.rotation.x = 0.15;
+bx(0, 0.45, 0.4, 0.92, 0.15, 0.9, 0x94a3b8, daybed, { roughness: 0.75 });
+loungeGroup.add(daybed);
+
+const napSeatMesh = new T.Group(); napSeatMesh.position.copy(daybed.position); S.add(napSeatMesh);
+seats['l_nap'] = { cr: [2, 6], ap: [3, 6], face: Math.PI / 2, ch: napSeatMesh, base: napSeatMesh.position.clone() };
+
+// 6. KHU TẬP THỂ DỤC & SỨC KHỎE (MINI FITNESS / GYM CORNER)
+// Máy Chạy Bộ Thông Minh (Smart Treadmill)
+const treadmill = new T.Group();
+treadmill.position.set(wx(3.0), 0, wx(11.5));
+bx(0, 0.14, 0, 0.78, 0.22, 1.7, 0x181a20, treadmill, { roughness: 0.6 });
+bx(0, 0.26, 0.05, 0.58, 0.02, 1.45, 0x0a0c10, treadmill, { roughness: 0.9 });
+[-0.32, 0.32].forEach(rx => bx(rx, 0.26, 0.05, 0.04, 0.02, 1.45, 0xfacc15, treadmill));
+[-0.36, 0.36].forEach(rx => {
+  const arm = cyl(rx, 0.72, -0.65, 0.03, 1.05, 0x334155, 0, treadmill, { metalness: 0.8 });
+  arm.rotation.x = -0.3;
+});
+const tConsole = new T.Group();
+tConsole.position.set(0, 1.15, -0.78);
+tConsole.rotation.x = 0.5;
+bx(0, 0, 0, 0.65, 0.22, 0.06, 0x0f172a, tConsole);
+bx(0, 0, 0.032, 0.52, 0.16, 0.01, 0x0284c7, tConsole, { emissive: 0x38bdf8, emissiveIntensity: 1.2 });
+treadmill.add(tConsole);
+loungeGroup.add(treadmill);
+
+const tmSeat = new T.Group(); tmSeat.position.set(wx(3.0), 0, wx(11.5)); S.add(tmSeat);
+seats['l_treadmill'] = { cr: [3, 11], ap: [3, 12], face: 0, ch: tmSeat, base: tmSeat.position.clone() };
+
+// Thảm Tập Yoga & Giãn Cơ (Yoga & Stretching Mat)
+const yogaMat = new T.Group();
+yogaMat.position.set(wx(5.2), 0.02, wx(11.5));
+bx(0, 0, 0, 0.75, 0.015, 1.7, 0x2dd4bf, yogaMat, { roughness: 0.7 });
+bx(0.24, 0.06, -0.68, 0.16, 0.1, 0.24, 0xa855f7, yogaMat, { roughness: 0.5 });
+cyl(-0.22, 0.07, -0.68, 0.06, 0.28, 0xf97316, Math.PI / 2, yogaMat);
+loungeGroup.add(yogaMat);
+
+const ymSeat = new T.Group(); ymSeat.position.set(wx(5.2), 0, wx(11.5)); S.add(ymSeat);
+seats['l_yoga'] = { cr: [5, 11], ap: [5, 12], face: -Math.PI / 2, ch: ymSeat, base: ymSeat.position.clone() };
+
+// Giá Tạ Tay Đa Năng 2 Tầng (Dumbbell Rack)
+const dbRack = new T.Group();
+dbRack.position.set(wx(1.2), 0, wx(13.2));
+bx(0, 0.45, 0, 0.35, 0.85, 0.9, 0x1f2937, dbRack, { metalness: 0.8 });
+[0.65, 0.35].forEach((dy, row) => {
+  [-0.26, 0, 0.26].forEach((dz, col) => {
+    const dbCol = col === -0.26 ? 0xef4444 : col === 0 ? 0x3b82f6 : 0x111827;
+    cyl(0.08, dy, dz, 0.05, 0.18, dbCol, Math.PI / 2, dbRack, { roughness: 0.4 });
+    cyl(0.08, dy, dz, 0.015, 0.12, 0xd4d4d8, Math.PI / 2, dbRack, { metalness: 0.9 });
+  });
+});
+loungeGroup.add(dbRack);
+
+// Quả bóng tập gym tròn (Swiss Balance Ball)
+const gymBall = new T.Mesh(new T.SphereGeometry(0.28, 18, 14), M(0x34d399, { roughness: 0.4 }));
+gymBall.position.set(wx(1.4), 0.28, wx(10.5));
+loungeGroup.add(gymBall);
+
+// Cây nước nóng lạnh tinh khiết
+const waterCooler = new T.Group();
+waterCooler.position.set(wx(1.2), 0, wx(8.8));
+bx(0, 0.52, 0, 0.36, 1.0, 0.36, 0xf1f5f9, waterCooler, { roughness: 0.3 });
+cyl(0, 1.18, 0, 0.15, 0.32, 0x38bdf8, 0, waterCooler, { transparent: true, opacity: 0.65 });
+cyl(0, 1.36, 0, 0.06, 0.04, 0x1e293b, 0, waterCooler);
+loungeGroup.add(waterCooler);
+
+// 7. KHU VỰC BÀN TRÒN TRÒ CHUYỆN (SOCIAL COCKTAIL / CHAT AREA)
+const chatTable = new T.Group();
+chatTable.position.set(wx(9.5), 0, wx(10.5));
+cyl(0, 0.98, 0, 0.42, 0.035, 0x3d2c1f, 0, chatTable, { roughness: 0.4 });
+cyl(0, 0.5, 0, 0.04, 0.96, 0xd4af37, 0, chatTable, { metalness: 0.9 });
+cyl(0, 0.02, 0, 0.32, 0.03, 0x181a20, 0, chatTable);
+loungeGroup.add(chatTable);
+
+const ctSeat = new T.Group(); ctSeat.position.set(wx(9.5), 0, wx(10.5)); S.add(ctSeat);
+seats['l_chat'] = { cr: [9, 10], ap: [9, 11], face: 0, ch: ctSeat, base: ctSeat.position.clone() };
+
+// 8. ĐÈN NEON NGHỆ THUẬT UỐN CHỮ TRÊN TƯỜNG PHÍA TÂY
+const neonArt = new T.Group();
+neonArt.position.set(0.52, 2.1, wx(4.5));
+neonArt.rotation.y = Math.PI / 2;
+bx(0, 0, 0, 2.2, 0.4, 0.04, 0x0f172a, neonArt);
+plane(makeCanvasTexture(480, 120, (ctx, w, h) => {
+  ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = '700 28px "Space Grotesk"';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 15;
+  ctx.fillText('⚡ BREATHE & RECHARGE ⚡', w / 2, 70);
+}), 2.1, 0.36, 0, 0, 0.025, 0, 0);
+loungeGroup.add(neonArt);
+
+// 9. CÂY XANH ĐIÊU KHẮC TRANG TRÍ
+createSculpturalPlant(1, 1, true);
+createSculpturalPlant(14, 1, true);
+createSculpturalPlant(14, 14, false);
+
+S.add(loungeGroup);
+
+// Đánh dấu các ô vật thể chắn đường (Pathfinding Obstacles)
+blk(9, 3, 14, 5); // Quầy bar
+blk(14, 2, 15, 3); // Tủ lạnh
+blk(2, 1, 6, 3); // Sofa
+blk(4, 3, 4, 4); // Bàn trà
+blk(1, 5, 2, 8); // Daybed
+blk(2, 10, 3, 12); // Máy chạy bộ
+blk(1, 12, 1, 14); // Giá tạ & cây nước
+blk(9, 9, 10, 10); // Bàn cocktail
+
+// Executive Lounge in Mira's Suite
+cb(54, 10, 58, 12, 0.45, 0x2e2319, 0, S, { roughness: 0.7 });
+cb(54, 9, 58, 9, 0.85, 0x271e16, 0, S, { roughness: 0.7 });
+blk(54, 9, 58, 12);
+cyl(wx(56), 0.35, wx(13), 0.45, 0.04, 0xf5f4f0, 0, S, { roughness: 0.3 });
+cyl(wx(56), 0.17, wx(13), 0.05, 0.34, 0x1f1f1f, 0, S);
+
+/* Central Boardroom */
+const mx = [23, 26, 29, 32];
+mx.forEach((c, i) => {
+  registerSeat('m_' + AG[1 + i][0], [c, 5], [c, 4], 0, true);
+  registerSeat('m_' + AG[5 + i][0], [c, 10], [c, 11], Math.PI, true);
+});
+registerSeat('m_mira', [21, 7], [20, 7], Math.PI / 2, true);
+
+const confTable = new T.Group();
+confTable.position.set(wx(27.5), 0, wx(7.5));
+bx(0, 0.74, 0, 12 * CS, 0.08, 4 * CS, 0x3a281c, confTable, { roughness: 0.45 });
+const marbleMat = new T.MeshStandardMaterial({ map: marbleTex, roughness: 0.25, metalness: 0.1 });
+const marbleMesh = new T.Mesh(new T.BoxGeometry(9.2 * CS, 0.015, 1.4 * CS), marbleMat);
+marbleMesh.position.set(0, 0.785, 0);
+confTable.add(marbleMesh);
+[-4 * CS, 4 * CS].forEach(bxPos => {
+  bx(bxPos, 0.35, 0, 1.25, 0.7, 1.8 * CS, 0x1c1713, confTable, { roughness: 0.7 });
+});
+S.add(confTable);
+blk(22, 6, 33, 9);
+
+const confLamp = new T.Group();
+confLamp.position.set(wx(27.5), 2.25, wx(7.5));
+bx(0, 0, 0, 5.2, 0.04, 0.16, 0x16181d, confLamp);
+bx(0, -0.02, 0, 5.0, 0.01, 0.12, 0xffb84d, confLamp, { emissive: 0xffa033, emissiveIntensity: 1.4 });
+[-2.2, 2.2].forEach(wxPos => cyl(wxPos, 0.4, 0, 0.006, 0.8, 0xaaaaaa, 0, confLamp));
+ledGroup.add(confLamp);
+
+const flutedWall = new T.Group();
+flutedWall.position.set(13, 1.5, 0.48);
+for (let i = 0; i < 24; i++) {
+  bx(i * 0.22 - 2.5, 0, 0, 0.12, 2.5, 0.04, 0x3d2c1e, flutedWall, { roughness: 0.5 });
+}
+bx(0, 1.25, 0.03, 5.4, 0.02, 0.03, 0xffb84d, flutedWall, { emissive: 0xffa033, emissiveIntensity: 1.2 });
+S.add(flutedWall);
+
+const boardTex = makeCanvasTexture(1024, 512, () => {});
+let boardTxt = 'CHỜ BRIEF TỪ KHÁCH HÀNG';
+
+function drawBoard() {
+  const ctx = boardTex._canvas.getContext('2d'), w = 1024, h = 512;
+  ctx.fillStyle = '#121722'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+  for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 4;
+  ctx.strokeRect(60, 70, 320, 260);
+  ctx.fillStyle = 'rgba(224, 160, 83, 0.35)'; ctx.fillRect(70, 80, 150, 110);
+  ctx.fillStyle = 'rgba(74, 222, 128, 0.3)'; ctx.fillRect(290, 80, 80, 170);
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(220, 330, 40, Math.PI, 1.5 * Math.PI); ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8'; ctx.font = '600 22px "Space Grotesk", sans-serif';
+  ctx.fillText('MẶT BẰNG 3×4m · PHÒNG NGỦ TRẺ EM', 60, 370);
+
+  ctx.fillStyle = '#e2a053'; ctx.font = '700 32px "Plus Jakarta Sans", sans-serif';
+  ctx.fillText('BIÊN BẢN HỌP THIẾT KẾ', 430, 90);
+
+  ctx.fillStyle = '#f1f5f9'; ctx.font = '500 26px "Plus Jakarta Sans", sans-serif';
+  const lines = boardTxt.match(/.{1,26}(\s|$)/g) || [boardTxt];
+  lines.forEach((s, idx) => ctx.fillText(s.trim(), 430, 145 + idx * 44));
+
+  ctx.fillStyle = '#1e293b'; ctx.fillRect(430, 330, 160, 40); ctx.fillRect(610, 330, 180, 40);
+  ctx.fillStyle = '#38bdf8'; ctx.font = '700 18px "Space Grotesk"'; ctx.fillText('NGÂN SÁCH: 40TR', 445, 356);
+  ctx.fillStyle = '#4ade80'; ctx.fillText('TIẾN ĐỘ: ĐÚNG HẠN', 625, 356);
+
+  boardTex.needsUpdate = true;
+}
+drawBoard();
+plane(boardTex, 5.2, 2.6, 13, 1.55, 0.52, 0, 0);
+
+createSculpturalPlant(37, 2, true);
+createSculpturalPlant(37, 14);
+createSculpturalPlant(17, 14);
+
+/* Server Rack */
+cb(57, 24, 58, 28, 2.0, 0x11141a, 0, S, { roughness: 0.4, metalness: 0.8 });
+blk(57, 24, 58, 28);
+const leds = [];
+for (let i = 0; i < 7; i++) {
+  const led = bx(28.2, 0.35 + i * 0.25, 13, 0.03, 0.06, 0.8, 0x4ade80, S, {
+    emissive: 0x4ade80,
+    emissiveIntensity: 0.9
+  });
+  leds.push(led);
+}
+
+/* Reception & Brand Showroom */
+bx(1.6, 0.55, 9.5, 1.8, 1.1, 2.4, 0x221d19, S, { roughness: 0.5 });
+bx(1.6, 0.56, 9.5, 1.82, 1.08, 0.2, 0xd4a373, S, { roughness: 0.3, metalness: 0.75 });
+plane(makeCanvasTexture(640, 200, (ctx, w, h) => {
+  ctx.fillStyle = '#12161f'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#e2a053';
+  ctx.font = '800 68px "Plus Jakarta Sans", serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('HOME&CO', w / 2, 95);
+  ctx.font = '600 24px "Space Grotesk", sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('ATELIER ARCHITECTURE · DESIGN & INNOVATION STUDIO', w / 2, 150);
+}), 3.2, 1.0, 0.52, 1.9, 9.5, 0, Math.PI / 2);
+
+createSculpturalPlant(58, 17, true);
+createSculpturalPlant(58, 20);
+createSculpturalPlant(10, 17);
+
+/* =========================================================================
+   10. NAVIGATION GRID & A* PATHFINDING
+   ========================================================================= */
+const near = new Uint8Array(W * H);
+for (let c = 0; c < W; c++) {
+  for (let r = 0; r < H; r++) {
+    if (!isB(c, r)) {
+      for (let a = -1; a <= 1; a++) {
+        for (let b = -1; b <= 1; b++) {
+          if (isB(c + a, r + b)) near[r * W + c] = 1;
+        }
+      }
+    }
+  }
+}
+
+const hh = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+function astar(a, b) {
+  const k = (c, r) => r * W + c;
+  const g = new Float32Array(W * H).fill(1e9);
+  const par = new Int32Array(W * H).fill(-1);
+  const cl = new Uint8Array(W * H);
+  const open = [[hh(a, b), a[0], a[1]]];
+  g[k(...a)] = 0;
+
+  while (open.length) {
+    let bi = 0;
+    for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+    const [, c, r] = open.splice(bi, 1)[0], q = k(c, r);
+    if (cl[q]) continue;
+    cl[q] = 1;
+
+    if (c === b[0] && r === b[1]) {
+      const p = [];
+      let z = q;
+      while (z >= 0) {
+        p.push([z % W, Math.floor(z / W)]);
+        z = par[z];
+      }
+      return p.reverse();
+    }
+
+    for (let dc = -1; dc <= 1; dc++) {
+      for (let dr = -1; dr <= 1; dr++) {
+        if (!dc && !dr) continue;
+        const nc = c + dc, nr = r + dr;
+        if (isB(nc, nr)) continue;
+        if (dc && dr && (isB(c + dc, r) || isB(c, r + dr))) continue;
+
+        const n = k(nc, nr);
+        const ng = g[q] + (dc && dr ? 1.414 : 1) + (near[n] ? 0.7 : 0);
+        if (ng < g[n]) {
+          g[n] = ng;
+          par[n] = q;
+          open.push([ng + hh([nc, nr], b), nc, nr]);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/* =========================================================================
+   11. SIMULATION CLOCK & TWEENING
+   ========================================================================= */
+const sim = { t: 0, speed: 1, tm: [], isNight: false, ledEnabled: true, hour: 9.0, isTimelapse: false, timelapseSpeed: 1.2 };
+const sleep = s => new Promise(r => sim.tm.push({ at: sim.t + s, r }));
+const tween = (d, f) => new Promise(r => sim.tm.push({ t0: sim.t, d, f, r }));
+
+/* =========================================================================
+   12. REFINED STYLIZED HUMANOID CHARACTERS
+   ========================================================================= */
+class Agent {
+  constructor(id, name, role, col, home, dept, bio, shortName) {
+    this.id = id;
+    this.name = name;
+    this.shortName = shortName || name;
+    this.role = role;
+    this.col = col;
+    this.home = home;
+    this.dept = dept;
+    this.bio = bio;
+    this.state = 'idle';
+    this.taskName = 'Khởi tạo Workstation';
+    this.g = new T.Group();
+    this.ph = 0;
+    this.sitting = false;
+    this.bt = 0;
+    this.path = null;
+    this.idleActivity = null;
+    this.isTransitioning = false;
+
+    this.head = new T.Mesh(new T.SphereGeometry(0.13, 16, 14), M(0xf2cbb0, { roughness: 0.6 }));
+    this.head.position.y = 1.23;
+    this.head.castShadow = true;
+    this.g.add(this.head);
+
+    const hair = new T.Mesh(new T.BoxGeometry(0.24, 0.1, 0.25), M(0x231d19, { roughness: 0.8 }));
+    hair.position.set(0, 1.31, -0.02);
+    this.g.add(hair);
+
+    this.torso = bx(0, 0.79, 0, 0.36, 0.6, 0.22, col, this.g, { roughness: 0.7 });
+
+    const ringGeo = new T.RingGeometry(0.28, 0.35, 24);
+    this.ringMat = new T.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.6, side: T.DoubleSide });
+    this.statusRing = new T.Mesh(ringGeo, this.ringMat);
+    this.statusRing.rotation.x = -Math.PI / 2;
+    this.statusRing.position.y = 0.02;
+    this.g.add(this.statusRing);
+
+    this.legs = [-0.09, 0.09].map(lx => {
+      const p = new T.Group();
+      p.position.set(lx, 0.46, 0);
+      bx(0, -0.22, 0, 0.11, 0.46, 0.13, 0x1c2026, p, { roughness: 0.8 });
+      bx(0, -0.44, 0.02, 0.1, 0.05, 0.15, 0x111111, p);
+      this.g.add(p);
+      return p;
+    });
+
+    this.arms = [-0.23, 0.23].map(lx => {
+      const p = new T.Group();
+      p.position.set(lx, 1.02, 0);
+      bx(0, -0.2, 0, 0.08, 0.42, 0.08, col, p, { roughness: 0.7 });
+      this.g.add(p);
+      return p;
+    });
+
+    this.hitbox = new T.Mesh(new T.CylinderGeometry(0.35, 0.35, 1.6, 8), new T.MeshBasicMaterial({ visible: false }));
+    this.hitbox.position.y = 0.8;
+    this.hitbox.userData = { agent: this };
+    this.g.add(this.hitbox);
+
+    S.add(this.g);
+
+    this.lb = document.createElement('div');
+    this.lb.className = 'agent-pill idle';
+    this.lb.onclick = () => openAgentDrawer(this);
+
+    this.bb = document.createElement('div');
+    this.bb.className = 'speech-bubble';
+    L.append(this.lb, this.bb);
+
+    this.g.position.copy(wv(...home.cr));
+    this.g.rotation.y = home.face;
+    this.sitting = true;
+    this.seat = home;
+    this.cell = home.cr;
+    this.setStatus('idle');
+  }
+
+  setStatus(st, taskName = '') {
+    this.state = st;
+    if (taskName) {
+      this.taskName = taskName;
+    } else if (st === 'idle') {
+      this.taskName = 'Sẵn sàng nhận nhiệm vụ';
+    } else if (st === 'meeting') {
+      this.taskName = 'Họp điều phối tại phòng họp';
+    } else if (st === 'working') {
+      this.taskName = 'Đang xử lý chuyên môn';
+    } else if (st === 'thinking') {
+      this.taskName = 'Phân tích & Tối ưu tham số';
+    }
+
+    const colors = {
+      idle: 0x4ade80,
+      working: 0x38bdf8,
+      thinking: 0xc084fc,
+      meeting: 0x34d399,
+      error: 0xf87171
+    };
+    if (this.ringMat) this.ringMat.color.setHex(colors[st] || 0x38bdf8);
+    this.updatePill();
+    if (typeof updateCompanyStatus === 'function') updateCompanyStatus();
+  }
+
+  updatePill() {
+    if (!this.lb) return;
+    const isError = this.state === 'error';
+    const isBusy = this.state !== 'idle' && !isError;
+    let stText = 'Rảnh';
+    let stCol = '#4ade80';
+    let icon = '☕';
+    if (isError) {
+      stText = 'Lỗi';
+      stCol = '#f87171';
+      icon = '⚠️';
+      this.lb.className = 'agent-pill error';
+    } else if (isBusy) {
+      stText = 'Bận';
+      stCol = '#38bdf8';
+      icon = '💻';
+      this.lb.className = 'agent-pill busy';
+    } else {
+      this.lb.className = 'agent-pill idle';
+      if (this.idleActivity === 'nap') {
+        stText = 'Ngủ trưa';
+        stCol = '#c084fc';
+        icon = '💤';
+      } else if (this.idleActivity === 'gym') {
+        stText = 'Thể dục';
+        stCol = '#fbbf24';
+        icon = '🏃';
+      } else if (this.idleActivity === 'coffee') {
+        stText = 'Cafe Bar';
+        stCol = '#f59e0b';
+        icon = '☕';
+      } else if (this.idleActivity === 'chat') {
+        stText = 'Trò chuyện';
+        stCol = '#34d399';
+        icon = '💬';
+      } else {
+        stText = 'Thư giãn';
+        stCol = '#4ade80';
+        icon = '🛋️';
+      }
+    }
+    const taskSub = (isBusy && this.activeTaskIdentifier) ? ` <span style="font-size:8.5px;color:#cbd5e1;font-weight:600;">(${this.activeTaskIdentifier})</span>` : '';
+    this.lb.innerHTML = `<span class="role-dot" style="background:#${this.col.toString(16).padStart(6,'0')};"></span><span>${this.shortName || this.name}</span><span style="font-size:9.5px;color:${stCol};font-weight:700;margin-left:3px;">${icon} [${stText}]</span>${taskSub}`;
+  }
+
+  say(txt, duration = 3) {
+    this.bb.textContent = txt;
+    this.bt = sim.t + duration;
+  }
+
+  walk(targetCell) {
+    return new Promise(res => {
+      const p = astar(this.cell, targetCell);
+      if (!p || p.length < 2) { res(); return; }
+      this.path = p.slice(1).map(([c, r]) => wv(c, r));
+      this.res = res;
+    });
+  }
+
+  async sitDown(s) {
+    await this.walk(s.ap);
+    this.g.rotation.y = s.face;
+    const d = wv(...s.ap).sub(wv(...s.cr)).normalize();
+    await tween(0.35, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k));
+    const a = this.g.position.clone(), b = wv(...s.cr);
+    this.sitting = true;
+    await tween(0.5, k => {
+      this.g.position.lerpVectors(a, b, k);
+      s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k));
+    });
+    this.seat = s;
+    this.cell = s.cr;
+  }
+
+  async standUp() {
+    const s = this.seat;
+    if (!s) return;
+    const d = wv(...s.ap).sub(wv(...s.cr)).normalize();
+    const a = this.g.position.clone(), b = wv(...s.ap);
+    await tween(0.4, k => {
+      this.g.position.lerpVectors(a, b, k);
+      s.ch.position.copy(s.base).addScaledVector(d, 0.4 * k);
+    });
+    this.sitting = false;
+    await tween(0.3, k => s.ch.position.copy(s.base).addScaledVector(d, 0.4 * (1 - k)));
+    this.cell = s.ap;
+    this.seat = null;
+  }
+
+  update(dt) {
+    let mv = 0;
+    if (this.path) {
+      const t = this.path[0], p = this.g.position;
+      const dx = t.x - p.x, dz = t.z - p.z, dist = Math.hypot(dx, dz);
+      const step = 1.45 * dt;
+      mv = 1;
+      const targetAngle = Math.atan2(dx, dz);
+      const diffAngle = ((targetAngle - this.g.rotation.y + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+      this.g.rotation.y += diffAngle * Math.min(1, dt * 14);
+
+      if (dist <= step) {
+        p.copy(t);
+        this.cell = [Math.floor(p.x / CS), Math.floor(p.z / CS)];
+        this.path.shift();
+        if (!this.path.length) { this.path = null; this.res(); }
+      } else {
+        p.x += (dx / dist) * step;
+        p.z += (dz / dist) * step;
+      }
+    }
+
+    this.ph += mv * dt * 9;
+    const stride = mv ? Math.sin(this.ph) * 0.6 : 0;
+    if (this.sitting) {
+      if (this.idleActivity === 'nap') {
+        this.legs.forEach(l => l.rotation.x = -1.5);
+        this.arms.forEach(a => a.rotation.x = -1.3);
+        if (this.head) this.head.rotation.x = 0.28 + Math.sin(sim.t * 2) * 0.05;
+      } else if (this.idleActivity === 'gym') {
+        this.legs.forEach((l, i) => l.rotation.x = Math.sin(sim.t * 8 + i * Math.PI) * 0.4);
+        this.arms.forEach((a, i) => a.rotation.x = Math.sin(sim.t * 8 + (1 - i) * Math.PI) * 0.65);
+        if (this.head) this.head.rotation.x = 0;
+      } else {
+        this.legs.forEach(l => l.rotation.x = -1.5);
+        this.arms.forEach((a, i) => a.rotation.x = -1.0 + Math.sin(sim.t * 13 + i * 2) * 0.08);
+        if (this.head) this.head.rotation.x = 0;
+      }
+    } else {
+      if (this.head) this.head.rotation.x = 0;
+      this.legs[0].rotation.x = stride;
+      this.legs[1].rotation.x = -stride;
+      this.arms[0].rotation.x = -stride;
+      this.arms[1].rotation.x = stride;
+    }
+
+    if (this.statusRing) {
+      this.statusRing.scale.setScalar(1 + Math.sin(sim.t * 4) * 0.08);
+    }
+  }
+}
+
+const L = document.getElementById('L');
+let agents = [];
+let A = {};
+
+function updateCompanyStatus() {
+  if (!Array.isArray(agents) || agents.length === 0) return;
+  const busyAgents = agents.filter(a => a.state !== 'idle' && a.state !== 'error');
+  const idleAgents = agents.filter(a => a.state === 'idle');
+  const errorAgents = agents.filter(a => a.state === 'error');
+
+  const busyEl = document.getElementById('busyCountTxt');
+  const idleEl = document.getElementById('idleCountTxt');
+  if (busyEl) busyEl.textContent = `${busyAgents.length} Bận`;
+  if (idleEl) idleEl.textContent = `${idleAgents.length} Rảnh`;
+
+  const chipsContainer = document.getElementById('agentChipsRow');
+  if (chipsContainer) {
+    chipsContainer.innerHTML = agents.map(a => {
+      const isError = a.state === 'error';
+      const isBusy = a.state !== 'idle' && !isError;
+      const cls = a.state === 'meeting' ? 'meeting' : isError ? 'error' : isBusy ? 'busy' : 'idle';
+      let icon = '☕';
+      let tagText = 'Rảnh';
+      if (isError) { icon = '⚠️'; tagText = 'Lỗi'; }
+      else if (isBusy) { icon = '💻'; tagText = 'Bận'; }
+      else if (a.idleActivity === 'nap') { icon = '💤'; tagText = 'Ngủ trưa'; }
+      else if (a.idleActivity === 'gym') { icon = '🏃'; tagText = 'Thể dục'; }
+      else if (a.idleActivity === 'coffee') { icon = '☕'; tagText = 'Cafe'; }
+      else if (a.idleActivity === 'chat') { icon = '💬'; tagText = 'Trò chuyện'; }
+      const colHex = '#' + a.col.toString(16).padStart(6, '0');
+      const taskDisplay = a.activeTaskIdentifier ? ` (${a.activeTaskIdentifier})` : '';
+      return `<div class="agent-chip ${cls}" onclick="focusAgent('${a.id}')" title="${a.name} (${a.role}) - ${a.taskName}">
+        <span class="chip-dot" style="background:${colHex};"></span>
+        <span>${a.shortName || a.name}: <b>${icon} ${tagText}${taskDisplay}</b></span>
+      </div>`;
+    }).join('');
+  }
+}
+
+agents = AG.map(([id, n, r, col, c, row, dept, bio, , shortName]) => new Agent(id, n, r, col, seats['d_' + id], dept, bio, shortName));
+A = Object.fromEntries(agents.map(a => [a.id, a]));
+
+window.focusAgent = function(id) {
+  const agent = A[id];
+  if (agent) {
+    openAgentDrawer(agent);
+    const p = agent.g.position;
+    flyCameraTo([p.x + 3.8, 3.8, p.z + 5.5], [p.x, 0.8, p.z], 1.0);
+  }
+};
+
+updateCompanyStatus();
+
+/* =========================================================================
+   13. ORCHESTRATION SCENARIOS
+   ========================================================================= */
+let completedTasks = 0;
+const phaseTxt = document.getElementById('phaseTxt');
+const doneTxt = document.getElementById('doneTxt');
+const clockTxt = document.getElementById('clockTxt');
+const setPhase = t => phaseTxt.textContent = t;
+
+const timeSlider = document.getElementById('timeSlider');
+const timeClock = document.getElementById('timeClock');
+const timePeriod = document.getElementById('timePeriod');
+const timeIcon = document.getElementById('timeIcon');
+const btnTimelapse = document.getElementById('btnTimelapse');
+
+const _sunCol = new T.Color();
+const _hemiSky = new T.Color();
+const _hemiGnd = new T.Color();
+const _bgCol = new T.Color();
+
+function updateTimeUI(h, periodName, periodIcon) {
+  if (timeSlider && document.activeElement !== timeSlider) {
+    timeSlider.value = h;
+  }
+  const hh = Math.floor(h);
+  const mm = Math.floor((h - hh) * 60);
+  const hhStr = String(hh).padStart(2, '0');
+  const mmStr = String(mm).padStart(2, '0');
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+
+  if (timeClock) timeClock.textContent = `${hhStr}:${mmStr}`;
+  if (timePeriod) timePeriod.textContent = periodName;
+  if (timeIcon) timeIcon.textContent = periodIcon;
+  if (clockTxt) clockTxt.textContent = `${hhStr}:${mmStr} ${ampm}`;
+
+  document.querySelectorAll('.time-preset-btn').forEach(btn => {
+    const target = parseFloat(btn.dataset.hour);
+    btn.classList.toggle('active', Math.abs(h - target) < 0.6);
+  });
+
+  const isNightTime = h >= 18.5 || h < 6;
+  const btnNight = document.getElementById('btnNight');
+  if (btnNight) btnNight.classList.toggle('active', isNightTime);
+  sim.isNight = isNightTime;
+}
+
+function setTimeOfDay(h) {
+  h = ((h % 24) + 24) % 24;
+  sim.hour = h;
+
+  let sunInt = 0;
+  let hemiInt = 0.35;
+  let fillInt = 0.05;
+  let diffuserInt = 0.65;
+  let periodName = 'Đêm Atelier';
+  let periodIcon = '🌙';
+
+  if (h >= 6 && h <= 18.5) {
+    const progress = (h - 6) / 12.5;
+    const angle = progress * Math.PI;
+    const x = 15 + 38 * Math.cos(angle);
+    const y = Math.max(1.2, 36 * Math.sin(angle));
+    const z = 10 + 20 * Math.sin(angle);
+    sun.position.set(x, y, z);
+    sun.target.position.set(15, 0, 10);
+
+    if (h < 9) {
+      const k = (h - 6) / 3;
+      periodName = 'Bình minh';
+      periodIcon = '🌅';
+      _sunCol.setRGB(1.0, 0.76 + 0.20 * k, 0.52 + 0.40 * k);
+      sunInt = 0.45 + 0.85 * k;
+      _hemiSky.setRGB(0.34 + 0.06 * k, 0.40 + 0.06 * k, 0.54 + 0.06 * k);
+      _hemiGnd.setRGB(0.22, 0.16, 0.12);
+      hemiInt = 0.8 + 0.35 * k;
+      fillInt = 0.15 + 0.25 * k;
+      diffuserInt = 0.85 - 0.25 * k;
+      _bgCol.setRGB(0.04 + 0.01 * k, 0.045 + 0.01 * k, 0.065 + 0.01 * k);
+    } else if (h <= 15.5) {
+      periodName = 'Ban ngày';
+      periodIcon = '☀️';
+      _sunCol.setHex(0xfff6ec);
+      sunInt = 1.35;
+      _hemiSky.setHex(0x5c7292);
+      _hemiGnd.setHex(0x35281e);
+      hemiInt = 1.15;
+      fillInt = 0.45;
+      diffuserInt = 0.6;
+      _bgCol.setHex(0x07080b);
+    } else {
+      const k = (h - 15.5) / 3;
+      periodName = 'Hoàng hôn';
+      periodIcon = '🌇';
+      _sunCol.setRGB(1.0, 0.96 - 0.48 * k, 0.92 - 0.76 * k);
+      sunInt = 1.35 - 0.75 * k;
+      _hemiSky.setRGB(0.36 + 0.08 * k, 0.44 - 0.18 * k, 0.57 - 0.18 * k);
+      _hemiGnd.setRGB(0.21 - 0.05 * k, 0.15 - 0.05 * k, 0.11 - 0.05 * k);
+      hemiInt = 1.15 - 0.45 * k;
+      fillInt = 0.45 - 0.32 * k;
+      diffuserInt = 0.6 + 0.55 * k;
+      _bgCol.setRGB(0.045 + 0.02 * k, 0.04 - 0.015 * k, 0.06 - 0.015 * k);
+    }
+  } else {
+    periodName = 'Đêm Atelier';
+    periodIcon = '🌙';
+    sun.position.set(-12, 28, -8);
+    sun.target.position.set(15, 0, 10);
+    _sunCol.setHex(0x547299);
+    sunInt = 0.08;
+    _hemiSky.setHex(0x2d3a4f);
+    _hemiGnd.setHex(0x1e2430);
+    hemiInt = 0.72;
+    fillInt = 0.18;
+    diffuserInt = 1.75;
+    _bgCol.setHex(0x07090f);
+  }
+
+  sun.color.copy(_sunCol);
+  sun.intensity = sunInt;
+  hemi.color.copy(_hemiSky);
+  hemi.groundColor.copy(_hemiGnd);
+  hemi.intensity = hemiInt;
+  fillLight.intensity = fillInt;
+  softCeilingDiffuser.intensity = diffuserInt;
+  S.background.copy(_bgCol);
+
+  updateTimeUI(h, periodName, periodIcon);
+}
+
+function tweenTime(targetHour, duration = 0.8) {
+  const startHour = sim.hour;
+  return tween(duration, k => {
+    setTimeOfDay(startHour + (targetHour - startHour) * k);
+  });
+}
+
+function setNightLighting(v) {
+  setTimeOfDay(12.0 + 9.5 * v);
+}
+
+function updateMetrics() {
+  if (doneTxt) doneTxt.textContent = `${completedTasks} hoàn thành`;
+  updateCompanyStatus();
+}
+
+function flyDocument(a, b) {
+  const m = new T.Mesh(new T.BoxGeometry(0.3, 0.02, 0.22), M(0xffffff, { roughness: 0.3 }));
+  const p = a.g.position.clone(), q = b.g.position.clone();
+  S.add(m);
+  return tween(1.6, k => {
+    m.position.lerpVectors(p, q, k);
+    m.position.y = 1.4 + Math.sin(k * Math.PI) * 1.2;
+    m.rotation.y = k * 8;
+    if (k >= 1) S.remove(m);
+  });
+}
+
+/* =========================================================================
+   14. LIVE REAL-TIME COMPANY & MULTI-AGENT SYNCHRONIZATION
+   ========================================================================= */
+const AGENT_MAPPINGS = [
+  { id: 'mira', match: ['chief architect', 'kiến trúc sư trưởng'] },
+  { id: 'an', match: ['floor plan', 'mặt bằng'] },
+  { id: 'bao', match: ['furniture', 'nội thất'] },
+  { id: 'duy', match: ['product', 'sourcing', 'researcher', 'nghiên cứu'] },
+  { id: 'minh', match: ['geometry', 'bim', 'hình học'] },
+  { id: 'nhi', match: ['lighting', 'visualization', 'chiếu sáng', 'render'] },
+  { id: 'chi', match: ['cost', 'bom', 'inventory', 'dự toán'] },
+  { id: 'quan', match: ['style', 'materials', 'phong cách', 'vật liệu'] },
+  { id: 'linh', match: ['qa', 'validation', 'kiểm định'] }
+];
+
+const RENDER_AGENT_INTERNAL_SKILLS = [
+  'camera.compose', 'lighting.design', 'material.render', 'blender.cycles', 'render.persistence',
+  'render.brief_compliance', 'ai.photoreal_codex', 'render.self_qa', 'render.gallery'
+];
+const RENDER_AGENT_CATALOG_SKILLS = [
+  'atelier-project-delivery-workflow', 'atelier-workflow-evidence-lifecycle', 'blender-mcp-rendering',
+  'cinematic-rendering-and-composition', 'photoreal-render-evidence-gate', 'rendering-review',
+  'architectural-lighting-mastery', 'ceiling-and-lighting-design', 'materials-and-finishes',
+  'luxury-materials-and-tactile-textures', 'aesthetic-moodboard-and-styling', 'canonical-scene-integrity-audit'
+];
+
+let liveCompanyId = '0873a79a-62ba-4bc3-9f2d-9277b4b6c6ed';
+let isSyncing = false;
+let atelierProjectId = new URLSearchParams(window.location.search).get('project_id') || '';
+let renderAgentState = { mode: 'idle', jobId: null, completedAt: 0 };
+
+async function fetchWithFallback(urlPath) {
+  const isStandalone = window.location.port === '5174';
+  const origins = isStandalone
+    ? ['http://localhost:3100', 'http://127.0.0.1:3100', '']
+    : ['', 'http://localhost:3100', 'http://127.0.0.1:3100'];
+
+  for (const origin of origins) {
+    try {
+      const fullUrl = origin ? `${origin}${urlPath}` : urlPath;
+      const res = await fetch(fullUrl, { headers: { 'Accept': 'application/json' } });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      // try next fallback
+    }
+  }
+  return null;
+}
+
+function setRenderScreenTexture(texture) {
+  const target = agentScreens.nhi;
+  if (!target) return;
+  target.screen.material.map = texture;
+  target.screen.material.needsUpdate = true;
+}
+
+function drawRenderScreenMessage(title, detail) {
+  const texture = makeCanvasTexture(512, 280, (ctx, w, h) => {
+    ctx.fillStyle = '#0b1120'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#facc15'; ctx.font = '700 22px "Space Grotesk"'; ctx.fillText(title, 24, 54);
+    ctx.fillStyle = '#cbd5e1'; ctx.font = '16px monospace';
+    String(detail || '').match(/.{1,42}/g)?.slice(0, 6).forEach((line, index) => ctx.fillText(line, 24, 94 + index * 27));
+  });
+  setRenderScreenTexture(texture);
+}
+
+function showRenderScreenImage(url) {
+  const target = agentScreens.nhi;
+  if (!target || !url) return;
+  const image = new Image();
+  image.crossOrigin = 'anonymous';
+  image.onload = () => {
+    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 280;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    ctx.fillStyle = '#0b1120'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const scale = Math.max(canvas.width / image.width, canvas.height / image.height);
+    const width = image.width * scale, height = image.height * scale;
+    ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    setRenderScreenTexture(new T.CanvasTexture(canvas));
+  };
+  image.src = url;
+}
+
+function restoreRenderScreen() {
+  const target = agentScreens.nhi;
+  if (target) setRenderScreenTexture(target.original);
+}
+
+function formatRenderElapsed(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+async function syncRenderAgent(projectItems) {
+  const agent3D = A.nhi;
+  if (!agent3D || !Array.isArray(projectItems)) return false;
+  const aiItems = projectItems.filter(item => item.kind === 'ai');
+  const current = aiItems.find(item => item.status === 'RUNNING' || item.status === 'QUEUED') || aiItems[0];
+  const detail = current?.id ? await fetchWithFallback(`/api/v1/render/ai/${encodeURIComponent(current.id)}`) : null;
+  const status = detail?.status || current?.status;
+  if (status === 'RUNNING' || status === 'QUEUED') {
+    const elapsed = detail?.elapsed_s || 0;
+    renderAgentState = { mode: 'running', jobId: current.id, completedAt: 0 };
+    agent3D.idleActivity = null;
+    agent3D.activeTaskIdentifier = current.id;
+    agent3D.setStatus('working', `Đang render AI… ${formatRenderElapsed(elapsed)}`);
+    drawRenderScreenMessage('ĐANG RENDER AI…', `Job ${current.id}\nĐã chạy ${formatRenderElapsed(elapsed)}\nGiữ nguyên camera + revision`);
+    if (agent3D.seat !== agent3D.home && !agent3D.isTransitioning) {
+      agent3D.isTransitioning = true;
+      (async () => { if (agent3D.sitting) await agent3D.standUp(); await agent3D.sitDown(agent3D.home); agent3D.isTransitioning = false; })();
+    } else if (!agent3D.sitting && !agent3D.isTransitioning) agent3D.sitDown(agent3D.home);
+    return true;
+  }
+  if (status === 'FAILED') {
+    renderAgentState = { mode: 'failed', jobId: current?.id || null, completedAt: Date.now() };
+    agent3D.idleActivity = null;
+    agent3D.activeTaskIdentifier = current?.id || '';
+    agent3D.setStatus('error', `Render AI lỗi: ${detail?.error || 'job thất bại'}`);
+    drawRenderScreenMessage('RENDER AI LỖI', detail?.error || 'Không có ảnh AI mới');
+    return true;
+  }
+  const completed = aiItems.find(item => item.status === 'COMPLETED' && item.url);
+  if (completed && (renderAgentState.jobId !== completed.id || renderAgentState.mode === 'completed') && Date.now() - renderAgentState.completedAt < 30000) {
+    renderAgentState = { mode: 'completed', jobId: completed.id, completedAt: renderAgentState.completedAt || Date.now() };
+    agent3D.idleActivity = null;
+    agent3D.activeTaskIdentifier = completed.id;
+    agent3D.setStatus('thinking', 'Ảnh AI mới đã lưu vào Render Gallery');
+    showRenderScreenImage(completed.url);
+    if (Date.now() - renderAgentState.completedAt < 30000) window.setTimeout(() => { restoreRenderScreen(); }, 30000);
+    return true;
+  }
+  if (renderAgentState.mode !== 'idle' && renderAgentState.jobId === completed?.id && Date.now() - renderAgentState.completedAt < 30000) return true;
+  renderAgentState = { mode: 'idle', jobId: completed?.id || null, completedAt: 0 };
+  return false;
+}
+
+let lastStaticFetch = 0;
+let cachedActiveProject = 'Phòng ngủ GLB — Bedroom Interior 6×4m';
+
+async function syncLiveCompanyStatus() {
+  if (isSyncing) return;
+  if (document.hidden) return; // Không poll khi tab đang ẩn để tiết kiệm tài nguyên
+  isSyncing = true;
+
+  try {
+    const now = Date.now();
+    // 1. Chỉ cập nhật thông tin công ty và dự án mỗi 30 giây
+    if (now - lastStaticFetch > 30000 || !lastStaticFetch) {
+      const companies = await fetchWithFallback('/api/companies');
+      if (Array.isArray(companies) && companies.length > 0) {
+        const activeComp = companies.find(c => c.status === 'active') || companies[0];
+        liveCompanyId = activeComp.id;
+      }
+      const projectsData = await fetchWithFallback(`/api/companies/${liveCompanyId}/projects`);
+      if (Array.isArray(projectsData) && projectsData.length > 0) {
+        const currentProj = projectsData.find(p => p.status === 'in_progress') || projectsData[0];
+        if (currentProj && currentProj.name) {
+          cachedActiveProject = currentProj.name;
+        }
+      }
+      lastStaticFetch = now;
+    }
+
+    const projNameEl = document.getElementById('projNameTxt');
+    if (projNameEl) {
+      projNameEl.textContent = cachedActiveProject;
+    }
+
+    // Render Agent gets the real scene-bound job for the project opened by Design Studio.
+    if (!atelierProjectId) {
+      const atelierProjects = await fetchWithFallback('/api/v1/projects?include_fixtures=false&include_hidden=true');
+      const firstAtelierProject = Array.isArray(atelierProjects) ? atelierProjects[0] : atelierProjects?.projects?.[0];
+      if (firstAtelierProject?.project_id) atelierProjectId = firstAtelierProject.project_id;
+    }
+    const renderGallery = atelierProjectId
+      ? await fetchWithFallback(`/api/v1/projects/${encodeURIComponent(atelierProjectId)}/renders`)
+      : null;
+    const renderItems = Array.isArray(renderGallery?.renders) ? renderGallery.renders : [];
+    const renderAgentBusy = await syncRenderAgent(renderItems);
+
+    // 2. Tải danh sách Agent và Issues đang hoạt động
+    const [agentsData, issuesData] = await Promise.all([
+      fetchWithFallback(`/api/companies/${liveCompanyId}/agents`),
+      fetchWithFallback(`/api/companies/${liveCompanyId}/issues?limit=50`)
+    ]);
+
+    let activeProjectName = cachedActiveProject;
+
+    // 4. Thống kê tiến độ nhiệm vụ (Issues)
+    const allIssues = Array.isArray(issuesData) ? issuesData : [];
+    const doneIssues = allIssues.filter(i => i.status === 'done');
+    const inProgressIssues = allIssues.filter(i => i.status === 'in_progress');
+    const blockedIssues = allIssues.filter(i => i.status === 'blocked');
+    const reviewIssues = allIssues.filter(i => i.status === 'in_review');
+
+    completedTasks = doneIssues.length;
+    if (doneTxt) {
+      doneTxt.textContent = `${completedTasks} hoàn thành`;
+    }
+
+    // 5. Cập nhật tiêu đề tiến trình công ty
+    const runningBadge = document.getElementById('runningTaskBadge');
+    if (inProgressIssues.length > 0) {
+      if (runningBadge) runningBadge.textContent = `⚡ ĐANG CHẠY (${inProgressIssues.length} TASK)`;
+      const topTask = inProgressIssues[0];
+      setPhase(`⚡ [${topTask.identifier}] ${topTask.title}`);
+    } else if (blockedIssues.length > 0) {
+      if (runningBadge) runningBadge.textContent = `⚠️ CẦN XỬ LÝ (${blockedIssues.length} CHẶN)`;
+      setPhase(`⚠️ Đang chờ xử lý ${blockedIssues.length} task tạm dừng`);
+    } else {
+      if (runningBadge) runningBadge.textContent = `✓ SẴN SÀNG`;
+      setPhase(`✓ Tất cả 9 Agent sẵn sàng · Hệ thống ổn định`);
+    }
+
+    // 6. Ánh xạ trạng thái thực của từng Agent từ Paperclip DB vào mô hình 3D
+    const liveAgents = Array.isArray(agentsData) ? agentsData : [];
+
+    const LOUNGE_ACTIVITY_LIST = [
+      { seatId: 'l_bar1', act: 'coffee', say: 'Thưởng thức Espresso thơm tại quầy bar ☕' },
+      { seatId: 'l_nap', act: 'nap', say: 'Chợp mắt 15 phút trên daybed nạp lại năng lượng 💤' },
+      { seatId: 'l_treadmill', act: 'gym', say: 'Chạy bộ 15 phút rèn luyện sức khỏe 🏃' },
+      { seatId: 'l_sofa1', act: 'sofa', say: 'Ngồi sofa đọc tạp chí kiến trúc 🛋️' },
+      { seatId: 'l_bar2', act: 'coffee', say: 'Pha tách trà thảo mộc tại quầy bar ☕' },
+      { seatId: 'l_chat', act: 'chat', say: 'Trao đổi ý tưởng thiết kế cùng đồng nghiệp 💬' },
+      { seatId: 'l_yoga', act: 'gym', say: 'Tập yoga & giãn cơ thư thái 🧘' },
+      { seatId: 'l_sofa2', act: 'sofa', say: 'Nghỉ ngơi thư giãn trên sofa nỉ 🛋️' }
+    ];
+
+    AGENT_MAPPINGS.forEach((mapping, agentIndex) => {
+      const agent3D = A[mapping.id];
+      if (!agent3D) return;
+
+      if (mapping.id === 'nhi' && renderAgentBusy) return;
+
+      const liveAgent = liveAgents.find(la =>
+        mapping.match.some(m => (la.name || '').toLowerCase().includes(m))
+      );
+
+      if (!liveAgent) return;
+
+      // Tìm task đang giao cho agent này
+      const activeTask = inProgressIssues.find(i => i.assigneeAgentId === liveAgent.id);
+      const blockedTask = blockedIssues.find(i => i.assigneeAgentId === liveAgent.id);
+      const reviewTask = reviewIssues.find(i => i.assigneeAgentId === liveAgent.id);
+
+      if (activeTask) {
+        agent3D.activeTaskIdentifier = activeTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('working', `${activeTask.identifier}: ${activeTask.title}`);
+        
+        // Nếu Agent đang ở phòng nghỉ ngơi, tự động đứng dậy quay về bàn làm việc
+        if (agent3D.seat !== agent3D.home && !agent3D.isTransitioning) {
+          agent3D.isTransitioning = true;
+          (async () => {
+            agent3D.say(`Nhận task ${activeTask.identifier}! Quay về bàn làm việc 💻`, 3.2);
+            if (agent3D.sitting) await agent3D.standUp();
+            await agent3D.sitDown(agent3D.home);
+            agent3D.isTransitioning = false;
+          })();
+        } else if (!agent3D.sitting && agent3D.home && !agent3D.isTransitioning) {
+          agent3D.sitDown(agent3D.home);
+        }
+      } else if (blockedTask) {
+        agent3D.activeTaskIdentifier = blockedTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('error', `${blockedTask.identifier} (Tạm dừng): ${blockedTask.title}`);
+      } else if (reviewTask) {
+        agent3D.activeTaskIdentifier = reviewTask.identifier;
+        agent3D.idleActivity = null;
+        agent3D.setStatus('thinking', `${reviewTask.identifier} (Review): ${reviewTask.title}`);
+      } else {
+        // AGENT RẢNH: Tự động phân công các hoạt động thư giãn tại Lounge & Gym Studio
+        agent3D.activeTaskIdentifier = '';
+        const spot = LOUNGE_ACTIVITY_LIST[agentIndex % LOUNGE_ACTIVITY_LIST.length];
+        const targetSeat = seats[spot.seatId] || agent3D.home;
+
+        if (!agent3D.idleActivity) {
+          agent3D.idleActivity = spot.act;
+          agent3D.setStatus('idle', spot.say);
+
+          if (agent3D.seat !== targetSeat && !agent3D.isTransitioning) {
+            agent3D.isTransitioning = true;
+            (async () => {
+              if (agent3D.sitting) await agent3D.standUp();
+              await agent3D.sitDown(targetSeat);
+              agent3D.isTransitioning = false;
+              agent3D.say(spot.say, 4);
+            })();
+          }
+        } else {
+          agent3D.setStatus('idle');
+          if (!agent3D.sitting && !agent3D.isTransitioning) {
+            agent3D.sitDown(targetSeat);
+          }
+        }
+      }
+    });
+
+    // 7. Đồng bộ thông điệp trên bảng văn phòng 3D
+    boardTxt = `ATELIER AI: ${activeProjectName} | Hoàn tất: ${completedTasks} tasks | Đang chạy: ${inProgressIssues.length} tasks`;
+    drawBoard();
+
+    // 8. Cập nhật thanh trạng thái phía dưới
+    updateCompanyStatus();
+
+  } catch (err) {
+    console.warn('[syncLiveCompanyStatus] Error polling live status:', err);
+  } finally {
+    isSyncing = false;
+  }
+}
+
+/* =========================================================================
+   15. OPTIMIZED CAMERA & TIGHT ISOMETRIC 3/4 (85-90% SCREEN FILL)
+   ========================================================================= */
+const camOrbit = { th: 0.26, ph: 0.86, r: 21.5, r0: 21.5 };
+const camTarget = new T.Vector3(15, 0.5, 9.8);
+let camMoving = false;
+
+function updateCamera() {
+  const sp = Math.sin(camOrbit.ph);
+  cam.position.set(
+    camTarget.x + camOrbit.r * sp * Math.sin(camOrbit.th),
+    camTarget.y + camOrbit.r * Math.cos(camOrbit.ph),
+    camTarget.z + camOrbit.r * sp * Math.cos(camOrbit.th)
+  );
+  cam.lookAt(camTarget);
+}
+
+function flyCameraTo(targetPos, lookPos, duration = 1.2) {
+  camMoving = true;
+  const startT = camTarget.clone();
+  const wx = lookPos[0] > 30 ? lookPos[0] * 0.5 : lookPos[0];
+  const wy = lookPos[1];
+  const wz = lookPos[2] > 20 ? lookPos[2] * 0.5 : lookPos[2];
+  const endT = new T.Vector3(wx, wy, wz);
+  const startR = camOrbit.r;
+  const endR = 15.0;
+
+  tween(duration, k => {
+    camTarget.lerpVectors(startT, endT, k);
+    camOrbit.r = startR + (endR - startR) * k;
+    updateCamera();
+    if (k >= 1) camMoving = false;
+  });
+}
+
+function resetView() {
+  camTarget.set(15, 0.5, 9.8);
+  camOrbit.th = 0.26;
+  camOrbit.ph = 0.86;
+  camOrbit.r = 21.5;
+  updateCamera();
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.tab-btn[data-dept="all"]').classList.add('active');
+}
+
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  R.setSize(w, h);
+  cam.aspect = w / h;
+  cam.updateProjectionMatrix();
+  camOrbit.r0 = camOrbit.r = Math.min(85, Math.max(18, 12.8 / (cam.aspect * 0.364)));
+  updateCamera();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+let drag = null;
+cv.addEventListener('pointerdown', e => {
+  if (e.button === 0) {
+    drag = [e.clientX, e.clientY];
+    cv.setPointerCapture(e.pointerId);
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  camOrbit.th -= (e.clientX - drag[0]) * 0.005;
+  camOrbit.ph = Math.min(1.3, Math.max(0.25, camOrbit.ph - (e.clientY - drag[1]) * 0.004));
+  drag = [e.clientX, e.clientY];
+  updateCamera();
+});
+cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  camOrbit.r = Math.min(camOrbit.r0 * 1.8, Math.max(7, camOrbit.r * (1 + e.deltaY * 0.001)));
+  updateCamera();
+}, { passive: false });
+
+/* =========================================================================
+   16. RAYCASTING, HOVER & AGENT DOSSIER
+   ========================================================================= */
+const raycaster = new T.Raycaster();
+const mouse = new T.Vector2();
+const hitboxes = agents.map(a => a.hitbox);
+
+cv.addEventListener('click', e => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, cam);
+  const intersects = raycaster.intersectObjects(hitboxes, false);
+  if (intersects.length > 0) {
+    const agent = intersects[0].object.userData.agent;
+    if (agent) openAgentDrawer(agent);
+  }
+});
+
+const drawer = document.getElementById('agentDrawer');
+let selectedAgent = null;
+
+function openAgentDrawer(agent) {
+  selectedAgent = agent;
+  drawer.style.display = 'flex';
+  document.getElementById('dAvatar').textContent = (agent.shortName || agent.name).slice(0, 2).toUpperCase();
+  document.getElementById('dAvatar').style.background = '#' + agent.col.toString(16).padStart(6, '0');
+  document.getElementById('dName').textContent = agent.name;
+  document.getElementById('dRole').textContent = agent.role;
+  const isBusy = agent.state !== 'idle';
+  const stText = agent.state === 'meeting' ? 'Đang họp tại Phòng Họp Kiến Trúc' : isBusy ? `Đang bận: ${agent.taskName || 'Đang xử lý chuyên môn'}` : 'Đang rảnh (Sẵn sàng nhận nhiệm vụ)';
+  document.getElementById('dStatusTxt').textContent = stText;
+  document.getElementById('dTerm').innerHTML = `
+    $ ${agent.id}.getAgentStatus()<br>
+    > Tên Agent: ${agent.name}<br>
+    > Chuyên môn: ${agent.role}<br>
+    > Tình trạng: ${isBusy ? 'BUSY / WORKING' : 'IDLE / READY'}<br>
+    > Nhiệm vụ hiện tại: ${agent.taskName || agent.bio}<br>
+    > Workstation: [${agent.cell.join(', ')}]
+  `;
+  if (agent.id === 'nhi') {
+    document.getElementById('dTerm').innerHTML += `
+      <br><strong>Internal skills</strong><br>${RENDER_AGENT_INTERNAL_SKILLS.map(skill => `> ${skill}`).join('<br>')}
+      <br><strong>Catalog skills</strong><br>${RENDER_AGENT_CATALOG_SKILLS.map(skill => `> ${skill}`).join('<br>')}
+    `;
+  }
+  document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('selected'));
+  if (agent.lb) agent.lb.classList.add('selected');
+}
+
+document.getElementById('dClose').onclick = () => {
+  drawer.style.display = 'none';
+  selectedAgent = null;
+  document.querySelectorAll('.agent-pill').forEach(p => p.classList.remove('selected'));
+};
+document.getElementById('dBtnFocus').onclick = () => {
+  if (selectedAgent) {
+    const p = selectedAgent.g.position;
+    flyCameraTo([p.x + 3.8, 3.8, p.z + 5.5], [p.x, 0.8, p.z], 1.0);
+  }
+};
+document.getElementById('dBtnPing').onclick = () => {
+  if (selectedAgent) {
+    selectedAgent.say('Đang xử lý chỉ thị ưu tiên!', 3);
+  }
+};
+
+/* Department Quick-Jump Tabs */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const deptId = btn.dataset.dept;
+    if (deptId === 'all') {
+      resetView();
+    } else {
+      const room = rooms.find(r => r.id === deptId);
+      if (room) flyCameraTo(room.camPos, room.target, 1.2);
+    }
+  };
+});
+
+/* Controls Cluster Actions */
+document.getElementById('btnSpeed').onclick = e => {
+  sim.speed = sim.speed === 1 ? 2 : sim.speed === 2 ? 4 : 1;
+  e.target.textContent = `⚡ x${sim.speed}`;
+};
+
+document.getElementById('btnLed').onclick = e => {
+  sim.ledEnabled = !sim.ledEnabled;
+  ledGroup.visible = sim.ledEnabled;
+  e.target.classList.toggle('active', sim.ledEnabled);
+};
+
+document.getElementById('btnNight').onclick = e => {
+  sim.isNight = !sim.isNight;
+  e.target.classList.toggle('active', sim.isNight);
+  sim.isTimelapse = false;
+  if (btnTimelapse) {
+    btnTimelapse.textContent = '▶ Timelapse';
+    btnTimelapse.classList.remove('active');
+  }
+  tweenTime(sim.isNight ? 21.5 : 12.0, 0.9);
+};
+
+if (btnTimelapse) {
+  btnTimelapse.onclick = () => {
+    sim.isTimelapse = !sim.isTimelapse;
+    btnTimelapse.textContent = sim.isTimelapse ? '⏸ Dừng' : '▶ Timelapse';
+    btnTimelapse.classList.toggle('active', sim.isTimelapse);
+  };
+}
+
+if (timeSlider) {
+  timeSlider.oninput = e => {
+    sim.isTimelapse = false;
+    if (btnTimelapse) {
+      btnTimelapse.textContent = '▶ Timelapse';
+      btnTimelapse.classList.remove('active');
+    }
+    setTimeOfDay(parseFloat(e.target.value));
+  };
+}
+
+document.querySelectorAll('.time-preset-btn').forEach(btn => {
+  btn.onclick = () => {
+    sim.isTimelapse = false;
+    if (btnTimelapse) {
+      btnTimelapse.textContent = '▶ Timelapse';
+      btnTimelapse.classList.remove('active');
+    }
+    const h = parseFloat(btn.dataset.hour);
+    tweenTime(h, 0.7);
+  };
+});
+
+// Navgrid Overlay
+const gm = new T.InstancedMesh(new T.PlaneGeometry(CS * 0.88, CS * 0.88), new T.MeshBasicMaterial({ transparent: true, opacity: 0.35 }), W * H);
+for (let c = 0; c < W; c++) {
+  for (let r = 0; r < H; r++) {
+    const idx = r * W + c;
+    dm.position.set(wx(c), 0.04, wx(r));
+    dm.rotation.set(-Math.PI / 2, 0, 0);
+    dm.scale.set(1, 1, 1);
+    dm.updateMatrix();
+    gm.setMatrixAt(idx, dm.matrix);
+    gm.setColorAt(idx, new T.Color(isB(c, r) ? 0xf87171 : 0x38bdf8));
+  }
+}
+gm.visible = false;
+S.add(gm);
+
+document.getElementById('btnGrid').onclick = e => {
+  gm.visible = !gm.visible;
+  e.target.classList.toggle('active', gm.visible);
+};
+
+document.getElementById('btnReset').onclick = () => resetView();
+
+/* =========================================================================
+   17. MAIN ANIMATION LOOP WITH 2D LABEL COLLISION AVOIDANCE
+   ========================================================================= */
+const v3 = new T.Vector3();
+let lastTime = performance.now();
+
+function updateLabelsWithCollisionAvoidance(w, h) {
+  const items = agents.map(a => {
+    v3.set(a.g.position.x, 1.55, a.g.position.z).project(cam);
+    const sx = (v3.x * 0.5 + 0.5) * w;
+    const sy = (-v3.y * 0.5 + 0.5) * h;
+    const isSpeaking = sim.t < a.bt;
+    const isSelected = selectedAgent === a;
+    return {
+      agent: a,
+      x: sx,
+      y: sy,
+      origX: sx,
+      origY: sy,
+      w: 80,
+      h: 24,
+      isSpeaking,
+      isSelected,
+      priority: isSpeaking ? 10 : (isSelected ? 8 : 1)
+    };
+  });
+
+  const minGapX = 72, minGapY = 26;
+  for (let iter = 0; iter < 4; iter++) {
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        if (Math.abs(dx) < minGapX && Math.abs(dy) < minGapY) {
+          const overlapY = minGapY - Math.abs(dy);
+          const pushDir = dy >= 0 ? 1 : -1;
+          const pushAmt = overlapY * 0.55;
+
+          if (a.priority >= b.priority) {
+            b.y += pushAmt * pushDir;
+            b.x += 12 * pushDir;
+          } else {
+            a.y -= pushAmt * pushDir;
+            a.x -= 12 * pushDir;
+          }
+        }
+      }
+    }
+  }
+
+  items.forEach(item => {
+    const a = item.agent;
+    a.lb.style.left = `${item.x}px`;
+    a.lb.style.top = `${item.y}px`;
+    a.lb.classList.toggle('speaking', item.isSpeaking);
+
+    a.bb.style.display = item.isSpeaking ? 'block' : 'none';
+    if (item.isSpeaking) {
+      a.bb.style.left = `${item.x}px`;
+      a.bb.style.top = `${item.y - 28}px`;
+    }
+  });
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000) * sim.speed;
+  lastTime = now;
+  sim.t += dt;
+
+  for (const m of sim.tm.slice()) {
+    if (m.f) {
+      const k = Math.min(1, (sim.t - m.t0) / m.d);
+      m.f(k);
+      if (k >= 1) { sim.tm.splice(sim.tm.indexOf(m), 1); m.r(); }
+    } else if (sim.t >= m.at) {
+      sim.tm.splice(sim.tm.indexOf(m), 1);
+      m.r();
+    }
+  }
+
+  agents.forEach(a => a.update(dt));
+
+  doors.forEach(d => {
+    let nearAgent = 0;
+    agents.forEach(a => {
+      if (Math.hypot(a.g.position.x - d.x, a.g.position.z - d.z) < 1.7) nearAgent = 1;
+    });
+    d.o += (nearAgent - d.o) * Math.min(1, dt * 8);
+    const s = 1 - 0.92 * d.o;
+    d.leaf.scale.x = s;
+    d.leaf.position.x = d.x + (d.w / 2) * (1 - s);
+  });
+
+  leds.forEach((l, i) => {
+    const on = Math.sin(sim.t * 6 + i * 1.8) > 0;
+    l.material.emissiveIntensity = on ? 0.95 : 0.15;
+  });
+
+  const w = window.innerWidth, h = window.innerHeight;
+  updateLabelsWithCollisionAvoidance(w, h);
+
+  if (sim.isTimelapse) {
+    sim.hour = (sim.hour + dt * sim.timelapseSpeed) % 24;
+    setTimeOfDay(sim.hour);
+  }
+
+  R.render(S, cam);
+  requestAnimationFrame(loop);
+}
+
+setTimeOfDay(sim.hour);
+syncLiveCompanyStatus();
+setInterval(syncLiveCompanyStatus, 6000);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

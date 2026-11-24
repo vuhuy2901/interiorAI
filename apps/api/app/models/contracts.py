@@ -32,8 +32,8 @@ class WallSegment(BaseModel):
     height_mm: float = 2800.0
     is_bearing: bool = True
     # Section 7B Mandatory: Surface-level two-sided material assignment & Accent Wall
-    face_a_material_id: str = "paint_dulux_japandi_ivory"
-    face_b_material_id: str = "paint_dulux_japandi_ivory"
+    face_a_material_id: str = "paint_modern_pure_white"
+    face_b_material_id: str = "paint_modern_pure_white"
     is_accent_wall: bool = False
     accent_face: Literal["a", "b"] = "a"
     pascal_node_id: Optional[str] = None
@@ -71,7 +71,7 @@ class WindowOpening(BaseModel):
 class RoomZone(BaseModel):
     id: str
     name: str = "Phòng khách"
-    room_type: Literal["living", "bedroom", "kitchen", "bathroom", "dining", "office", "balcony"] = "living"
+    room_type: str = "living"
     polygon_mm: List[List[float]] = Field(
         default_factory=lambda: [[0.0, 0.0], [4000.0, 0.0], [4000.0, 5000.0], [0.0, 5000.0]]
     )
@@ -79,7 +79,7 @@ class RoomZone(BaseModel):
     # Section 7B Mandatory: Per-room surface material attributes
     floor_material_id: str = "floor_wood_oak_straight"
     ceiling_material_id: str = "paint_ceiling_gypsum_white"
-    wall_base_material_id: str = "paint_dulux_japandi_ivory"
+    wall_base_material_id: str = "paint_modern_pure_white"
     wall_tile_zone: Optional[WallTileZone] = None
     skirting_material_id: str = "skirting_wood_oak_90"
     pascal_node_id: Optional[str] = None
@@ -244,7 +244,7 @@ class FurnitureInstance(BaseModel):
     front_clearance_mm: float = Field(default=0.0, ge=0.0)
     color_hex: str = "#E4DDD3"
     price_vnd: float = 14500000.0
-    pascal_asset_id: str
+    pascal_asset_id: Optional[str] = None
     pascal_node_id: Optional[str] = None
     source_url: Optional[str] = None
     vendor: Optional[str] = None
@@ -303,15 +303,18 @@ class ExternalSceneAsset(BaseModel):
 
 
 class DesignBrief(BaseModel):
-    style: str = "Japandi"
+    style: str = "Modern"
     room_function: str = "Phòng khách sinh hoạt chung & tiếp khách"
-    color_palette: List[str] = Field(default_factory=lambda: ["#F5F2EB", "#C8A986", "#B8C2B4", "#276E70"])
-    liked_elements: List[str] = Field(default_factory=lambda: ["Gỗ sồi sáng", "Không gian thoáng", "Vải Linen màu be"])
+    color_palette: List[str] = Field(default_factory=lambda: ["#FAFAF8", "#D8D2C8", "#CFCFCC", "#4A4D50"])
+    liked_elements: List[str] = Field(default_factory=lambda: ["Đường nét gọn", "Không gian thoáng", "Tông trung tính"])
     disliked_elements: List[str] = Field(default_factory=lambda: ["Màu tối nặng nề", "Sofa da cồng kềnh"])
     budget_limit_vnd: float = 120000000.0
+    budget_mode: str = "fixed"
     occupants: str = "Gia đình trẻ 2-3 người"
     must_have_constraints: List[str] = Field(default_factory=lambda: ["Lối đi tối thiểu 750mm", "Giữ tổng dự toán dưới ngân sách"])
     approved_decisions: List[str] = Field(default_factory=list)
+    # Lựa chọn hoàn thiện do người dùng chốt (sơn, sàn, trần...), khóa -> {value, status, ...}
+    finish_decisions: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
 class EstimateLineItem(BaseModel):
@@ -331,6 +334,7 @@ class EstimateLineItem(BaseModel):
     formula_explanation: str
     source_label: str = "GIÁ MINH HỌA"
     source_url: Optional[str] = None
+    source_note: Optional[str] = None
     checked_at: str = "2026-11-01"
 
 
@@ -341,6 +345,8 @@ class CostEstimateSnapshot(BaseModel):
     created_at: str
     scale_verified: bool
     confidence_level: Literal["HIGH_VERIFIED_SCALE", "LOW_UNVERIFIED_SCALE"] = "HIGH_VERIFIED_SCALE"
+    scene_asset_hash: Optional[str] = None
+    source_kind: Optional[str] = None
     lines: List[EstimateLineItem] = Field(default_factory=list)
     materials_subtotal_vnd: float = 0.0
     furniture_subtotal_vnd: float = 0.0
@@ -354,7 +360,15 @@ class CostEstimateSnapshot(BaseModel):
     unpriced_item_ids: List[str] = Field(default_factory=list)
     price_coverage_percent: float = 100.0
     total_is_complete: bool = True
-    budget_status: Literal["within_budget", "over_budget", "incomplete"] = "within_budget"
+    reference_line_count: int = 0
+    reference_subtotal_vnd: float = 0.0
+    known_subtotal_vnd: float = 0.0
+    budget_mode: str = "fixed"
+    # ``not_set`` is a valid state for estimate-first projects that do not have
+    # a budget ceiling yet.  The external-scene cost engine has persisted this
+    # value since estimate-first mode was introduced, so the read contract must
+    # accept it as well (otherwise an otherwise valid project cannot be loaded).
+    budget_status: Literal["within_budget", "over_budget", "incomplete", "not_set"] = "within_budget"
     budget_limit_vnd: float = 120000000.0
     within_budget: bool = True
     disclaimer: str = "GIÁ MINH HỌA THAM KHẢO — Tính toán bằng công thức hình học xác định (Deterministic Cost Engine), không dùng LLM tự đoán giá."
@@ -582,6 +596,7 @@ class QuestionRequest(BaseModel):
     context: str
     question_text: str
     why_needed: str
+    decision_key: Optional[str] = None
     choices: List[QuestionChoice] = Field(default_factory=list)
     allow_free_text: bool = True
     blocking: bool = True

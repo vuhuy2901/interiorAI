@@ -27,3 +27,15 @@ describe("photoreal render request", () => {
     expect(renderStatusText("COMPLETED")).toBe("Render hoàn tất");
   });
 });
+
+import { aiRenderMissingText, formatElapsed, isAiRenderActive } from "./photorealRender";
+
+describe("ai render (codex) helpers", () => {
+  it("lists undecided items and formats elapsed time", () => {
+    expect(aiRenderMissingText(["lighting", "floor"])).toBe("Còn chưa chốt: ánh sáng, vật liệu sàn");
+    expect(aiRenderMissingText([])).toBe("");
+    expect(formatElapsed(145)).toBe("2 phút 25 giây");
+    expect(isAiRenderActive("RUNNING")).toBe(true);
+    expect(isAiRenderActive("COMPLETED")).toBe(false);
+  });
+});

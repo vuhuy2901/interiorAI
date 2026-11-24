@@ -47,7 +47,7 @@ describe("Atelier agent workflow", () => {
       "agent_geometry",
       "agent_furniture",
       "agent_style",
-      "agent_ceiling_lighting",
+      "agent_render",
       "agent_qa",
       "agent_research",
       "agent_cost",

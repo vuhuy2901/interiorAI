@@ -319,15 +319,31 @@ export function AtelierRenderCompareRoute() {
 }
 
 export function AtelierCostEstimationRoute() {
-  const { project, refreshProjectBundle } = useAtelierStudio();
+  const { project, refreshProjectBundle, activeProjectId, projects } = useAtelierStudio();
+  const [resolvedProject, setResolvedProject] = useState<any | null>(null);
 
-  if (project?.external_scene) {
+  useEffect(() => {
+    if (project?.external_scene) return;
+    const targetId = activeProjectId || (projects && projects[0]?.project_id) || "proj_the_interior_14";
+    fetch(`/api/v1/projects/${encodeURIComponent(targetId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.external_scene) {
+          setResolvedProject(data);
+        }
+      })
+      .catch(() => {});
+  }, [project, activeProjectId, projects]);
+
+  const target = project?.external_scene ? project : resolvedProject;
+
+  if (target?.external_scene) {
     return (
       <div className="atelier-surface-root h-full overflow-y-auto">
         <SceneCostPanel
-          key={`${project.project_id}:${project.external_scene.sha256}`}
-          project={project}
-          onRefresh={() => refreshProjectBundle(project.project_id)}
+          key={`${target.project_id}:${target.external_scene.sha256}`}
+          project={target}
+          onRefresh={() => refreshProjectBundle(target.project_id)}
         />
       </div>
     );

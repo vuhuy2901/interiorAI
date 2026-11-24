@@ -124,6 +124,7 @@ if (-not (Test-Path (Join-Path $PaperclipRoot "node_modules"))) {
 New-Item -ItemType Directory -Path $RuntimeLogRoot -Force | Out-Null
 $startupEnvironment = @{
     PORT = "3100"; HOST = "127.0.0.1"; ATELIER_LOCAL_LITE = "1"
+    PAPERCLIP_STRICT_PORT = "true"
     ATELIER_PYTHON_URL = "http://127.0.0.1:8000"
     PAPERCLIP_DEPLOYMENT_MODE = "local_trusted"; PAPERCLIP_DEPLOYMENT_EXPOSURE = "private"
     PAPERCLIP_TELEMETRY_DISABLED = "1"; PAPERCLIP_SENTRY_RUN_FAILURES = "off"

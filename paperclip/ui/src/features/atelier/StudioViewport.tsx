@@ -36,9 +36,12 @@ import {
   type DeliverySnapshot,
 } from './furnitureDeliveryAnimation'
 import { attachConstructionPlayback, buildConstructionItems, constructionKey, commandEvent } from './constructionHistory'
+import { externalSceneTourConfig } from './externalSceneTourConfig'
 import { Eye, Sparkles, Layers } from 'lucide-react'
 import { attachFirstPersonTour, type TourState } from './firstPersonTour'
 import { TourControls } from './TourControls'
+import { ConstructionLabel } from './ConstructionLabel'
+import { buildWallSolidSegments, resolveWallOpeningPlacement } from './wallOpenings'
 
 interface StudioViewportProps {
   project: any
@@ -63,6 +66,7 @@ interface StudioViewportProps {
     parentName: string
     dimensionsMm: [number, number, number]
   }>) => void
+  captureRef?: React.MutableRefObject<(() => string | null) | null>
   visibleLayers?: {
     dimensions: boolean
     doorSwings: boolean
@@ -148,8 +152,11 @@ function createExternalLightingLayer(
   const size = bounds.getSize(new THREE.Vector3())
   const center = bounds.getCenter(new THREE.Vector3())
   const warm = lightingPreset === 'day' ? 0xfff4d6 : lightingPreset === 'sunset' ? 0xffc58f : 0xffcf83
-  const glow = lightingPreset === 'night' ? 2.4 : lightingPreset === 'sunset' ? 1.15 : 0.7
-  const pointIntensity = lightingPreset === 'night' ? 3.5 : lightingPreset === 'sunset' ? 1.2 : 0.45
+  const glow = lightingPreset === 'night' ? 2.4 : lightingPreset === 'sunset' ? 0.9 : 0.42
+  // The source GLB already carries bright PBR materials and receives HDRI,
+  // hemisphere and key lighting. Keep the presentation fixtures visible, but
+  // avoid stacking enough energy to wash out white surfaces and wood grain.
+  const pointIntensity = lightingPreset === 'night' ? 3.5 : lightingPreset === 'sunset' ? 0.72 : 0.18
   const regions = ceilingRegions?.length
     ? ceilingRegions
     : [{
@@ -389,6 +396,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
     cameraCommand,
     cutawayEnabled = false,
     onExternalSceneObjects,
+    captureRef,
     visibleLayers = {
       dimensions: true,
       doorSwings: true,
@@ -398,14 +406,39 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
   }) => {
     const mountRef = useRef<HTMLDivElement | null>(null)
     const cameraControllerRef = useRef<ReturnType<typeof createStudioCameraController> | null>(null)
+    const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+    const externalBoundsRef = useRef<THREE.Box3 | null>(null)
     const tourRef = useRef<ReturnType<typeof attachFirstPersonTour> | null>(null)
     const [tourState, setTourState] = useState<TourState>({mode:'inactive',floorId:1,floors:[],message:''})
-    const cutawayWallsRef = useRef<Array<{ mesh: THREE.Mesh; fullHeight: number; baseHeight: number; cutaway: boolean }>>([])
+    const cutawayWallsRef = useRef<Array<{ mesh: THREE.Mesh; bottom: number; fullHeight: number; cutaway: boolean }>>([])
     const [draggingId, setDraggingId] = useState<string | null>(null)
     const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null)
     const [ceilingVisible, setCeilingVisible] = useState<boolean>(false)
     const [ssaoEnabled, setSsaoEnabled] = useState<boolean>(true)
     const [hdriLoaded, setHdriLoaded] = useState<boolean>(false)
+    const [externalPlanInfo, setExternalPlanInfo] = useState<{
+      widthMm: number
+      depthMm: number
+      cutHeightMm: number
+      minXmm: number
+      minZmm: number
+    } | null>(null)
+    const [externalPlanObjects, setExternalPlanObjects] = useState<Array<{
+      id: string
+      name: string
+      floor: number
+      minXmm: number
+      minZmm: number
+      maxXmm: number
+      maxZmm: number
+    }>>([])
+    const [externalPlanWalls, setExternalPlanWalls] = useState<Array<{
+      id: string
+      minXmm: number
+      minZmm: number
+      maxXmm: number
+      maxZmm: number
+    }>>([])
     const [splitPercent, setSplitPercent] = useState(50)
     const externalPlaybackCleanupRef = useRef<(() => void) | null>(null)
     const deliveryPausedRef = useRef(false)
@@ -546,15 +579,28 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       camera.lookAt(cx, 0.8, cz)
 
       const renderer = new THREE.WebGLRenderer({ antialias: !lowSpecMode, preserveDrawingBuffer: true })
+      rendererRef.current = renderer
       renderer.setSize(width, height)
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowSpecMode ? 1.0 : 1.75))
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowSpecMode ? 1.0 : hasExternalScene ? 2.0 : 1.75))
       renderer.shadowMap.enabled = !lowSpecMode
       renderer.shadowMap.type = THREE.PCFSoftShadowMap
       renderer.outputColorSpace = THREE.SRGBColorSpace
       renderer.toneMapping = THREE.ACESFilmicToneMapping
-      renderer.toneMappingExposure = lightingPreset === 'day' ? 1.08 : lightingPreset === 'sunset' ? 0.92 : 0.65
+      renderer.toneMappingExposure = hasExternalScene
+        ? lightingPreset === 'day' ? 0.82 : lightingPreset === 'sunset' ? 0.78 : 0.62
+        : lightingPreset === 'day' ? 1.08 : lightingPreset === 'sunset' ? 0.92 : 0.65
       container.innerHTML = ''
       container.appendChild(renderer.domElement)
+      if (captureRef) {
+        captureRef.current = () => {
+          try {
+            renderer.render(scene, camera)
+            return renderer.domElement.toDataURL('image/jpeg', 0.88)
+          } catch {
+            return null
+          }
+        }
+      }
 
       // Post-processing Composer with SSAOPass + OutputPass
       let composer: EffectComposer | null = null
@@ -638,8 +684,9 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           environmentTarget.dispose()
           environmentTarget = hdrEnvTarget
           scene.environment = hdrEnvTarget.texture
-          ;(scene as any).environmentIntensity =
-            lightingPreset === 'day' ? 0.95 : lightingPreset === 'sunset' ? 0.62 : 0.22
+          ;(scene as any).environmentIntensity = hasExternalScene
+            ? lightingPreset === 'day' ? 0.62 : lightingPreset === 'sunset' ? 0.48 : 0.2
+            : lightingPreset === 'day' ? 0.95 : lightingPreset === 'sunset' ? 0.62 : 0.22
           hdrTexture.dispose()
           setHdriLoaded(true)
           const viewerState = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
@@ -655,7 +702,9 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       )
 
       // Studio Architectural Lighting (Section 6.2)
-      const hemiIntensity = lightingPreset === 'day' ? 0.72 : lightingPreset === 'sunset' ? 0.42 : 0.18
+      const hemiIntensity = hasExternalScene
+        ? lightingPreset === 'day' ? 0.42 : lightingPreset === 'sunset' ? 0.3 : 0.16
+        : lightingPreset === 'day' ? 0.72 : lightingPreset === 'sunset' ? 0.42 : 0.18
       const hemiLight = new THREE.HemisphereLight(
         lightingPreset === 'sunset' ? 0xffd7b0 : 0xffffff,
         lightingPreset === 'night' ? 0x091126 : 0x6b625b,
@@ -666,7 +715,9 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
       const dirLight = new THREE.DirectionalLight(
         lightingPreset === 'sunset' ? 0xff9b63 : 0xfffdf8,
-        lightingPreset === 'day' ? 1.05 : lightingPreset === 'sunset' ? 0.72 : 0.12
+        hasExternalScene
+          ? lightingPreset === 'day' ? 0.68 : lightingPreset === 'sunset' ? 0.52 : 0.1
+          : lightingPreset === 'day' ? 1.05 : lightingPreset === 'sunset' ? 0.72 : 0.12
       )
       dirLight.position.set(6.5, 11, 7.5)
       dirLight.castShadow = !lowSpecMode
@@ -675,7 +726,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       dirLight.shadow.bias = -0.0005
       scene.add(dirLight)
 
-      const fillLight = new THREE.DirectionalLight(0xe0f2fe, 0.28)
+      const fillLight = new THREE.DirectionalLight(0xe0f2fe, hasExternalScene ? 0.14 : 0.28)
       fillLight.position.set(-5, 6, -4)
       scene.add(fillLight)
 
@@ -789,9 +840,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
       // 2. Walls (with Face A / Accent Wall color & Cutaway support)
       cutawayWallsRef.current = []
       walls.forEach((w: any, idx: number) => {
-        const isFrontCutaway =
-          cutawayEnabled &&
-          (w.id === 'wall_south' || w.id === 'wall_east' || idx === 1 || idx === 2)
+        const isCutawayWall = w.id === 'wall_south' || w.id === 'wall_east' || idx === 1 || idx === 2
+        const isFrontCutaway = cutawayEnabled && isCutawayWall
 
         const x0 = w.start_mm[0] / 1000
         const z0 = w.start_mm[1] / 1000
@@ -799,11 +849,14 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         const z1 = w.end_mm[1] / 1000
         const len = Math.hypot(x1 - x0, z1 - z0)
         const rawH = (w.height_mm || 2800) / 1000
-        const h = isFrontCutaway ? 0.32 : rawH
         const th = (w.thickness_mm || 200) / 1000
+        const angle = Math.atan2(z1 - z0, x1 - x0)
+        const ux = len > 0 ? (x1 - x0) / len : 1
+        const uz = len > 0 ? (z1 - z0) / len : 0
+        const hostedOpenings = [...doors, ...windows].filter((opening: any) => opening.wall_id === w.id)
+        const wallSegments = buildWallSolidSegments(len * 1000, rawH * 1000, hostedOpenings)
 
         const pMat = paintsById[w.face_a_material_id] || { hex_color: '#F5F2EB', roughness: 0.82 }
-        const wallGeo = new THREE.BoxGeometry(len, h, th)
         const isSelected = w.id === selectedEntityId
         const wallMat = new THREE.MeshStandardMaterial({
           color: pMat.hex_color || '#F5F2EB',
@@ -813,53 +866,116 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           emissive: isSelected ? new THREE.Color('#0F766E') : new THREE.Color('#000000'),
           emissiveIntensity: isSelected ? 0.16 : 0,
         })
-        const wallMesh = new THREE.Mesh(wallGeo, wallMat)
-        const angle = Math.atan2(z1 - z0, x1 - x0)
-        wallMesh.position.set((x0 + x1) / 2, h / 2, (z0 + z1) / 2)
-        wallMesh.rotation.y = -angle
-        wallMesh.castShadow = !isFrontCutaway
-        wallMesh.receiveShadow = true
-        wallMesh.userData = { entityId: w.id }
-        canonicalRoot.add(wallMesh)
-        cutawayWallsRef.current.push({
-          mesh: wallMesh,
-          fullHeight: rawH,
-          baseHeight: h,
-          cutaway: w.id === 'wall_south' || w.id === 'wall_east' || idx === 1 || idx === 2,
+
+        wallSegments.forEach((segment) => {
+          const segmentLength = (segment.endMm - segment.startMm) / 1000
+          const segmentBottom = segment.bottomMm / 1000
+          const segmentHeight = (segment.topMm - segment.bottomMm) / 1000
+          const localCenter = ((segment.startMm + segment.endMm) / 2000) - len / 2
+          const visibleHeight = isFrontCutaway
+            ? Math.max(0, Math.min(segmentHeight, 0.32 - segmentBottom))
+            : segmentHeight
+          const wallMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(segmentLength, segmentHeight, th),
+            wallMat,
+          )
+          wallMesh.position.set(
+            (x0 + x1) / 2 + ux * localCenter,
+            segmentBottom + Math.max(visibleHeight, 0.001) / 2,
+            (z0 + z1) / 2 + uz * localCenter,
+          )
+          wallMesh.rotation.y = -angle
+          wallMesh.scale.y = Math.max(visibleHeight, 0.001) / segmentHeight
+          wallMesh.visible = visibleHeight > 0.001
+          wallMesh.castShadow = !isFrontCutaway
+          wallMesh.receiveShadow = true
+          wallMesh.userData = { entityId: w.id }
+          canonicalRoot.add(wallMesh)
+          cutawayWallsRef.current.push({
+            mesh: wallMesh,
+            bottom: segmentBottom,
+            fullHeight: segmentHeight,
+            cutaway: isCutawayWall,
+          })
+          if (!isFrontCutaway) pickableMeshes.push(wallMesh)
         })
-        if (!isFrontCutaway) pickableMeshes.push(wallMesh)
 
         if (room?.wall_tile_zone?.enabled && !isFrontCutaway) {
           const wtH = (room.wall_tile_zone.tile_height_mm || 1200) / 1000
           const wtInfo = tilesById[room.wall_tile_zone.tile_material_id] || { hex_color: '#D8D4CC' }
-          const wtGeo = new THREE.BoxGeometry(len * 0.99, wtH, th + 0.012)
           const wtMat = new THREE.MeshStandardMaterial({
             color: wtInfo.hex_color || '#D8D4CC',
             roughness: 0.32,
           })
-          const wtMesh = new THREE.Mesh(wtGeo, wtMat)
-          wtMesh.position.set((x0 + x1) / 2, wtH / 2, (z0 + z1) / 2)
-          wtMesh.rotation.y = -angle
-          canonicalRoot.add(wtMesh)
+          buildWallSolidSegments(len * 1000, wtH * 1000, hostedOpenings).forEach((segment) => {
+            const segmentLength = (segment.endMm - segment.startMm) / 1000
+            const segmentHeight = (segment.topMm - segment.bottomMm) / 1000
+            const localCenter = ((segment.startMm + segment.endMm) / 2000) - len / 2
+            const wtMesh = new THREE.Mesh(
+              new THREE.BoxGeometry(segmentLength, segmentHeight, th + 0.012),
+              wtMat,
+            )
+            wtMesh.position.set(
+              (x0 + x1) / 2 + ux * localCenter,
+              segment.bottomMm / 1000 + segmentHeight / 2,
+              (z0 + z1) / 2 + uz * localCenter,
+            )
+            wtMesh.rotation.y = -angle
+            canonicalRoot.add(wtMesh)
+          })
         }
       })
 
       // 3. Windows Visual Frames
       windows.forEach((win: any) => {
-        const w = walls.find((item: any) => item.id === win.wall_id) || walls[0]
+        const w = walls.find((item: any) => item.id === win.wall_id)
         if (!w) return
-        const wx = (w.start_mm[0] + (w.end_mm[0] - w.start_mm[0]) * (win.t ?? 0.5)) / 1000
-        const wz = (w.start_mm[1] + (w.end_mm[1] - w.start_mm[1]) * (win.t ?? 0.5)) / 1000
-        const winGeo = new THREE.BoxGeometry((win.width_mm || 1500) / 1000, (win.height_mm || 1400) / 1000, 0.24)
+        const placement = resolveWallOpeningPlacement(w, win)
+        if (!placement || placement.widthMm <= 0) return
+        const width = placement.widthMm / 1000
+        const height = Math.max(0.1, (win.height_mm || 1400) / 1000)
+        const sill = Math.max(0, (win.sill_height_mm ?? 900) / 1000)
+        const wallDepth = Math.max(0.08, (w.thickness_mm || 200) / 1000)
+        const frameSize = Math.min(0.075, width / 5, height / 5)
+        const windowGroup = new THREE.Group()
+        windowGroup.position.set(placement.centerXmm / 1000, sill + height / 2, placement.centerYmm / 1000)
+        windowGroup.rotation.y = -placement.angleRad
+        windowGroup.userData = { entityId: win.id }
+
         const winMat = new THREE.MeshStandardMaterial({
           color: '#BAE6FD',
           transparent: true,
-          opacity: 0.52,
+          opacity: 0.42,
           roughness: 0.1,
+          metalness: 0.08,
         })
-        const winMesh = new THREE.Mesh(winGeo, winMat)
-        winMesh.position.set(wx, ((win.sill_height_mm || 900) + (win.height_mm || 1400) / 2) / 1000, wz)
-        canonicalRoot.add(winMesh)
+        const glass = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.max(0.02, width - frameSize * 2), Math.max(0.02, height - frameSize * 2), wallDepth + 0.012),
+          winMat,
+        )
+        glass.receiveShadow = true
+        windowGroup.add(glass)
+
+        const frameMat = new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.32, metalness: 0.5 })
+        const frameDepth = wallDepth + 0.035
+        ;[-1, 1].forEach((side) => {
+          const vertical = new THREE.Mesh(new THREE.BoxGeometry(frameSize, height, frameDepth), frameMat)
+          vertical.position.x = side * (width - frameSize) / 2
+          windowGroup.add(vertical)
+          const horizontal = new THREE.Mesh(new THREE.BoxGeometry(width, frameSize, frameDepth), frameMat)
+          horizontal.position.y = side * (height - frameSize) / 2
+          windowGroup.add(horizontal)
+        })
+        const mullion = new THREE.Mesh(new THREE.BoxGeometry(frameSize * 0.65, height - frameSize * 2, frameDepth), frameMat)
+        windowGroup.add(mullion)
+
+        canonicalRoot.add(windowGroup)
+        windowGroup.traverse((object) => {
+          if ((object as THREE.Mesh).isMesh) {
+            object.userData = { ...object.userData, entityId: win.id }
+            pickableMeshes.push(object)
+          }
+        })
       })
 
       // 4. Furniture 3D Models + Contact AO Grounding + Selection Outline Box
@@ -1009,6 +1125,16 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             sourceRoot.traverse((node) => {
               if (!(node as THREE.Mesh).isMesh) return
               const mesh = node as THREE.Mesh
+              const sourceMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+              for (const material of sourceMaterials) {
+                if (!material || !(material as THREE.MeshStandardMaterial).isMeshStandardMaterial) continue
+                const pbr = material as THREE.MeshStandardMaterial
+                for (const texture of [pbr.map, pbr.normalMap, pbr.roughnessMap, pbr.metalnessMap, pbr.aoMap]) {
+                  if (!texture) continue
+                  texture.anisotropy = renderer.capabilities.getMaxAnisotropy()
+                  texture.needsUpdate = true
+                }
+              }
               const stableId = `glb:${meshIndex}:${mesh.name || 'mesh'}`
               meshIndex += 1
               mesh.userData = { ...mesh.userData, entityId: stableId, sourceSceneAssetId: externalScene.asset_id }
@@ -1032,6 +1158,15 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             scene.add(sourceRoot)
             const sourceBounds = new THREE.Box3().setFromObject(sourceRoot)
             const sourceSize = sourceBounds.getSize(new THREE.Vector3())
+            externalBoundsRef.current = sourceBounds.clone()
+            const cutHeight = sourceBounds.min.y + Math.min(1.5, Math.max(0.9, sourceSize.y * 0.55))
+            setExternalPlanInfo({
+              widthMm: Math.round(sourceSize.x * 1000),
+              depthMm: Math.round(sourceSize.z * 1000),
+              cutHeightMm: Math.round((cutHeight - sourceBounds.min.y) * 1000),
+              minXmm: Math.round(sourceBounds.min.x * 1000),
+              minZmm: Math.round(sourceBounds.min.z * 1000),
+            })
             const viewerState = ((window as any).__ATELIER_VIEWER_STATE__ ||= {})
             viewerState.externalScene = {
               assetId: externalScene.asset_id,
@@ -1064,6 +1199,36 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
                 floorBounds: floorObject ? new THREE.Box3().setFromObject(floorObject) : undefined,
               })
             }
+            setExternalPlanObjects(grouped.map(item => ({
+              id: item.id,
+              name: item.name,
+              floor: item.floor,
+              minXmm: Math.round(item.bounds.min.x * 1000),
+              minZmm: Math.round(item.bounds.min.z * 1000),
+              maxXmm: Math.round(item.bounds.max.x * 1000),
+              maxZmm: Math.round(item.bounds.max.z * 1000),
+            })))
+            const inferredWalls: Array<{ id: string; minXmm: number; minZmm: number; maxXmm: number; maxZmm: number }> = []
+            sourceRoot.traverse(node => {
+              const mesh = node as THREE.Mesh
+              if (!mesh.isMesh) return
+              const box = new THREE.Box3().setFromObject(mesh)
+              const size = box.getSize(new THREE.Vector3())
+              const longSide = Math.max(size.x, size.z)
+              const shortSide = Math.min(size.x, size.z)
+              const wallName = `${mesh.name} ${mesh.parent?.name || ''}`.toLowerCase()
+              const looksLikeWall = /wall|partition|baseboard|structure|architecture/.test(wallName)
+                || (size.y > 1.8 && longSide > 0.8 && shortSide < 0.38)
+              if (!looksLikeWall) return
+              inferredWalls.push({
+                id: `wall:${mesh.uuid}`,
+                minXmm: Math.round(box.min.x * 1000),
+                minZmm: Math.round(box.min.z * 1000),
+                maxXmm: Math.round(box.max.x * 1000),
+                maxZmm: Math.round(box.max.z * 1000),
+              })
+            })
+            setExternalPlanWalls(inferredWalls)
             onExternalSceneObjects?.(grouped)
             const detectedCeilingLevels = detectExternalCeilingLevels(sourceRoot, sourceBounds)
             externalLightingLayer = createExternalLightingLayer(sourceBounds, lightingPreset, lowSpecMode, detectedCeilingLevels)
@@ -1082,6 +1247,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
               key: constructionKey(project.project_id, externalScene.sha256),
               projectId: project.project_id, hash: externalScene.sha256,
               items: grouped, scene, sourceBounds, render: renderScene,
+              cinematicCamera: { camera, target: cameraController.controls.target, onChange: () => cameraController.controls.update() },
               fit: () => {
                 // Use the open front of this source scene, below the roof line,
                 // while retaining both floors in one frame.
@@ -1095,10 +1261,18 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
                 cameraController.fit(bounds)
               },
             })
+            const tourConfig = externalSceneTourConfig(externalScene.asset_id)
             tourRef.current = attachFirstPersonTour({
               source:sourceRoot, scene, camera, canvas:renderer.domElement, controller:cameraController,
               key:constructionKey(project.project_id, externalScene.sha256), render:renderScene,
               onState:setTourState, onExit:()=>onCameraPresetChange?.('orbit'),
+              ...(tourConfig ? {
+                initialPose:{eye:new THREE.Vector3(...tourConfig.eye),target:new THREE.Vector3(...tourConfig.target)},
+                fallbackWalkBounds:new THREE.Box2(
+                  new THREE.Vector2(...tourConfig.walkBounds.min),new THREE.Vector2(...tourConfig.walkBounds.max),
+                ),
+                fallbackFloorY:tourConfig.floorY,
+              } : {}),
             })
             renderScene()
           },
@@ -1158,8 +1332,9 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         pickAtPointer,
       )
       cameraControllerRef.current = cameraController
-      cameraController.setMode(cameraPreset === 'top' || cameraPreset === 'walk' ? cameraPreset : 'orbit', true)
-      cameraController.setVisible(viewMode !== '2d')
+      const initialExternalPlanMode = hasExternalScene && viewMode === '2d'
+      cameraController.setMode(initialExternalPlanMode ? 'top' : cameraPreset === 'top' || cameraPreset === 'walk' ? cameraPreset : 'orbit', true)
+      cameraController.setVisible(initialExternalPlanMode || viewMode !== '2d')
 
       // Furniture delivery playback. This is deliberately a viewer-only layer:
       // it never writes project data, agent state, Telegram settings or revisions.
@@ -1298,6 +1473,8 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         externalPlaybackCleanupRef.current?.()
         externalPlaybackCleanupRef.current = null
         cameraControllerRef.current = null
+        rendererRef.current = null
+        externalBoundsRef.current = null
         cutawayWallsRef.current = []
         resizeObs.disconnect()
         if (deliveryAnimationFrame !== null) cancelAnimationFrame(deliveryAnimationFrame)
@@ -1324,6 +1501,7 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
             }
           })
         }
+        if (captureRef) captureRef.current = null
         renderer.dispose()
         renderer.domElement.remove()
       }
@@ -1347,22 +1525,43 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
         key: constructionKey(project.project_id, externalScene.sha256),
         action: 'select', id: selectedEntityId,
       }}))
-    }, [selectedEntityId, hasExternalScene, project.project_id])
+    }, [selectedEntityId, hasExternalScene, project?.project_id])
 
     useEffect(() => {
       const controller = cameraControllerRef.current
       if (!controller) return
-      const mode: StudioCameraMode = cameraPreset === 'top' || cameraPreset === 'walk' ? cameraPreset : 'orbit'
-      controller.setMode(mode)
-      controller.setVisible(viewMode !== '2d')
-    }, [cameraPreset, viewMode])
+      const externalPlanMode = hasExternalScene && viewMode === '2d'
+      const mode: StudioCameraMode = externalPlanMode
+        ? 'top'
+        : cameraPreset === 'top' || cameraPreset === 'walk'
+          ? cameraPreset
+          : 'orbit'
+      controller.setVisible(externalPlanMode || viewMode !== '2d')
+      controller.setMode(mode, externalPlanMode)
+      const renderer = rendererRef.current
+      const externalBounds = externalBoundsRef.current
+      if (renderer) {
+        if (externalPlanMode && externalBounds) {
+          const size = externalBounds.getSize(new THREE.Vector3())
+          const cutY = externalBounds.min.y + Math.min(1.5, Math.max(0.9, size.y * 0.55))
+          renderer.localClippingEnabled = true
+          renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), cutY)]
+          controller.fit(externalBounds)
+        } else {
+          renderer.clippingPlanes = []
+          renderer.localClippingEnabled = false
+          controller.render()
+        }
+      }
+    }, [cameraPreset, viewMode, hasExternalScene, externalPlanInfo])
 
     useEffect(() => {
-      cutawayWallsRef.current.forEach(({ mesh, fullHeight, baseHeight, cutaway }) => {
+      cutawayWallsRef.current.forEach(({ mesh, bottom, fullHeight, cutaway }) => {
         const active = cutawayEnabled && cutaway
-        const nextHeight = active ? 0.32 : fullHeight
-        mesh.scale.y = nextHeight / baseHeight
-        mesh.position.y = nextHeight / 2
+        const nextHeight = active ? Math.max(0, Math.min(fullHeight, 0.32 - bottom)) : fullHeight
+        mesh.visible = nextHeight > 0.001
+        mesh.scale.y = Math.max(nextHeight, 0.001) / fullHeight
+        mesh.position.y = bottom + Math.max(nextHeight, 0.001) / 2
         const material = mesh.material as THREE.MeshStandardMaterial
         material.transparent = active
         material.opacity = active ? 0.45 : 1
@@ -1445,6 +1644,97 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
           position: 'relative',
         }}
       >
+        {hasExternalScene && viewMode === '2d' && externalPlanInfo && (
+          <div style={{ width: '100%', height: '100%', background: '#fff', padding: 18, overflow: 'hidden' }}>
+            <svg
+              data-testid="external-glb-semantic-plan"
+              viewBox={`${externalPlanInfo.minXmm - 900} ${externalPlanInfo.minZmm - 900} ${externalPlanInfo.widthMm + 1800} ${externalPlanInfo.depthMm + 1800}`}
+              style={{ width: '100%', height: '100%', userSelect: 'none' }}
+              role="img"
+              aria-label="Mặt bằng bố trí nội thất suy ra từ mô hình GLB"
+            >
+              <rect
+                x={externalPlanInfo.minXmm}
+                y={externalPlanInfo.minZmm}
+                width={externalPlanInfo.widthMm}
+                height={externalPlanInfo.depthMm}
+                fill="#faf8f4"
+                stroke="#111827"
+                strokeWidth={Math.max(90, Math.min(externalPlanInfo.widthMm, externalPlanInfo.depthMm) * 0.018)}
+              />
+              {externalPlanWalls.map(wall => (
+                <rect
+                  key={wall.id}
+                  x={wall.minXmm}
+                  y={wall.minZmm}
+                  width={Math.max(35, wall.maxXmm - wall.minXmm)}
+                  height={Math.max(35, wall.maxZmm - wall.minZmm)}
+                  fill="#111827"
+                  opacity={0.92}
+                />
+              ))}
+              {externalPlanObjects.filter(item => item.floor === 1).map((item, index) => {
+                const width = Math.max(80, item.maxXmm - item.minXmm)
+                const depth = Math.max(80, item.maxZmm - item.minZmm)
+                const fontSize = Math.max(85, Math.min(180, Math.min(width, depth) * 0.2))
+                return (
+                  <g
+                    key={item.id}
+                    onClick={() => onSelectEntity(item.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <rect
+                      x={item.minXmm}
+                      y={item.minZmm}
+                      width={width}
+                      height={depth}
+                      rx={Math.min(90, width * 0.08, depth * 0.08)}
+                      fill={selectedEntityId === item.id ? '#99f6e4' : index % 2 ? '#e7e5e4' : '#dbeafe'}
+                      stroke={selectedEntityId === item.id ? '#0f766e' : '#374151'}
+                      strokeWidth={selectedEntityId === item.id ? 32 : 18}
+                    />
+                    {visibleLayers.furnitureLabels && width > 260 && depth > 180 ? (
+                      <text
+                        x={(item.minXmm + item.maxXmm) / 2}
+                        y={(item.minZmm + item.maxZmm) / 2}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize={fontSize}
+                        fontWeight={600}
+                        fill="#111827"
+                      >
+                        {item.name.length > 24 ? `${item.name.slice(0, 22)}…` : item.name}
+                      </text>
+                    ) : null}
+                  </g>
+                )
+              })}
+              {visibleLayers.dimensions ? (
+                <g stroke="#0f766e" fill="#0f766e" strokeWidth={12} fontFamily="JetBrains Mono">
+                  <line x1={externalPlanInfo.minXmm} y1={externalPlanInfo.minZmm - 480} x2={externalPlanInfo.minXmm + externalPlanInfo.widthMm} y2={externalPlanInfo.minZmm - 480} />
+                  <line x1={externalPlanInfo.minXmm} y1={externalPlanInfo.minZmm - 590} x2={externalPlanInfo.minXmm} y2={externalPlanInfo.minZmm - 360} />
+                  <line x1={externalPlanInfo.minXmm + externalPlanInfo.widthMm} y1={externalPlanInfo.minZmm - 590} x2={externalPlanInfo.minXmm + externalPlanInfo.widthMm} y2={externalPlanInfo.minZmm - 360} />
+                  <text x={externalPlanInfo.minXmm + externalPlanInfo.widthMm / 2} y={externalPlanInfo.minZmm - 560} textAnchor="middle" fontSize={150} stroke="none">
+                    {externalPlanInfo.widthMm} mm ({(externalPlanInfo.widthMm / 1000).toFixed(2)} m)
+                  </text>
+                  <line x1={externalPlanInfo.minXmm - 480} y1={externalPlanInfo.minZmm} x2={externalPlanInfo.minXmm - 480} y2={externalPlanInfo.minZmm + externalPlanInfo.depthMm} />
+                  <line x1={externalPlanInfo.minXmm - 590} y1={externalPlanInfo.minZmm} x2={externalPlanInfo.minXmm - 360} y2={externalPlanInfo.minZmm} />
+                  <line x1={externalPlanInfo.minXmm - 590} y1={externalPlanInfo.minZmm + externalPlanInfo.depthMm} x2={externalPlanInfo.minXmm - 360} y2={externalPlanInfo.minZmm + externalPlanInfo.depthMm} />
+                  <text
+                    x={externalPlanInfo.minXmm - 570}
+                    y={externalPlanInfo.minZmm + externalPlanInfo.depthMm / 2}
+                    textAnchor="middle"
+                    fontSize={150}
+                    stroke="none"
+                    transform={`rotate(-90 ${externalPlanInfo.minXmm - 570} ${externalPlanInfo.minZmm + externalPlanInfo.depthMm / 2})`}
+                  >
+                    {externalPlanInfo.depthMm} mm ({(externalPlanInfo.depthMm / 1000).toFixed(2)} m)
+                  </text>
+                </g>
+              ) : null}
+            </svg>
+          </div>
+        )}
         {/* 2D CAD Architectural Plan Canvas */}
         {!hasExternalScene && (viewMode === '2d' || viewMode === 'split' || lowSpecMode) && (
           <div
@@ -1578,25 +1868,36 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
                 {/* Doors & Swing Arcs */}
                 {doors.map((d: any) => {
-                  const w = walls.find((item: any) => item.id === d.wall_id) || walls[2]
+                  const w = walls.find((item: any) => item.id === d.wall_id)
                   if (!w) return null
-                  const cx = w.start_mm[0] + (w.end_mm[0] - w.start_mm[0]) * (d.t ?? 0.3)
-                  const cy = w.start_mm[1] + (w.end_mm[1] - w.start_mm[1]) * (d.t ?? 0.3)
-                  const dw = d.width_mm || 900
+                  const placement = resolveWallOpeningPlacement(w, d)
+                  if (!placement) return null
+                  const dw = placement.widthMm || d.width_mm || 900
+                  const normalX = -Math.sin(placement.angleRad)
+                  const normalY = Math.cos(placement.angleRad)
                   return (
                     <g key={d.id}>
-                      <rect x={cx - dw / 2} y={cy - 110} width={dw} height={220} fill="#FFFFFF" stroke="#B45309" strokeWidth={18} />
-                      {visibleLayers.doorSwings && (
-                        <path
-                          d={`M ${cx - dw / 2} ${cy} A ${dw} ${dw} 0 0 1 ${cx + dw / 2} ${cy - dw}`}
-                          fill="rgba(180, 83, 9, 0.08)"
-                          stroke="#B45309"
-                          strokeWidth={14}
-                          strokeDasharray="40,30"
-                        />
-                      )}
+                      <g transform={`translate(${placement.centerXmm} ${placement.centerYmm}) rotate(${placement.angleDeg})`}>
+                        <rect x={-dw / 2} y={-110} width={dw} height={220} fill="#FFFFFF" stroke="#B45309" strokeWidth={18} />
+                        {visibleLayers.doorSwings && (
+                          <path
+                            d={`M ${-dw / 2} 0 A ${dw} ${dw} 0 0 1 ${dw / 2} ${-dw}`}
+                            fill="rgba(180, 83, 9, 0.08)"
+                            stroke="#B45309"
+                            strokeWidth={14}
+                            strokeDasharray="40,30"
+                          />
+                        )}
+                      </g>
                       {visibleLayers.dimensions && (
-                        <text x={cx} y={cy + 240} textAnchor="middle" fontSize={110} fill="#B45309" fontFamily="JetBrains Mono">
+                        <text
+                          x={placement.centerXmm + normalX * 240}
+                          y={placement.centerYmm + normalY * 240}
+                          textAnchor="middle"
+                          fontSize={110}
+                          fill="#B45309"
+                          fontFamily="JetBrains Mono"
+                        >
                           Cửa {dw}mm
                         </text>
                       )}
@@ -1606,16 +1907,27 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
                 {/* Windows */}
                 {windows.map((win: any) => {
-                  const w = walls.find((item: any) => item.id === win.wall_id) || walls[0]
+                  const w = walls.find((item: any) => item.id === win.wall_id)
                   if (!w) return null
-                  const cx = w.start_mm[0] + (w.end_mm[0] - w.start_mm[0]) * (win.t ?? 0.5)
-                  const cy = w.start_mm[1] + (w.end_mm[1] - w.start_mm[1]) * (win.t ?? 0.5)
-                  const ww = win.width_mm || 1500
+                  const placement = resolveWallOpeningPlacement(w, win)
+                  if (!placement) return null
+                  const ww = placement.widthMm || win.width_mm || 1500
+                  const normalX = -Math.sin(placement.angleRad)
+                  const normalY = Math.cos(placement.angleRad)
                   return (
                     <g key={win.id}>
-                      <rect x={cx - ww / 2} y={cy - 105} width={ww} height={210} fill="#E0F2FE" stroke="#0284C7" strokeWidth={18} />
+                      <g transform={`translate(${placement.centerXmm} ${placement.centerYmm}) rotate(${placement.angleDeg})`}>
+                        <rect x={-ww / 2} y={-105} width={ww} height={210} fill="#E0F2FE" stroke="#0284C7" strokeWidth={18} />
+                      </g>
                       {visibleLayers.dimensions && (
-                        <text x={cx} y={cy - 140} textAnchor="middle" fontSize={105} fill="#0284C7" fontFamily="JetBrains Mono">
+                        <text
+                          x={placement.centerXmm - normalX * 140}
+                          y={placement.centerYmm - normalY * 140}
+                          textAnchor="middle"
+                          fontSize={105}
+                          fill="#0284C7"
+                          fontFamily="JetBrains Mono"
+                        >
                           Cửa sổ {ww}mm
                         </text>
                       )}
@@ -1705,12 +2017,39 @@ export const StudioViewport: React.FC<StudioViewportProps> = React.memo(
 
         {/* 3D WebGL Pascal Viewer */}
         {!lowSpecMode && (
-          <div style={{ position: 'relative', width: '100%', height: '100%', display: viewMode === '2d' && !hasExternalScene ? 'none' : 'flex', flexDirection: 'column' }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', display: viewMode === '2d' ? 'none' : 'flex', flexDirection: 'column' }}>
             <div
               ref={mountRef}
               data-testid="viewport-3d-canvas"
               style={{ flex: '1 1 0', width: '100%', height: '100%', minWidth: 0, minHeight: 320, overflow: 'hidden' }}
             />
+            {hasExternalScene && viewMode === '2d' && externalPlanInfo ? (
+              <div
+                data-testid="external-glb-plan-info"
+                style={{
+                  position: 'absolute',
+                  top: 14,
+                  left: 14,
+                  zIndex: 8,
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-subtle)',
+                  background: 'color-mix(in srgb, var(--surface-primary) 92%, transparent)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                }}
+              >
+                <strong>Mặt bằng 2D trích từ GLB</strong>
+                <div className="mono">
+                  {(externalPlanInfo.widthMm / 1000).toFixed(3)} × {(externalPlanInfo.depthMm / 1000).toFixed(3)} m
+                </div>
+                <div style={{ color: 'var(--text-secondary)' }}>
+                  Mặt cắt +{(externalPlanInfo.cutHeightMm / 1000).toFixed(2)} m · kéo để pan, cuộn để zoom
+                </div>
+              </div>
+            ) : null}
+            <ConstructionLabel />
             <TourControls state={tourState} onFloor={id=>tourRef.current?.setFloor(id)} onPlace={()=>tourRef.current?.place()} onWalk={()=>tourRef.current?.walk()} onExit={()=>tourRef.current?.exit()} />
           </div>
         )}

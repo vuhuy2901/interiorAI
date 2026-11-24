@@ -51,10 +51,13 @@ def read_prices(project: CanonicalProject) -> dict:
 
 def reference_prices(project: CanonicalProject) -> dict:
     """Dated comparable products, never the source GLB's product identity."""
-    path = MANIFEST_DIR / 'reference-prices.json'
-    if not path.exists() or project.external_scene.sha256 != '19f20e2f8e8ab4e6fdbb41458db5bd970679f3f0013df4ba772bb7724c8a913f':
-        return {}
-    return json.loads(path.read_text(encoding='utf-8'))
+    scoped = MANIFEST_DIR / f"{project.external_scene.sha256.lower()}-reference-prices.json"
+    path = scoped if scoped.exists() else MANIFEST_DIR / 'reference-prices.json'
+    if not path.exists(): return {}
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    if payload.get('_asset_hash') and payload['_asset_hash'].upper() != project.external_scene.sha256.upper(): return {}
+    payload.pop('_asset_hash', None)
+    return payload
 
 def calculate_external_estimate(project: CanonicalProject) -> CostEstimateSnapshot:
     items, prices = scene_scope(project), read_prices(project)
@@ -145,11 +148,13 @@ def cost_workflow(project_id: str):
     if not project: raise HTTPException(404,'Project not found')
     from app.services.cost_engine import calculate_project_estimate
     estimate=calculate_project_estimate(project)
-    return {'stage':'cost','agent_key':'agent_cost','status':'blocked' if not project.scale_calibrated else 'needs_input' if not estimate.total_is_complete else 'needs_review',
-            'project_id':project_id,'revision':project.revision,'asset_hash':estimate.scene_asset_hash,
+    return {'stage':'cost','agent_key':'agent_cost','status':'blocked' if not project.scale_calibrated else 'needs_review',
+            'project_id':project_id,'revision':project.revision,'asset_hash':getattr(estimate, 'scene_asset_hash', None) or (project.external_scene.sha256 if project.external_scene else None),
             'estimate_url':f'/api/v1/estimates/{project_id}','missing_item_ids':estimate.unpriced_item_ids,
             'overridden_item_ids': sorted(read_prices(project)) if project.external_scene else [],
-            'estimate':estimate.model_dump(),'approval_required':True}
+            'estimate':estimate.model_dump(),'approval_required':True,
+            'proposal_state':'PROVISIONAL' if not estimate.total_is_complete else 'READY_FOR_APPROVAL',
+            'user_input_required':False}
 
 
 @router.delete('/api/v1/projects/{project_id}/cost-items/{item_id:path}')

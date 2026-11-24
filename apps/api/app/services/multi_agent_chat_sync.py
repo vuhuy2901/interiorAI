@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -146,6 +147,117 @@ def _execution_attempts(task_id: str) -> List[Dict[str, Any]]:
     return sorted(
         [item for item in attempts if item.get("runId") and item.get("startedAt")],
         key=lambda item: (str(item.get("startedAt")), str(item.get("runId"))),
+    )
+
+
+def _completed_output(run_doc: Dict[str, Any], executor: str) -> Optional[Dict[str, Any]]:
+    for event in run_doc.get("events") or []:
+        if event.get("status") == "COMPLETED" and executor in {event.get("executor_type"), event.get("node_type")}:
+            output = event.get("output")
+            if isinstance(output, dict):
+                return output
+    return None
+
+
+def _parse_iso(value: Any) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _number(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def build_completion_summary(conn: Any, run_doc: Dict[str, Any], project_id: str) -> Dict[str, Any]:
+    """Structured facts for the completion message. Missing facts stay None; nothing is estimated."""
+    row = conn.execute("SELECT name FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+    name = str(row["name"]).strip() or None if row and row["name"] else None
+    events = [event for event in run_doc.get("events") or [] if isinstance(event, dict)]
+    started, finished = _parse_iso(run_doc.get("started_at")), _parse_iso(run_doc.get("completed_at"))
+    duration = round((finished - started).total_seconds(), 1) if started and finished and finished >= started else None
+
+    cost = None
+    cost_out = _completed_output(run_doc, "deterministic_cost")
+    if cost_out is not None and _number(cost_out.get("total_vnd")) is not None:
+        priced, unpriced = _number(cost_out.get("priced_line_count")), _number(cost_out.get("unpriced_line_count"))
+        is_complete = cost_out.get("total_is_complete")
+        cost = {
+            "total_vnd": _number(cost_out.get("total_vnd")),
+            "price_coverage_percent": _number(cost_out.get("price_coverage_percent")),
+            "total_is_complete": is_complete if isinstance(is_complete, bool) else None,
+            "priced_line_count": int(priced) if priced is not None else None,
+            "line_count": int(priced + unpriced) if priced is not None and unpriced is not None else None,
+        }
+
+    exports: List[Dict[str, str]] = []
+    cad_out = _completed_output(run_doc, "cad_export") or {}
+    for field, fmt, label in (("dxf_path", "dxf", "Bản vẽ DXF"), ("glb_path", "glb", "Mô hình GLB"), ("bom_csv_path", "csv", "BOM/BOQ CSV")):
+        if cad_out.get(field):
+            exports.append({"kind": fmt, "label": label, "url": f"/api/v1/exports/{project_id}/{fmt}"})
+    render_out = _completed_output(run_doc, "render_gen") or {}
+    ai_render = render_out.get("ai_render") if isinstance(render_out.get("ai_render"), dict) else {}
+    ai_jobs = ai_render.get("jobs") if isinstance(ai_render.get("jobs"), list) else []
+    ai_hero = next((item for item in ai_jobs if item.get("view") == "hero" and item.get("status") == "COMPLETED" and item.get("image_url")), None)
+    ai_any = next((item for item in ai_jobs if item.get("status") == "COMPLETED" and item.get("image_url")), None)
+    selected_ai = ai_hero or ai_any
+    render_url = selected_ai.get("image_url") if selected_ai else (
+        render_out.get("render_url") if isinstance(render_out.get("render_url"), str) and render_out.get("render_url") else None
+    )
+
+    return {
+        "project_name": name,
+        "revision": run_doc.get("scene_revision") if isinstance(run_doc.get("scene_revision"), int) else None,
+        "completed_nodes": sum(1 for event in events if event.get("status") == "COMPLETED"),
+        "total_nodes": len(events),
+        "duration_seconds": duration,
+        "cost": cost,
+        "exports": exports,
+        "render_url": render_url,
+        "render_kind": "ai" if selected_ai else ("blender" if render_url else None),
+    }
+
+
+def completion_message_text(summary: Dict[str, Any]) -> str:
+    missing = "chưa có"
+    cost = summary.get("cost")
+    if not cost:
+        cost_line = f"Dự toán: {missing}"
+    else:
+        total = f"{cost['total_vnd']:,.0f} VNĐ"
+        if cost.get("total_is_complete") is True:
+            cost_line = f"Tổng dự toán: {total}"
+        else:
+            coverage = f"{cost['priced_line_count']}/{cost['line_count']} hạng mục có giá" if cost.get("priced_line_count") is not None and cost.get("line_count") is not None else (
+                f"độ phủ giá {cost['price_coverage_percent']:g}%" if cost.get("price_coverage_percent") is not None else "độ phủ giá chưa có")
+            cost_line = f"Dự toán tạm tính: {total} (tạm tính, {coverage}; chưa phải tổng chính thức)"
+    duration = summary.get("duration_seconds")
+    lines = [
+        f"Dự án hoàn thành: {summary.get('project_name') or missing}",
+        f"Revision: {summary['revision'] if summary.get('revision') is not None else missing}",
+        f"Node hoàn thành: {summary['completed_nodes']}/{summary['total_nodes']}",
+        f"Tổng thời gian: {f'{duration:g} giây' if duration is not None else missing}",
+        cost_line,
+        "File xuất: " + (", ".join(f"{item['label']} ({item['url']})" for item in summary["exports"]) or missing),
+        f"Ảnh render: {summary.get('render_url') or missing}",
+    ]
+    return "\n".join(lines)
+
+
+def _insert_completion_summary(conn: Any, *, run_id: str, run_doc: Dict[str, Any], pid: str, conversation_id: Optional[str], lead: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One summary per run, only when the persisted run status is COMPLETED."""
+    if run_doc.get("status") != "COMPLETED":
+        return None
+    summary = build_completion_summary(conn, run_doc, pid)
+    return _insert_event(
+        conn, event_id=_stable_id("evt", run_id, "PROJECT_COMPLETED"), project_id=pid, conversation_id=conversation_id,
+        run_id=run_id, node_id="__project__", native_task_id=None, agent=lead, execution_run_id=None,
+        event_type="PROJECT_COMPLETED", created_at=str(run_doc.get("completed_at") or now_iso()),
+        content=completion_message_text(summary),
+        payload={"status": "COMPLETED", "node_label": "Dự án hoàn thành", "completion": summary},
     )
 
 
@@ -307,6 +419,10 @@ def sync_workflow_run_to_chat(run_id: str, project_id: Optional[str] = None) -> 
                 )
                 if inserted:
                     created.append(inserted)
+
+    inserted = _insert_completion_summary(conn, run_id=run_id, run_doc=run_doc, pid=pid, conversation_id=conversation_id, lead=lead)
+    if inserted:
+        created.append(inserted)
 
     conn.commit()
     conn.close()

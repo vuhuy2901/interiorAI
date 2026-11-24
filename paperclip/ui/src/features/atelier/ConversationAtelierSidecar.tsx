@@ -1,4 +1,10 @@
-import React, { useState, Suspense, lazy } from "react";
+import React, { useEffect, useState, Suspense, lazy } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { atelierApi } from "@/api/atelier";
+import { ApiError } from "@/api/client";
+import { issueSceneQueryKey, legacyTaskState } from "./taskProjectScope";
+import { LegacyTaskProjectChoice, useSelectableAtelierProjects } from "./AtelierProjectPicker";
+import { ProjectCompletionCard } from "./ProjectCompletionCard";
 import { useNavigate } from "@/lib/router";
 import { useAtelierStudio } from "./AtelierStudioContext";
 import {
@@ -26,16 +32,19 @@ const LazyStudioViewport = lazy(() =>
 
 interface ConversationAtelierSidecarProps {
   agentName?: string;
+  /** Task (issue) của hội thoại. Dự án nội thất luôn lấy theo task này. */
+  issueId?: string | null;
 }
 
 export function ConversationAtelierSidecar({
   agentName = "Chief Architect",
+  issueId = null,
 }: ConversationAtelierSidecarProps) {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(true);
   const [quickPrompt, setQuickPrompt] = useState("");
-  const [selectedChip, setSelectedChip] = useState("Japandi / Modern Warm");
+  const [selectedChip, setSelectedChip] = useState("Hiện đại (Modern)");
 
   const {
     project,
@@ -54,7 +63,43 @@ export function ConversationAtelierSidecar({
     lightingPreset,
     selectedEntityId,
     setSelectedEntityId,
+    activeProjectId,
+    taskScope,
+    bindTaskScene,
+    releaseTaskScope,
   } = useAtelierStudio();
+
+  // FEAT-2026-131: mỗi task có đúng một dự án; key theo issueId nên không dùng chung cache giữa các task.
+  // CR-1: chỉ ĐỌC scene của task (GET). Task cũ chưa link (404) thì không tự tạo scene rỗng: người dùng chọn.
+  const queryClient = useQueryClient();
+  const sceneQuery = useQuery({
+    queryKey: issueSceneQueryKey(issueId),
+    queryFn: () => atelierApi.issueScene(issueId!),
+    enabled: !!issueId,
+    staleTime: Infinity,
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+  });
+  const sceneId = sceneQuery.data?.issue_id === issueId ? sceneQuery.data?.scene_id ?? null : null;
+  const queryErrorStatus = sceneQuery.error instanceof ApiError ? sceneQuery.error.status : null;
+  const linkState = legacyTaskState({
+    isLoading: sceneQuery.isLoading,
+    hasScene: !!sceneId,
+    errorStatus: queryErrorStatus,
+    hasError: sceneQuery.isError,
+  });
+  const sceneError = linkState === "error"
+    ? (sceneQuery.error instanceof Error ? sceneQuery.error.message : "Không đọc được dự án của task này")
+    : null;
+  const linkMutation = useMutation({
+    mutationFn: (continueSceneId: string | null) => atelierApi.ensureIssueScene(issueId!, continueSceneId),
+    onSuccess: (data) => queryClient.setQueryData(issueSceneQueryKey(issueId), data),
+  });
+  const selectableProjects = useSelectableAtelierProjects(linkState === "unlinked");
+  useEffect(() => {
+    bindTaskScene(issueId, sceneId, sceneError);
+  }, [issueId, sceneId, sceneError, bindTaskScene]);
+  useEffect(() => () => releaseTaskScope(), [releaseTaskScope]);
+  const projectReady = taskScope.status === "ready" && !!activeProjectId && !!project;
 
   const messages = chatHistory.messages || [];
   const workflowMessages = messages
@@ -137,6 +182,31 @@ export function ConversationAtelierSidecar({
       </div>
 
       {/* Scrollable Body */}
+      {linkState === "unlinked" && !!issueId ? (
+        <LegacyTaskProjectChoice
+          projects={selectableProjects.data ?? []}
+          busy={linkMutation.isPending}
+          error={linkMutation.isError ? (linkMutation.error instanceof Error ? linkMutation.error.message : "Không gắn được dự án") : null}
+          onCreateNew={() => linkMutation.mutate(null)}
+          onAttach={(sceneIdToAttach) => linkMutation.mutate(sceneIdToAttach)}
+        />
+      ) : !projectReady ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground" role="status" data-testid="sidecar-project-pending">
+          {taskScope.status === "error" ? (
+            <>
+              <span className="font-medium text-destructive">Không tạo được dự án nội thất cho task này</span>
+              <span>{taskScope.error}</span>
+              <button type="button" className="rounded border border-border px-2 py-1 hover:bg-accent" onClick={() => void sceneQuery.refetch()}>
+                Thử lại
+              </button>
+            </>
+          ) : !issueId ? (
+            <span>Dự án nội thất mới sẽ được tạo khi bạn bắt đầu task này.</span>
+          ) : (
+            <span>Đang tạo dự án nội thất cho task này...</span>
+          )}
+        </div>
+      ) : (
       <div className="flex-1 space-y-3.5 overflow-y-auto p-3.5 text-xs">
         {/* 1. Live 2D/3D Mini Viewport */}
         <div className="overflow-hidden rounded-lg border border-border bg-background shadow-2xs">
@@ -217,6 +287,7 @@ export function ConversationAtelierSidecar({
               {workflowMessages.map((message: any) => {
                 const metadata = message.metadata || {};
                 const taskRef = metadata.task_identifier || metadata.native_task_id;
+                if (metadata.event_type === "PROJECT_COMPLETED") return <ProjectCompletionCard key={metadata.event_id} metadata={metadata} />;
                 return (
                   <article key={metadata.event_id} className="rounded-md border border-border/70 bg-muted/30 p-2.5">
                     <div className="flex items-start justify-between gap-2">
@@ -285,7 +356,7 @@ export function ConversationAtelierSidecar({
             </div>
             <div className="flex flex-wrap gap-1">
               {[
-                "Đổi sang phong cách Japandi ấm áp",
+                "Đổi sang phong cách Hiện đại",
                 "Đổi sang phong cách Indochine",
                 "Tối ưu lối đi >= 750mm",
               ].map((chip) => (
@@ -434,7 +505,7 @@ export function ConversationAtelierSidecar({
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             <a
-              href="/api/v1/projects/proj_demo_4x5m/export/dxf"
+              href={`/api/v1/projects/${activeProjectId}/export/dxf`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] font-medium hover:border-teal-600 hover:text-teal-700"
@@ -443,7 +514,7 @@ export function ConversationAtelierSidecar({
               CAD .DXF
             </a>
             <a
-              href="/api/v1/projects/proj_demo_4x5m/export/glb"
+              href={`/api/v1/projects/${activeProjectId}/export/glb`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] font-medium hover:border-teal-600 hover:text-teal-700"
@@ -452,7 +523,7 @@ export function ConversationAtelierSidecar({
               3D .GLB
             </a>
             <a
-              href="/api/v1/projects/proj_demo_4x5m/export/xlsx"
+              href={`/api/v1/projects/${activeProjectId}/export/xlsx`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-center gap-1 rounded border border-border bg-muted/30 px-2 py-1.5 text-[10px] font-medium hover:border-teal-600 hover:text-teal-700"
@@ -463,6 +534,7 @@ export function ConversationAtelierSidecar({
           </div>
         </div>
       </div>
+      )}
     </aside>
   );
 }

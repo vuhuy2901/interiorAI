@@ -925,15 +925,16 @@ DEFAULT_AGENTS: List[Dict[str, Any]] = [
     },
     {
         "agent_id": "agent_render",
-        "name": "Agent Phối Cảnh & Kiểm Định Hình Học (Render & Hallucination Guard)",
+        "name": "Architectural Visualization & Rendering Agent",
         "role": "render_qa",
         "connection_id": "conn_deterministic_concierge",
         "fallback_connection_id": "conn_gemini_api",
         "enabled": True,
-        "version": "1.0.0",
+        "version": "2.2.0",
         "confidence_threshold": 0.85,
         "system_prompt": (
-            "Chụp phối cảnh từ góc camera khóa cố định và kiểm tra đối chiếu với hình học 3D gốc để không thêm/bớt cửa sổ hoặc đổi kết cấu."
+            "Đọc canonical scene, lập plan camera/ánh sáng/PBR và kết xuất Cycles theo revision khóa; không thêm/bớt/di chuyển vật thể, "
+            "ghi revision và brief hash, rồi chuyển bằng chứng cho QA độc lập."
         ),
         "allowed_mcp_tools": ["get_scene_info", "verify_scene"],
         "permissions": {"can_ask_user": False, "can_propose_scene": False, "direct_commit": False},
@@ -1012,11 +1013,26 @@ EIGHT_AGENT_PROFILES: Dict[str, Dict[str, Any]] = {
         ),
     },
     "agent_render": {
-        "version": "2.0.0",
-        "skills": ["camera.compose", "lighting.design", "material.render", "blender.cycles", "render.persistence"],
+        "name": "Architectural Visualization & Rendering Agent",
+        "version": "2.2.0",
+        "skills": [
+            "scene-inspector", "geometry-validator", "smart-camera-planner", "architectural-lighting",
+            "pbr-material-specialist", "render-engine-controller", "render-quality-inspector",
+            "scene-integrity-guardian", "render-asset-manager", "workflow-integration",
+            "camera.compose", "lighting.design", "material.render", "blender.cycles", "render.persistence",
+            "render.brief_compliance", "ai.photoreal_codex", "render.self_qa", "render.gallery",
+        ],
+        "catalog_skills": [
+            "atelier-project-delivery-workflow", "atelier-workflow-evidence-lifecycle", "blender-mcp-rendering",
+            "cinematic-rendering-and-composition", "photoreal-render-evidence-gate", "rendering-review",
+            "architectural-lighting-mastery", "ceiling-and-lighting-design", "materials-and-finishes",
+            "luxury-materials-and-tactile-textures", "aesthetic-moodboard-and-styling",
+            "canonical-scene-integrity-audit",
+        ],
         "system_prompt": (
             "Chịu trách nhiệm camera, ánh sáng, vật liệu render và Blender Cycles; không có Lighting Agent riêng. "
-            "Không thêm/bớt/di chuyển vật thể; lưu camera, revision, seed, engine và ảnh vào Render Gallery."
+            "Không thêm/bớt/di chuyển vật thể; lưu camera, revision, brief hash, seed, engine và ảnh vào Render Gallery. "
+            "AI Codex chỉ là lớp photoreal tùy chọn, Blender vẫn là nền tảng và phải có fallback rõ ràng."
         ),
     },
     "agent_qa": {
@@ -1144,7 +1160,7 @@ DEFAULT_WORKFLOW: Dict[str, Any] = {
         {"id": "style", "type": "style_surface", "label": "5A. Style — Màu & Vật Liệu", "agent_id": "agent_style", "position": {"x": 1160, "y": 60}, "enabled": True, "status": "READY", "config": {"allow_provisional_products": True, "must_not_mutate_geometry": True}},
         {"id": "furniture", "type": "furniture_layout", "label": "5B. Furniture — Nội Thất & Clearance", "agent_id": "agent_furniture", "position": {"x": 1160, "y": 260}, "enabled": True, "status": "READY", "config": {"respect_floorplan_anchors": True, "disable_auto_layout_for_anchored_items": True, "min_walkway_mm": 750, "check_door_swing": True}},
         {"id": "cost_spec", "type": "deterministic_cost", "label": "6A. Cost & Specification", "agent_id": "agent_cost", "position": {"x": 1450, "y": 60}, "enabled": True, "status": "READY", "config": {"include_catalog_fit": True, "allow_unverified_prices": True, "vat_rate": 0.08}},
-        {"id": "render", "type": "render_gen", "label": "6B. Render — Camera, Ánh Sáng & Cycles", "agent_id": "agent_render", "position": {"x": 1450, "y": 260}, "enabled": True, "status": "READY", "config": {"lock_geometry": True, "persist_gallery": True, "required_views": ["isometric", "entrance", "hero"]}},
+        {"id": "render", "type": "render_gen", "label": "6B. Render — Architectural Visualization Agent", "agent_id": "agent_render", "position": {"x": 1450, "y": 260}, "enabled": True, "status": "READY", "config": {"lock_geometry": True, "persist_gallery": True, "render_agent_v2": True, "ai_render": "off", "ai_timeout_s": 600, "required_views": ["isometric", "entrance", "hero"], "lighting_preset": "daylight", "quality_preset": "standard"}},
         {"id": "final_qa", "type": "render_qa", "label": "7. QA — Scene, Render & Provenance", "agent_id": "agent_qa", "position": {"x": 1740, "y": 160}, "enabled": True, "status": "READY", "config": {"strict_geometry": True, "independent": True, "verify_floorplan_alignment": True}},
         {"id": "delivery", "type": "concierge_brief", "label": "8. Chief — Tổng Kết & Bàn Giao", "agent_id": "agent_chief_architect", "position": {"x": 2020, "y": 160}, "enabled": True, "status": "READY", "config": {"delivery_only": True, "cannot_override_qa": True}},
     ],
@@ -1371,6 +1387,16 @@ def init_db() -> None:
             updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS issue_scene_links (
+            issue_id TEXT PRIMARY KEY,
+            company_id TEXT NOT NULL,
+            scene_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE RESTRICT,
+            native_project_id TEXT,
+            origin TEXT NOT NULL DEFAULT 'new' CHECK (origin IN ('new', 'continued')),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS issue_scene_links_scene_idx ON issue_scene_links(scene_id);
+
         CREATE TABLE IF NOT EXISTS atelier_rooms (
             room_id TEXT PRIMARY KEY,
             native_project_id TEXT NOT NULL REFERENCES native_project_links(native_project_id) ON DELETE CASCADE,
@@ -1417,12 +1443,22 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS unified_boq_decisions_proj_idx
             ON unified_boq_decisions(project_id, item_id);
+
+        CREATE TABLE IF NOT EXISTS project_visibility (
+            project_id TEXT PRIMARY KEY,
+            hidden INTEGER NOT NULL DEFAULT 0,
+            reason TEXT,
+            updated_at TEXT
+        );
         """
     )
 
-    # Seed Demo Project if missing
+    # Seed Demo Projects only if database has zero projects
+    has_any_projects = cur.execute("SELECT COUNT(*) FROM projects").fetchone()[0] > 0
+
+    # Seed Demo Project if missing and DB is empty
     row = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_demo_4x5m",)).fetchone()
-    if not row:
+    if not row and not has_any_projects:
         demo = build_default_demo_project()
         payload = demo.model_dump_json()
         cur.execute(
@@ -1468,7 +1504,7 @@ def init_db() -> None:
 
     # Seed Japandi Master Bedroom Project if missing
     row_bedroom = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_bedroom_japandi_4x4m",)).fetchone()
-    if not row_bedroom:
+    if not row_bedroom and not has_any_projects:
         bedroom_proj = build_japandi_master_bedroom_project()
         b_payload = bedroom_proj.model_dump_json()
         cur.execute(
@@ -1515,7 +1551,7 @@ def init_db() -> None:
 
     # Seed Kid Bedroom Project if missing (FEAT-2026-033)
     row_kid = cur.execute("SELECT project_id FROM projects WHERE project_id = ?", ("proj_kid_bedroom",)).fetchone()
-    if not row_kid:
+    if not row_kid and not has_any_projects:
         kid_proj = build_kid_bedroom_project()
         k_payload = kid_proj.model_dump_json()
         cur.execute(
@@ -1584,7 +1620,7 @@ def init_db() -> None:
                 changed = True
             profile = EIGHT_AGENT_PROFILES.get(a["agent_id"])
             if profile and current_payload.get("version") != profile["version"]:
-                for key in ("version", "skills", "system_prompt", "allowed_mcp_tools"):
+                for key in ("name", "version", "skills", "catalog_skills", "system_prompt", "allowed_mcp_tools"):
                     if key in profile:
                         current_payload[key] = profile[key]
                 changed = True
@@ -1609,7 +1645,13 @@ def init_db() -> None:
         )
     else:
         existing_wf = cur.execute("SELECT payload_json, version FROM workflows WHERE workflow_id = ?", (DEFAULT_WORKFLOW["workflow_id"],)).fetchone()
-        if int(existing_wf["version"]) < int(DEFAULT_WORKFLOW["version"]):
+        existing_payload = json.loads(existing_wf["payload_json"] or "{}")
+        existing_render = next((node for node in existing_payload.get("nodes", []) if node.get("id") == "render"), {})
+        needs_render_config_upgrade = (
+            "ai_render" not in (existing_render.get("config") or {})
+            or "render_agent_v2" not in (existing_render.get("config") or {})
+        )
+        if int(existing_wf["version"]) < int(DEFAULT_WORKFLOW["version"]) or needs_render_config_upgrade:
             workflow_payload = json.loads(json.dumps(DEFAULT_WORKFLOW, ensure_ascii=False))
             cur.execute(
                 "UPDATE workflows SET name = ?, version = ?, payload_json = ?, updated_at = ? WHERE workflow_id = ?",
@@ -1622,10 +1664,11 @@ def init_db() -> None:
                 ),
             )
 
-    cur.execute(
-        "INSERT OR IGNORE INTO project_workflow_bindings (project_id, workflow_id, updated_at) VALUES (?, ?, ?)",
-        ("proj_demo_4x5m", DEFAULT_WORKFLOW["workflow_id"], now_iso()),
-    )
+    if cur.execute("SELECT 1 FROM projects WHERE project_id = 'proj_demo_4x5m'").fetchone():
+        cur.execute(
+            "INSERT OR IGNORE INTO project_workflow_bindings (project_id, workflow_id, updated_at) VALUES (?, ?, ?)",
+            ("proj_demo_4x5m", DEFAULT_WORKFLOW["workflow_id"], now_iso()),
+        )
 
     conn.commit()
     conn.close()
@@ -1772,6 +1815,87 @@ def get_native_project_for_scene(scene_id: str, company_id: str) -> Optional[Dic
             (scene_id, company_id),
         ).fetchone()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_issue_scene_link(issue_id: str) -> Optional[Dict[str, Any]]:
+    """Scene gắn với đúng một task (issue). Không bao giờ suy đoán/fallback."""
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM issue_scene_links WHERE issue_id = ?", (issue_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def build_clean_task_scene(scene_id: str, name: str, description: str = "") -> CanonicalProject:
+    """Scene sạch cho task mới: hình học phòng mặc định nhưng không đồ, không override,
+    DesignBrief mặc định (Modern), chưa hiệu chuẩn tỷ lệ. Không mượn dữ liệu dự án nào."""
+    base = build_default_demo_project()
+    base.project_id = scene_id
+    base.name = name
+    base.description = description
+    base.revision = 1
+    base.scale_calibrated = False
+    base.scale_reference = None
+    base.furniture_instances = []
+    base.dimension_chains = []
+    base.surface_material_overrides = {}
+    base.active_style_preset = None
+    base.design_brief = DesignBrief()
+    base.external_scene = None
+    base.underlay_image_url = None
+    base.pascal_scene_json = {}
+    return base
+
+
+def link_issue_to_scene(
+    issue_id: str,
+    company_id: str,
+    scene_id: str,
+    native_project_id: Optional[str] = None,
+    origin: str = "new",
+) -> Dict[str, Any]:
+    """Idempotent: nếu task đã có link thì trả link cũ, không ghi đè."""
+    if origin not in {"new", "continued"}:
+        raise ValueError("Invalid issue scene origin")
+    ts = now_iso()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT * FROM issue_scene_links WHERE issue_id = ?", (issue_id,)).fetchone()
+        if existing:
+            conn.rollback()
+            return dict(existing)
+        if not conn.execute("SELECT 1 FROM projects WHERE project_id = ?", (scene_id,)).fetchone():
+            raise ValueError("Scene not found")
+        linked_native: Optional[str] = None
+        if native_project_id:
+            link = conn.execute(
+                "SELECT company_id, initialization_status FROM native_project_links WHERE native_project_id = ?",
+                (native_project_id,),
+            ).fetchone()
+            if link and link["company_id"] == company_id and link["initialization_status"] == "ready":
+                linked_native = native_project_id
+        conn.execute(
+            "INSERT INTO issue_scene_links (issue_id, company_id, scene_id, native_project_id, origin, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (issue_id, company_id, scene_id, linked_native, origin, ts),
+        )
+        # Chỉ scene mới tạo cho task mới được gắn vào native project; scene "tiếp tục" giữ link sẵn có.
+        if linked_native and origin == "new":
+            conn.execute(
+                """INSERT OR IGNORE INTO atelier_scene_links
+                   (scene_id, native_project_id, room_id, provenance, is_fixture, archived, created_at, updated_at)
+                   VALUES (?, ?, NULL, 'native', 0, 0, ?, ?)""",
+                (scene_id, linked_native, ts, ts),
+            )
+        conn.commit()
+        return {"issue_id": issue_id, "company_id": company_id, "scene_id": scene_id,
+                "native_project_id": linked_native, "origin": origin, "created_at": ts}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1967,6 +2091,31 @@ def list_projects(include_fixtures: bool = True) -> List[CanonicalProject]:
         for row in rows
         if include_fixtures or not is_fixture_scene(row["project_id"], row["name"], bool(row["is_fixture"]))
     ]
+
+
+def get_hidden_project_ids() -> set:
+    """Project IDs hidden from lists. Stored in project_visibility, never in payload_json."""
+    conn = get_conn()
+    rows = conn.execute("SELECT project_id FROM project_visibility WHERE hidden = 1").fetchall()
+    conn.close()
+    return {row["project_id"] for row in rows}
+
+
+def set_project_visibility(project_id: str, hidden: bool, reason: Optional[str] = None) -> None:
+    conn = get_conn()
+    conn.execute(
+        """
+        INSERT INTO project_visibility (project_id, hidden, reason, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET
+            hidden = excluded.hidden,
+            reason = excluded.reason,
+            updated_at = excluded.updated_at
+        """,
+        (project_id, 1 if hidden else 0, reason, now_iso()),
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_project(project_id: str) -> Optional[CanonicalProject]:

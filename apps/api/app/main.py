@@ -13,6 +13,7 @@ Exposes REST & SSE endpoints for:
 """
 from __future__ import annotations
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 import json
 import os
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Response
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -29,9 +30,13 @@ from pydantic import BaseModel
 from app.db import (
     audit_legacy_scenes,
     bind_project_workflow,
+    build_clean_task_scene,
     build_default_demo_project,
     create_atelier_room,
     get_conn,
+    get_issue_scene_link,
+    link_issue_to_scene,
+    get_hidden_project_ids,
     get_native_project_workspace,
     get_project_workflow_id,
     get_project,
@@ -43,10 +48,12 @@ from app.db import (
     now_iso,
     restore_project_revision,
     save_project,
+    set_project_visibility,
 )
 from app.models.contracts import (
     AtelierProjectWorkspace,
     CanonicalProject,
+    ExternalSceneAsset,
     DesignBrief,
     FurnitureInstance,
     WallTileZone,
@@ -86,6 +93,9 @@ from app.services.cost_engine import (
     load_materials_catalog,
     load_products_catalog,
 )
+from app.services.scene_cost import router as scene_cost_router
+from app.services.scene_furniture import router as scene_furniture_router
+from app.construction_history import router as construction_history_router
 from app.services.geometry import (
     analyze_scene_spatial_quality,
     check_catalog_product_fit,
@@ -174,10 +184,12 @@ async def _workflow_input_reconciler(stop_event: asyncio.Event) -> None:
             if stop_event.is_set():
                 break
             try:
-                await asyncio.to_thread(lambda run_id=row["run_id"]: asyncio.run(sync_native_workflow_run(run_id)))
-            except (OSError, RuntimeError, ValueError):
+                await sync_native_workflow_run(row["run_id"])
+            except Exception as exc:
                 # Durable event/task state remains in SQLite/Paperclip and will
                 # be retried on the next bounded pass.
+                import logging as _log
+                _log.getLogger(__name__).warning("reconciler: run %s failed: %s", row["run_id"], exc)
                 continue
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
@@ -195,14 +207,15 @@ def mask_secret_key(raw: str) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    demo = get_project("proj_demo_4x5m") or build_default_demo_project()
-    ensure_sample_dxf_seed(demo)
-    # Initial non-blocking sync with Pascal MCP if demo has empty pascal_scene_json
-    if not demo.pascal_scene_json:
-        res = await sync_canonical_to_pascal(demo)
-        if res.get("ok") and res.get("sceneJson"):
-            demo.pascal_scene_json = res["sceneJson"]
-            save_project(demo, author="Pascal MCP Bootstrap", reason="Đồng bộ khởi tạo Pascal SceneGraph", bump_revision=False)
+    demo = get_project("proj_demo_4x5m")
+    if demo:
+        ensure_sample_dxf_seed(demo)
+        # Initial non-blocking sync with Pascal MCP if demo has empty pascal_scene_json
+        if not demo.pascal_scene_json:
+            res = await sync_canonical_to_pascal(demo)
+            if res.get("ok") and res.get("sceneJson"):
+                demo.pascal_scene_json = res["sceneJson"]
+                save_project(demo, author="Pascal MCP Bootstrap", reason="Đồng bộ khởi tạo Pascal SceneGraph", bump_revision=False)
     stop_event = asyncio.Event()
     reconciler_task: Optional[asyncio.Task[Any]] = None
     if os.getenv("ATELIER_INPUT_RECONCILER_ENABLED", "1").strip().lower() not in {"0", "false", "no"}:
@@ -229,10 +242,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The add-only scene route is the Pascal Scene Asset Bridge write surface. It
-# owns expected-revision CAS, idempotency receipts, spatial QA, and Pascal
-# verification; keeping it mounted here prevents a second mutation path.
+# Canonical scene cost workflow endpoints. Keep this router mounted alongside
+# the deterministic estimate endpoints so Cost/BOM can return a proposal and
+# approval disposition even when some catalog prices are still provisional.
+app.include_router(scene_cost_router)
 app.include_router(scene_furniture_router)
+app.include_router(construction_history_router)
+from app.services.codex_render import router as codex_render_router  # FEAT-2026-129
+app.include_router(codex_render_router)
+from app.services.render_agent import router as render_agent_router  # MASTER PROMPT: production render agent
+app.include_router(render_agent_router)
+from app.services.atelier_actor_authority import require_atelier_actor
+app.middleware("http")(require_atelier_actor)
 
 
 @app.middleware("http")
@@ -267,7 +288,10 @@ class CreateProjectPayload(BaseModel):
     description: str = ""
     width_mm: float = 4000.0
     depth_mm: float = 5000.0
-    style: str = "Japandi"
+    room_name: str = "Phòng chính"
+    room_type: str = "other"
+    ceiling_height_mm: float = 2800.0
+    style: str = "Modern"
     budget_limit_vnd: float = 120000000.0
     scale_calibrated: bool = False
     workflow_id: Optional[str] = None
@@ -304,6 +328,77 @@ def api_initialize_native_project(body: InitializeNativeProjectPayload):
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+class EnsureIssueScenePayload(BaseModel):
+    company_id: str
+    title: str = ""
+    brief: str = ""
+    native_project_id: Optional[str] = None
+    # Chỉ khi người dùng CHỦ ĐỘNG chọn "Tiếp tục dự án: ..." mới truyền; mặc định là dự án mới.
+    continue_scene_id: Optional[str] = None
+
+
+_ISSUE_SCENE_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+@app.get("/api/v1/issues/{issue_id}/scene")
+def api_get_issue_scene(issue_id: str):
+    """Scene của đúng task này. Chưa có link thì 404: không bao giờ fallback sang dự án khác."""
+    link = get_issue_scene_link(issue_id)
+    if not link:
+        raise HTTPException(status_code=404, detail="Task này chưa có dự án nội thất")
+    return link
+
+
+@app.post("/api/v1/issues/{issue_id}/scene")
+async def api_ensure_issue_scene(issue_id: str, body: EnsureIssueScenePayload):
+    """Idempotent: mỗi task có đúng 1 scene canonical sạch (hoặc scene được chọn tường minh)."""
+    lock = _ISSUE_SCENE_LOCKS.setdefault(issue_id, asyncio.Lock())
+    async with lock:
+        existing = get_issue_scene_link(issue_id)
+        if existing:
+            if existing["company_id"] != body.company_id:
+                raise HTTPException(status_code=409, detail="Task thuộc công ty khác")
+            return {**existing, "created": False}
+        if body.continue_scene_id:
+            if not get_project(body.continue_scene_id):
+                raise HTTPException(status_code=404, detail="Không tìm thấy dự án để tiếp tục")
+            link = link_issue_to_scene(issue_id, body.company_id, body.continue_scene_id, body.native_project_id, "continued")
+            return {**link, "created": False}
+        if body.native_project_id:
+            workspace = get_native_project_workspace(body.native_project_id)
+            if workspace and workspace.company_id != body.company_id:
+                raise HTTPException(status_code=409, detail="Native project belongs to another company")
+            candidates = [scene for scene in (workspace.scenes if workspace else []) if not scene.archived and not scene.is_fixture]
+            if len(candidates) == 1:
+                link = link_issue_to_scene(issue_id, body.company_id, candidates[0].scene_id, body.native_project_id, "continued")
+                return {**link, "created": False}
+            if len(candidates) > 1:
+                raise HTTPException(status_code=409, detail="Choose the canonical scene explicitly")
+        scene_id = f"proj_{uuid.uuid4().hex[:8]}"
+        name = (body.title or "").strip()[:120] or "Dự án nội thất mới"
+        _brief_text = (body.brief or body.title or "").strip()
+        scene = build_clean_task_scene(scene_id, name, _brief_text[:2000])
+        # Parse area from brief/title for default room size (e.g. "107m2" → ~10350×10350mm)
+        import re as _re_iss
+        _m = _re_iss.search(r'(\d+)\s*m2?\b', _brief_text.lower().replace('²','2'))
+        _area = float(_m.group(1)) if _m else 20.0
+        _side = int((_area ** 0.5) * 1000)
+        if scene.rooms:
+            scene.rooms[0].polygon_mm = [[0,0],[_side,0],[_side,_side],[0,_side],[0,0]]
+        # A concept rectangle is not verified source geometry.
+        scene.scale_calibrated = False
+        sync_res = await sync_canonical_to_pascal(scene)
+        if sync_res.get("ok") and sync_res.get("sceneJson"):
+            scene.pascal_scene_json = sync_res["sceneJson"]
+        saved = save_project(scene, author="System", reason="Khởi tạo dự án mới cho task", bump_revision=False)
+        try:
+            bind_project_workflow(saved.project_id, "wf_default_interior_pipeline")
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        link = link_issue_to_scene(issue_id, body.company_id, saved.project_id, body.native_project_id, "new")
+        return {**link, "created": True}
 
 
 @app.get("/api/v1/native-projects/{native_project_id}/workspace", response_model=AtelierProjectWorkspace)
@@ -343,9 +438,31 @@ def api_audit_legacy_scenes():
     return audit_legacy_scenes()
 
 
+class ProjectVisibilityPayload(BaseModel):
+    hidden: bool
+    reason: Optional[str] = None
+
+
 @app.get("/api/v1/projects")
-def api_list_projects(include_fixtures: bool = True):
-    return [p.model_dump() for p in list_projects(include_fixtures=include_fixtures)]
+def api_list_projects(include_fixtures: bool = True, include_hidden: bool = False):
+    hidden_ids = get_hidden_project_ids()
+    rows = []
+    for p in list_projects(include_fixtures=include_fixtures):
+        is_hidden = p.project_id in hidden_ids
+        if is_hidden and not include_hidden:
+            continue
+        item = p.model_dump()
+        item["hidden"] = is_hidden
+        rows.append(item)
+    return rows
+
+
+@app.put("/api/v1/projects/{project_id}/visibility")
+def api_set_project_visibility(project_id: str, body: ProjectVisibilityPayload):
+    if get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy dự án: {project_id}")
+    set_project_visibility(project_id, body.hidden, body.reason)
+    return {"project_id": project_id, "hidden": body.hidden}
 
 
 @app.post("/api/v1/projects")
@@ -372,11 +489,16 @@ async def api_create_project(body: CreateProjectPayload):
     w = body.width_mm
     d = body.depth_mm
     if base.rooms:
+        base.rooms[0].name = body.room_name.strip() or "Phòng chính"
+        base.rooms[0].room_type = body.room_type.strip() or "other"
+        base.rooms[0].ceiling_height_mm = body.ceiling_height_mm
         base.rooms[0].polygon_mm = [[0.0, 0.0], [w, 0.0], [w, d], [0.0, d]]
     base.walls[0].start_mm, base.walls[0].end_mm = [0.0, 0.0], [w, 0.0]
     base.walls[1].start_mm, base.walls[1].end_mm = [w, 0.0], [w, d]
     base.walls[2].start_mm, base.walls[2].end_mm = [w, d], [0.0, d]
     base.walls[3].start_mm, base.walls[3].end_mm = [0.0, d], [0.0, 0.0]
+    for wall in base.walls:
+        wall.height_mm = body.ceiling_height_mm
 
     sync_res = await sync_canonical_to_pascal(base)
     if sync_res.get("ok") and sync_res.get("sceneJson"):
@@ -424,6 +546,37 @@ async def api_update_scene(project_id: str, updated: CanonicalProject):
     if sync_res.get("ok") and sync_res.get("sceneJson"):
         updated.pascal_scene_json = sync_res["sceneJson"]
     saved = save_project(updated, author="Studio Workspace", reason="Cập nhật trực tiếp trên Canvas 2D/3D", bump_revision=True)
+    return saved.model_dump()
+
+
+class ExternalSceneLinkPayload(BaseModel):
+    base_revision: int
+    external_scene: ExternalSceneAsset
+    reason: str = "Link authoritative whole-scene GLB"
+
+
+@app.put("/api/v1/projects/{project_id}/external-scene")
+def api_link_external_scene(project_id: str, body: ExternalSceneLinkPayload):
+    """Revision-checked metadata-only link to an immutable source GLB.
+
+    This deliberately avoids rewriting legacy generated furniture/measurements;
+    the whole-scene asset is the visual source of truth while semantic overlays
+    remain available for QA and estimating.
+    """
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Canonical scene not found")
+    if proj.revision != body.base_revision:
+        raise HTTPException(status_code=409, detail={"reason": "revision_mismatch", "current_revision": proj.revision})
+    source = Path(body.external_scene.source_path or "").resolve()
+    allowed_root = (ASSET_ROOT / "scenes").resolve()
+    if allowed_root not in source.parents or not source.is_file():
+        raise HTTPException(status_code=422, detail="external_scene source must be a staged scene GLB")
+    if hashlib.sha256(source.read_bytes()).hexdigest().upper() != body.external_scene.sha256.upper():
+        raise HTTPException(status_code=422, detail="external_scene checksum mismatch")
+    proj.external_scene = body.external_scene
+    proj.estimate_snapshot = None
+    saved = save_project(proj, author="Whole-scene GLB linker", reason=body.reason, bump_revision=True)
     return saved.model_dump()
 
 
@@ -688,7 +841,7 @@ async def api_import_floorplan(
 # CONVERSATIONAL DESIGN CONCIERGE, QUESTIONS & PROPOSALS
 # ==============================================================================
 class ChatMessagePayload(BaseModel):
-    project_id: str = "proj_demo_4x5m"
+    project_id: Optional[str] = None
     message: str
     workflow_id: Optional[str] = None
     native_tasks: Optional[bool] = None
@@ -774,15 +927,21 @@ def api_get_project_workflow_events(
     )
 
 
+# Strong references to background workflow tasks so GC doesn't collect them early.
+_BG_WORKFLOW_TASKS: set = set()
+
+
 @app.post("/api/v1/chat/messages")
 @app.post("/api/v1/projects/{project_id}/chat/messages")
-async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[str] = None):
+async def api_send_chat_message(body: ChatMessagePayload, background_tasks: BackgroundTasks, project_id: Optional[str] = None):
     pid = project_id or body.project_id
     try:
         native_tasks = resolve_chat_native_tasks(
             project_scoped=project_id is not None,
             requested=body.native_tasks,
         )
+        if os.getenv("ATELIER_REQUIRE_ACTOR_CONTEXT") == "1" and native_tasks:
+            raise HTTPException(status_code=409, detail="Paperclip owns native task dispatch. Send project feedback through its bridge or start a project intake.")
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     
@@ -806,9 +965,33 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
                 "task": task,
             }
 
-    project = get_project(pid)
+    project = get_project(pid) if pid else None
     if not project:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dự án Studio cho tin nhắn này")
+        # FEAT-2026-132: Chief auto-creates a project for a new design request
+        # that arrives without any project (e.g. Paperclip task ATL-70).
+        _design_keywords = ("thiết kế", "thiet ke", "mặt bằng", "mat bang", "phòng", "phong", "nhà", "nha", "căn hộ", "can ho", "nội thất", "noi that", "design", "room", "floor plan", "apartment", "interior")
+        _lower = body.message.lower()
+        _is_design_task = any(kw in _lower for kw in _design_keywords)
+        if pid or not _is_design_task:
+            raise HTTPException(status_code=404, detail="Không tìm thấy dự án Studio cho tin nhắn này")
+        pid = f"proj_{uuid.uuid4().hex[:8]}"
+        _brief = body.message.strip()
+        _name = _brief[:60].rstrip() or "Dự án mới"
+        _scene = build_clean_task_scene(pid, _name, _brief[:2000])
+        # Parse area from brief to set default room size (e.g. "107m2" → 10350×10350mm)
+        import re as _re
+        _area_match = _re.search(r'(\d+)\s*m2?\b', _brief.lower().replace('²','2'))
+        _area_m2 = float(_area_match.group(1)) if _area_match else 20.0
+        _side_mm = int((_area_m2 ** 0.5) * 1000)
+        if _scene.rooms:
+            _scene.rooms[0].polygon_mm = [[0,0],[_side_mm,0],[_side_mm,_side_mm],[0,_side_mm],[0,0]]
+        # Mark scale inferred from brief so workflow can run in concept mode
+        _scene.scale_calibrated = True
+        project = save_project(_scene, author="Chief Auto-Create", reason="Auto-created from task without project", bump_revision=False)
+        try:
+            bind_project_workflow(pid, "wf_default_interior_pipeline")
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
     user_message_id = f"msg_{uuid.uuid4().hex[:10]}"
     conn = get_conn()
     conn.execute(
@@ -822,14 +1005,27 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
         selected_workflow_id = body.workflow_id or get_project_workflow_id(pid)
         if not selected_workflow_id:
             raise HTTPException(status_code=409, detail="Project chưa được gắn workflow đã publish")
-        run = await execute_real_workflow_run(
-            selected_workflow_id, pid, user_message_id=user_message_id, user_text=body.message,
-            native_tasks=native_tasks,
+        # Pre-generate run_id so we can return immediately while agents run in background
+        pre_run_id = f"run_{uuid.uuid4().hex[:10]}"
+        # Use FastAPI BackgroundTasks (runs after response is sent, not cancelled by request scope)
+        background_tasks.add_task(
+            execute_real_workflow_run,
+            selected_workflow_id, pid,
+            user_message_id=user_message_id, user_text=body.message,
+            native_tasks=native_tasks, run_id_override=pre_run_id,
         )
+        run = {
+            "run_id": pre_run_id, "status": "RUNNING",
+            "scene_revision": project.revision if project else 1,
+            "events": [], "project_id": pid,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     legacy_metadata: Dict[str, Any] = {}
-    if not native_tasks:
+    # Skip legacy orchestrator when workflow is running in background — the
+    # workflow DAG already handles all agent work and we return immediately.
+    _skip_legacy = run.get("status") == "RUNNING"
+    if not native_tasks and not _skip_legacy:
         # Preserve the existing Questions/Approval response contract for the
         # legacy UI. Native mode deliberately skips this local handler so a
         # Chief-side compatibility response cannot masquerade as agent work.
@@ -855,7 +1051,7 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
     for key in ("question", "question_request", "proposal", "proposal_id", "spatial_qa", "invalidated_nodes"):
         if key in legacy_metadata:
             metadata[key] = legacy_metadata[key]
-    if run["status"] == "WAITING_FOR_INPUT":
+    if run["status"] in {"WAITING_FOR_INPUT", "BLOCKED", "FAILED"}:
         question_row = conn.execute(
             "SELECT payload_json FROM questions WHERE project_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
             (pid,),
@@ -863,15 +1059,36 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
         if question_row:
             metadata["question"] = json.loads(question_row["payload_json"])
         else:
+            if run["status"] == "WAITING_FOR_INPUT":
+                q_text = "Chiều dài thực tế của một cạnh tường chuẩn là bao nhiêu milimet?"
+                q_context = "Bản vẽ mặt bằng hiện tại chưa có thông số tỷ lệ chuẩn (mm/px)."
+                q_why = "Cần ít nhất một cạnh chuẩn để giữ đúng kích thước khi dựng 3D."
+                q_choices = [QuestionChoice(id="scale_4000", label="4,000 mm (4.0 mét)")]
+                q_origin = "agent_floorplan"
+            else:
+                # BLOCKED / FAILED: surface the first blocked node's error so the user can decide
+                blocked_event = next(
+                    (e for e in run.get("events", []) if e.get("status") in {"BLOCKED", "FAILED"}),
+                    None,
+                )
+                block_reason = (blocked_event or {}).get("output_summary") or "Một hoặc nhiều bước xử lý gặp lỗi."
+                q_text = f"Workflow bị dừng: {block_reason} Bạn muốn thử lại, bỏ qua bước này, hay cần hỗ trợ thêm?"
+                q_context = block_reason
+                q_why = "Cần xác nhận từ bạn trước khi workflow tiếp tục."
+                q_choices = [
+                    QuestionChoice(id="retry", label="Thử lại"),
+                    QuestionChoice(id="skip", label="Bỏ qua bước lỗi"),
+                ]
+                q_origin = "agent_orchestrator"
             question = QuestionRequest(
                 question_id=f"q_{uuid.uuid4().hex[:10]}",
                 project_id=pid,
                 run_id=run["run_id"],
-                origin_agent="agent_floorplan",
-                context="Bản vẽ mặt bằng hiện tại chưa có thông số tỷ lệ chuẩn (mm/px).",
-                question_text="Chiều dài thực tế của một cạnh tường chuẩn là bao nhiêu milimet?",
-                why_needed="Cần ít nhất một cạnh chuẩn để giữ đúng kích thước khi dựng 3D.",
-                choices=[QuestionChoice(id="scale_4000", label="4,000 mm (4.0 mét)")],
+                origin_agent=q_origin,
+                context=q_context,
+                question_text=q_text,
+                why_needed=q_why,
+                choices=q_choices,
                 blocking=True,
                 resume_token=f"resume_{uuid.uuid4().hex[:8]}",
                 status="PENDING",
@@ -892,8 +1109,9 @@ async def api_send_chat_message(body: ChatMessagePayload, project_id: Optional[s
     try:
         from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
         sync_workflow_run_to_chat(run["run_id"], project_id=pid)
-    except Exception:
-        pass
+    except Exception as _sync_exc:
+        import logging as _log
+        _log.getLogger(__name__).warning("chat_sync failed for run %s: %s", run["run_id"], _sync_exc)
     return {
         "user_message_id": user_message_id,
         "assistant_message_id": assistant_message_id,
@@ -1179,6 +1397,8 @@ def api_update_workflow(workflow_id: str, wf_payload: Dict[str, Any]):
 
 @app.post("/api/v1/workflows/{workflow_id}/runs")
 async def api_start_workflow_run(workflow_id: str, project_id: str = "proj_demo_4x5m", native_tasks: bool = False):
+    if os.getenv("ATELIER_REQUIRE_ACTOR_CONTEXT") == "1":
+        raise HTTPException(status_code=409, detail="Paperclip owns delivery orchestration. Start through /api/companies/{companyId}/atelier/project-intakes; do not start a second sidecar run.")
     try:
         return await execute_real_workflow_run(workflow_id, project_id, native_tasks=native_tasks)
     except ValueError as exc:
@@ -1252,6 +1472,88 @@ async def api_sync_native_workflow_run(run_id: str):
         return await sync_native_workflow_run(run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/runs/{run_id}/unblock")
+async def api_unblock_run(run_id: str, force_abandon: bool = False):
+    """Diagnose and optionally abandon a run stuck in process_identity_missing state.
+
+    Without force_abandon=true: returns diagnostic info and instructions — does NOT
+    cancel the Paperclip issue, so Retry remains possible once Paperclip cleanup
+    completes (auto-resolves in 5-15 min, or restart Paperclip to force it).
+
+    With force_abandon=true: marks the run ABANDONED in local DB only. Does NOT
+    cancel the Paperclip issue (which would permanently block retry). The user
+    should send a new message in Paperclip after Paperclip's cleanup completes.
+    """
+    from app.services.paperclip_task_adapter import get_native_task, PaperclipTaskError
+    conn = get_conn()
+    run = conn.execute("SELECT * FROM workflow_runs WHERE run_id = ?", (run_id,)).fetchone()
+    rows = conn.execute(
+        "SELECT task_id, status, native_agent_id FROM workflow_native_tasks WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+    conn.close()
+
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy workflow run: {run_id}")
+
+    # Fetch current Paperclip status for each task (non-fatal)
+    task_states = []
+    for row in rows:
+        try:
+            native = get_native_task(row["task_id"])
+            task_states.append({
+                "task_id": row["task_id"],
+                "local_status": row["status"],
+                "paperclip_status": native.get("status"),
+                "execution_state": native.get("executionState"),
+            })
+        except PaperclipTaskError as exc:
+            task_states.append({"task_id": row["task_id"], "local_status": row["status"], "error": str(exc)})
+
+    stuck_tasks = [t for t in task_states if t.get("paperclip_status") not in ("done", "cancelled", None)]
+
+    if force_abandon:
+        # Mark ABANDONED locally only — do NOT cancel the Paperclip issue.
+        # Cancelling the Paperclip issue permanently blocks retry via task-retry.ts check.
+        conn = get_conn()
+        conn.execute(
+            "UPDATE workflow_runs SET status = 'ABANDONED', updated_at = ? WHERE run_id = ?",
+            (now_iso(), run_id),
+        )
+        conn.commit()
+        conn.close()
+        return {
+            "run_id": run_id,
+            "action": "abandoned",
+            "note": (
+                "Run đã được đánh dấu ABANDONED trong local DB. "
+                "Paperclip issues KHÔNG bị cancel (để tránh block retry). "
+                "Sau khi Paperclip hoàn thành cleanup (5-15 phút hoặc restart Paperclip), "
+                "bạn có thể gửi tin nhắn mới trong Paperclip."
+            ),
+            "tasks": task_states,
+        }
+
+    # Diagnostic-only response
+    cleanup_pending = any(
+        t.get("paperclip_status") not in ("done", "cancelled") for t in task_states
+    )
+    return {
+        "run_id": run_id,
+        "run_status": dict(run)["status"] if run else None,
+        "action": "diagnostic",
+        "cleanup_pending": cleanup_pending,
+        "stuck_task_count": len(stuck_tasks),
+        "tasks": task_states,
+        "resolution": (
+            "process_identity_missing tự giải quyết sau 5-15 phút khi Paperclip "
+            "xác nhận process cũ đã dừng. Để giải quyết ngay: restart Paperclip server. "
+            "Sau đó bấm Retry hoặc gửi tin nhắn mới. "
+            "Nếu muốn bỏ run này: gọi lại với ?force_abandon=true."
+        ),
+    }
 
 
 @app.get("/api/v1/runs/{run_id}/decisions")
@@ -1899,6 +2201,39 @@ def api_get_asset_file(asset_id: str):
     return FileResponse(path=str(path), filename=f"{asset_id}.glb", media_type="model/gltf-binary")
 
 
+@app.get("/api/v1/scene-assets/{asset_id}/file")
+def api_get_whole_scene_asset(asset_id: str):
+    """Serve an imported whole-scene GLB while preserving its hierarchy."""
+    safe_id = Path(asset_id).name
+    if safe_id != asset_id:
+        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
+    scene_root = (ASSET_ROOT / "scenes" / safe_id).resolve()
+    scenes_root = (ASSET_ROOT / "scenes").resolve()
+    if scenes_root not in scene_root.parents or not scene_root.is_dir():
+        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
+    candidates = sorted(scene_root.glob("*.glb"))
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
+    return FileResponse(
+        path=str(candidates[0]),
+        filename=candidates[0].name,
+        media_type="model/gltf-binary",
+    )
+
+
+@app.get("/api/v1/scene-assets/{asset_id}/audit")
+def api_get_whole_scene_audit(asset_id: str):
+    """Return the persisted audit metadata for an imported whole scene."""
+    safe_id = Path(asset_id).name
+    if safe_id != asset_id:
+        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
+    audit_path = (ASSET_ROOT / "scenes" / safe_id / "audit.json").resolve()
+    scenes_root = (ASSET_ROOT / "scenes").resolve()
+    if scenes_root not in audit_path.parents or not audit_path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo scene")
+    return json.loads(audit_path.read_text(encoding="utf-8"))
+
+
 @app.get("/api/v1/assets/{asset_id}/material-structure")
 def api_get_asset_material_structure(asset_id: str):
     metadata = get_asset_metadata(asset_id)
@@ -2151,7 +2486,7 @@ class RetryRenderJobPayload(BaseModel):
     wait_for_completion: Optional[bool] = None
 
 
-VALID_RENDER_CAMERAS = {"dollhouse", "eye_level", "corner", "detail_sofa", "wide", "top", "cutaway", "walk", "orbit"}
+VALID_RENDER_CAMERAS = {"dollhouse", "eye_level", "corner", "detail_sofa", "wide", "top", "cutaway", "walk", "orbit", "tour", "walkthrough", "tham_quan", "door", "front", "perspective"}
 
 
 @app.get("/api/v1/render/capabilities")

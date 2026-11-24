@@ -54,7 +54,6 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
     """
     Runs deterministic collision, door swing, and walkway clearance checks.
     """
-    r_min_x, r_min_y, r_max_x, r_max_y = get_room_bounds_mm(project)
     collisions: List[str] = []
     boundary_violations: List[str] = []
     door_swing_warnings: List[str] = []
@@ -63,8 +62,17 @@ def analyze_scene_spatial_quality(project: CanonicalProject) -> Dict[str, Any]:
     items = project.furniture_instances
     boxes = {f.id: get_oriented_bbox_mm(f) for f in items}
 
-    # 1. Room boundary check
+    # 1. Room boundary check. Multi-zone projects must validate each item
+    # against its assigned room; using rooms[0] marks every downstream zone as
+    # outside the scene even when the add-furniture gate accepted it.
+    room_bounds = {}
+    for room in project.rooms:
+        if room.polygon_mm:
+            xs = [point[0] for point in room.polygon_mm]
+            ys = [point[1] for point in room.polygon_mm]
+            room_bounds[room.id] = (min(xs), min(ys), max(xs), max(ys))
     for f in items:
+        r_min_x, r_min_y, r_max_x, r_max_y = room_bounds.get(f.room_id, get_room_bounds_mm(project))
         bx0, by0, bx1, by1 = boxes[f.id]
         if bx0 < r_min_x - 20 or by0 < r_min_y - 20 or bx1 > r_max_x + 20 or by1 > r_max_y + 20:
             boundary_violations.append(

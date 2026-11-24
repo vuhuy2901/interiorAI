@@ -36,8 +36,8 @@ def validate_furniture_measurements(item: FurnitureInstance) -> List[Dict[str, A
     issues: List[Dict[str, Any]] = []
     if not item.category.strip():
         issues.append(_issue("MISSING_CATEGORY", "Furniture category is required.", entity_id=item.id))
-    if not item.pascal_asset_id.strip():
-        issues.append(_issue("MISSING_ASSET", "Furniture asset identity is required.", entity_id=item.id))
+    if item.pascal_asset_id is not None and not item.pascal_asset_id.strip():
+        issues.append(_issue("MISSING_ASSET", "Furniture asset identity is required (non-empty if provided).", entity_id=item.id))
     if item.legacy_flags:
         issues.append(_issue(
             "LEGACY_DEFAULT_REVIEW_REQUIRED",

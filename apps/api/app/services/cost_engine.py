@@ -312,7 +312,9 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
     )
     furniture_sub = sum(l.subtotal_vnd for l in lines if l.category == "furniture")
     labor_sub = sum(l.subtotal_vnd for l in lines if l.category == "labor")
-    shipping = 1500000.0 if (materials_sub + furniture_sub) > 0 else 0.0
+    # Location and delivery are outside the default estimate. The Cost/BOM
+    # agent must not ask the user for an address just to produce a proposal.
+    shipping = 0.0
     pre_tax = materials_sub + furniture_sub + labor_sub + shipping
     tax_rate = 0.08
     tax_vnd = round(pre_tax * tax_rate)
@@ -365,5 +367,5 @@ def calculate_project_estimate(project: CanonicalProject) -> CostEstimateSnapsho
         budget_status=budget_status,
         budget_limit_vnd=budget_limit,
         within_budget=total_vnd <= budget_limit,
-        disclaimer=disclaimer,
+        disclaimer=disclaimer + " Vận chuyển/địa điểm giao: chưa bao gồm; không yêu cầu địa chỉ để lập dự toán.",
     )

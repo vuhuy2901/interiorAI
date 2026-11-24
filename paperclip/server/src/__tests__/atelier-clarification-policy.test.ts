@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assessAtelierBrief,
   buildAtelierAgentInstructions,
 } from "../services/atelier-clarification-policy.js";
 
 describe("Atelier clarification policy", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("blocks an underspecified interior request with at most three prioritized questions", () => {
     const result = assessAtelierBrief("Thiết kế cho tôi một phòng khách đẹp.");
     expect(result.status).toBe("needs_input");
@@ -30,7 +31,39 @@ describe("Atelier clarification policy", () => {
     expect(result.decisions.find((decision) => decision.key === "palette")?.state).toBe("proposal_requested");
   });
 
+  it("asks finishing questions (paint, floor, ceiling, lighting) with options, never more than three per turn", () => {
+    const result = assessAtelierBrief("Thiết kế phòng khách đẹp.");
+    expect(result.questions.length + result.finishQuestions.length).toBeLessThanOrEqual(3);
+    const ready = assessAtelierBrief(
+      "Thiết kế phòng khách cho gia đình 4 người, cần sofa, bàn trà và kệ TV; phong cách hiện đại, tông trắng kem, ngân sách 120 triệu VNĐ.",
+    );
+    expect(ready.status).toBe("ready");
+    expect(ready.finishQuestions).toHaveLength(3);
+    expect(ready.finishQuestions.map((q) => q.decision)).toEqual(["wall_paint", "floor_finish", "ceiling_finish"]);
+    for (const q of ready.finishQuestions) {
+      expect(q.options.length).toBeGreaterThanOrEqual(2);
+      expect(q.options).toContain("Tự nhập");
+    }
+  });
+
+  it("does not re-ask a finishing decision the user already stated", () => {
+    const result = assessAtelierBrief(
+      "Phòng khách hiện đại, sơn tường màu xám, sàn gạch porcelain, trần trắng, ánh sáng ấm, tông gỗ sồi, sofa, ngân sách 100 triệu.",
+    );
+    expect(result.finishQuestions).toHaveLength(0);
+  });
+
+  it("keeps Cost/BOM rules intact and makes Modern the Style default", () => {
+    vi.stubEnv("ATELIER_SPECIALIST_WORKFLOW_ENABLED", "false");
+    const cost = buildAtelierAgentInstructions({ agentKey: "agent_cost", agentName: "Cost", roleSummary: "Dự toán." });
+    expect(cost).toContain("Không hỏi người dùng file báo giá/catalog, địa chỉ");
+    const style = buildAtelierAgentInstructions({ agentKey: "agent_style", agentName: "Style", roleSummary: "Phong cách." });
+    expect(style).toContain("Hiện đại (Modern)");
+    expect(style).toContain("đề xuất, chờ bạn chọn");
+  });
+
   it("instructs specialists to stop rather than hand off assumptions", () => {
+    vi.stubEnv("ATELIER_SPECIALIST_WORKFLOW_ENABLED", "false");
     const instructions = buildAtelierAgentInstructions({
       agentKey: "agent_style",
       agentName: "Style & Materials Consultant",
@@ -43,6 +76,7 @@ describe("Atelier clarification policy", () => {
   });
 
   it("requires a durable recovery transition instead of a hand-back comment", () => {
+    vi.stubEnv("ATELIER_SPECIALIST_WORKFLOW_ENABLED", "false");
     const instructions = buildAtelierAgentInstructions({
       agentKey: "agent_geometry",
       agentName: "Geometry & BIM Specialist",
@@ -52,5 +86,13 @@ describe("Atelier clarification policy", () => {
     expect(instructions).toContain("recoveryIntent=status_only");
     expect(instructions).toContain("/recovery-actions/resolve");
     expect(instructions).toContain("sourceIssueStatus=todo");
+  });
+  it("defaults to specialist autonomy and real native task handoff", () => {
+    const instructions = buildAtelierAgentInstructions({ agentKey: "agent_concierge", agentName: "Chief", roleSummary: "Coordinate" });
+    expect(instructions).toContain("project-intakes");
+    expect(instructions).toContain("Never write geometry");
+    expect(instructions).toContain("Specialists decide reversible details");
+    expect(instructions).toContain("/complete");
+    expect(instructions).toContain("Never start a sidecar workflow");
   });
 });

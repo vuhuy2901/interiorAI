@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  activityLog,
   agents,
   atelierWorkflowEvents,
   atelierWorkflowRuns,
@@ -15,9 +16,14 @@ import {
 } from "@paperclipai/db";
 import { conflict, forbidden, unprocessable } from "../errors.js";
 import { issueService } from "./issues.js";
-import { assertAtelierNodeAssignment, upgradeLegacyAtelierDefinition } from "./atelier-workflow-builder.js";
+import { assertAtelierNodeAssignment, resolveActiveAtelierWorkflowName, upgradeLegacyAtelierDefinition } from "./atelier-workflow-builder.js";
+import { readDeliverySnapshot, specialistDeliveryView } from "./atelier-specialist-delivery.js";
 
-export const ATELIER_COMPANY_ID = "b2e1c8a5-c3c9-412c-99cb-63180c4015dc";
+// The local Paperclip database uses the ATL company created by the current
+// bootstrap. Keep this in sync with the persisted company rather than the
+// retired seed UUID; otherwise project reconciliation is rejected before it
+// can create or resume the workflow stages.
+export const ATELIER_COMPANY_ID = "0873a79a-62ba-4bc3-9f2d-9277b4b6c6ed";
 export const ATELIER_COMPANY_WORKFLOW_NAME = "Atelier Company Workflow";
 export const ATELIER_COMPANY_WORKFLOW_VERSION = 1;
 export const ATELIER_COMPANY_WORKFLOW_ORIGIN = `atelier-company-workflow:v${ATELIER_COMPANY_WORKFLOW_VERSION}`;
@@ -71,10 +77,10 @@ export const ATELIER_CANONICAL_STAGES: readonly AtelierCanonicalStage[] = [
   },
   {
     key: "lighting",
-    label: "Lighting / Visualization",
-    agentKey: "agent_ceiling_lighting",
+    label: "Render / Visualization",
+    agentKey: "agent_render",
     dependsOn: ["furniture", "style"],
-    description: "Thiết kế chiếu sáng và visualization dựa trên layout/vật liệu đã gate.",
+    description: "Inspect canonical scene, design lighting, run Blender Cycles render pipeline và publish gallery artifacts.",
     requiredInputs: ["furniture_handoff", "style_handoff"],
     gate: { decisionLedger: true, outputReferences: true, approval: false },
   },
@@ -195,13 +201,24 @@ async function findAgents(db: Db, companyId: string) {
 
 export async function ensureAtelierCompanyWorkflowDefinition(db: Db, companyId: string, createdByAgentId?: string | null) {
   validateCanonicalGraph(ATELIER_CANONICAL_STAGES);
-  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`atelier-definition:${companyId}:${ATELIER_COMPANY_WORKFLOW_NAME}`}, 0))`);
+  // FEAT-2026-134: a company that selected a different workflow family runs
+  // that one instead; a company that never opted in keeps the historical
+  // hardcoded default name and auto-seed behavior below, unchanged.
+  const activeName = await resolveActiveAtelierWorkflowName(db, companyId);
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`atelier-definition:${companyId}:${activeName}`}, 0))`);
   const existing = await db.select().from(workflows).where(and(
     eq(workflows.companyId, companyId),
-    eq(workflows.name, ATELIER_COMPANY_WORKFLOW_NAME),
+    eq(workflows.name, activeName),
     eq(workflows.status, "published"),
   )).orderBy(desc(workflows.version)).then((rows) => rows[0] ?? null);
   if (existing) return existing;
+  if (activeName !== ATELIER_COMPANY_WORKFLOW_NAME) {
+    // The company explicitly selected this family; it must already have a
+    // published version (selectAtelierWorkflowFamily enforces this at
+    // selection time), so reaching here means the row was removed out of
+    // band. Do not silently fall back to seeding the unrelated default.
+    throw conflict("Selected workflow family has no published version", { code: "workflow_family_not_publishable" });
+  }
   return db.insert(workflows).values({
     companyId,
     name: ATELIER_COMPANY_WORKFLOW_NAME,
@@ -236,6 +253,21 @@ async function findReusableRoot(db: Db, companyId: string, projectId: string) {
       issue.identifier === "ATL-26"
     )
   ) ?? null;
+}
+
+async function findProjectSourceIssue(db: Db, companyId: string, projectId: string) {
+  const activity = await db.select({ details: activityLog.details }).from(activityLog).where(and(
+    eq(activityLog.companyId, companyId),
+    eq(activityLog.action, "project.created"),
+    eq(activityLog.entityType, "project"),
+    eq(activityLog.entityId, projectId),
+  )).orderBy(desc(activityLog.createdAt)).then((rows) => rows[0] ?? null);
+  const sourceIssueId = activity?.details?.sourceIssueId;
+  if (typeof sourceIssueId !== "string" || !sourceIssueId) return null;
+  return db.select().from(issues).where(and(
+    eq(issues.companyId, companyId),
+    eq(issues.id, sourceIssueId),
+  )).then((rows) => rows[0] ?? null);
 }
 
 function stageOriginId(projectId: string, stageKey: string) {
@@ -275,9 +307,12 @@ async function findReusableStage(existing: Array<typeof issues.$inferSelect>, pr
 export async function ensureAtelierProjectWorkflow(db: Db, input: {
   companyId: string;
   projectId: string;
+  rootIssueId?: string | null;
   chiefAgentId?: string | null;
   agentIdsByKey?: Record<string, string>;
 }): Promise<AtelierProjectWorkflowView> {
+  const retained = await db.select().from(atelierWorkflowRuns).where(and(eq(atelierWorkflowRuns.companyId, input.companyId), eq(atelierWorkflowRuns.projectId, input.projectId))).orderBy(asc(atelierWorkflowRuns.createdAt)).then(rows => rows[0]);
+  if (retained && readDeliverySnapshot(retained.decisionLedger)) return specialistDeliveryView(db, input.companyId, retained.id);
   if (input.companyId !== ATELIER_COMPANY_ID) throw forbidden("Atelier canonical workflow is not enabled for this company");
   return db.transaction(async (rawTx) => {
     const tx = rawTx as unknown as Db;
@@ -289,12 +324,31 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
     if (!chiefAgentId) throw unprocessable("Atelier Chief Architect agent is unavailable");
     const agentIds = { ...foundAgents.byKey, ...(input.agentIdsByKey ?? {}) };
     for (const stage of ATELIER_CANONICAL_STAGES) if (!agentIds[stage.agentKey]) throw unprocessable(`Atelier agent ${stage.agentKey} is unavailable`);
-    const definition = await ensureAtelierCompanyWorkflowDefinition(tx, input.companyId, chiefAgentId);
+    const definition = retained
+      ? (await tx.select().from(workflows).where(eq(workflows.id, retained.workflowDefinitionId)))[0]!
+      : await ensureAtelierCompanyWorkflowDefinition(tx, input.companyId, chiefAgentId);
     const editableDefinition = upgradeLegacyAtelierDefinition(definition.definition, definition.version, definition.name);
-    const existingIssues = await tx.select().from(issues).where(and(eq(issues.companyId, input.companyId), eq(issues.projectId, input.projectId)));
-    let root = await findReusableRoot(tx, input.companyId, input.projectId);
     const goalId = await projectGoalId(tx, input.companyId, project);
     const svc = issueService(tx);
+    const explicitRoot = input.rootIssueId
+      ? await tx.select().from(issues).where(and(
+          eq(issues.companyId, input.companyId),
+          eq(issues.id, input.rootIssueId),
+        )).then((rows) => rows[0] ?? null)
+      : null;
+    if (input.rootIssueId && !explicitRoot) throw unprocessable("Atelier workflow root issue does not belong to this company");
+    const sourceRoot = explicitRoot ?? await findProjectSourceIssue(tx, input.companyId, input.projectId);
+    if (sourceRoot?.projectId && sourceRoot.projectId !== input.projectId) {
+      throw conflict("The project source task already belongs to a different project");
+    }
+    let root = sourceRoot ?? await findReusableRoot(tx, input.companyId, input.projectId);
+    if (root && (root.projectId !== input.projectId || (!root.goalId && goalId))) {
+      root = await svc.update(root.id, {
+        companyGuard: input.companyId,
+        projectId: input.projectId,
+        ...(!root.goalId && goalId ? { goalId } : {}),
+      }) ?? root;
+    }
     if (!root) {
       root = await svc.create(input.companyId, {
         projectId: input.projectId,
@@ -312,6 +366,7 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
         allowDuplicate: false,
       });
     }
+    const existingIssues = await tx.select().from(issues).where(and(eq(issues.companyId, input.companyId), eq(issues.projectId, input.projectId)));
     let run = await tx.select().from(atelierWorkflowRuns).where(and(
       eq(atelierWorkflowRuns.companyId, input.companyId), eq(atelierWorkflowRuns.projectId, input.projectId),
       eq(atelierWorkflowRuns.workflowDefinitionId, definition.id), eq(atelierWorkflowRuns.workflowVersion, definition.version),
@@ -327,7 +382,7 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
         status: specialBrief ? "needs_input" : "pending",
         decisionLedger: specialBrief ? { briefRequirements: specialBrief } : {},
       }).returning().then((rows) => rows[0]!);
-    } else if (!run.rootIssueId || (specialBrief && Object.keys(run.decisionLedger ?? {}).length === 0)) {
+    } else if (run.rootIssueId !== root.id || (specialBrief && Object.keys(run.decisionLedger ?? {}).length === 0)) {
       run = await tx.update(atelierWorkflowRuns).set({
         rootIssueId: root.id,
         ...(specialBrief && Object.keys(run.decisionLedger ?? {}).length === 0 ? { status: "needs_input" as const, decisionLedger: { briefRequirements: specialBrief } } : {}),
@@ -339,6 +394,20 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
       const workflowNode = editableDefinition.nodes.find((node) => node.id === stage.key);
       if (!workflowNode) throw unprocessable(`Workflow node ${stage.key} is missing from definition v${definition.version}`);
       const assignedAgentId = agentIds[stage.agentKey];
+      const assignedAgent = await tx.select({ id: agents.id, status: agents.status, errorReason: agents.errorReason })
+        .from(agents)
+        .where(eq(agents.id, assignedAgentId))
+        .then((rows) => rows[0] ?? null);
+      // A failed readiness check can leave the agent marked `error` even after
+      // the underlying workflow state is repaired. Clear only those two
+      // orchestration-generated errors; provider/auth errors remain visible.
+      if (assignedAgent?.status === "error" && [
+        "Agent assignment rejected by Atelier routing policy",
+        "Workflow node is not ready for execution",
+      ].includes(assignedAgent.errorReason ?? "")) {
+        await tx.update(agents).set({ status: "idle", errorReason: null, updatedAt: new Date() })
+          .where(eq(agents.id, assignedAgent.id));
+      }
       await assertAtelierNodeAssignment(tx, { companyId: input.companyId, node: workflowNode, agentId: assignedAgentId });
       const executionPolicy = {
         atelierWorkflow: {
@@ -350,7 +419,7 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
       };
       const existingStage = await findReusableStage(existingIssues, input.projectId, root.id, stage.key);
       const dependencyIds = stage.dependsOn.map((dependency) => stageIssues.get(dependency)?.id).filter((id): id is string => Boolean(id));
-      const stageIssue = existingStage ?? await svc.create(input.companyId, {
+      let stageIssue = existingStage ?? await svc.create(input.companyId, {
         projectId: input.projectId,
         goalId,
         parentId: root.id,
@@ -358,7 +427,7 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
         expectedParentId: root.id,
         title: `[ATELIER • ${stage.key}] ${stage.label}`,
         description: `${stage.description}\n\nRequired inputs: ${stage.requiredInputs.join(", ")}. Unknown technical or preference data must be reported as needs_input; do not infer or silently finalize.\n\nHandoff only through the canonical workflow and include decision ledger plus artifact/output references.`,
-        status: "backlog",
+        status: stage.dependsOn.length === 0 && !specialBrief ? "todo" : "backlog",
         priority: stage.key === "qa" || stage.key === "cost" ? "high" : "medium",
         assigneeAgentId: assignedAgentId,
         executionPolicy,
@@ -370,8 +439,26 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
         idempotencyKey: stageOriginId(input.projectId, stage.key),
         allowDuplicate: false,
       });
-      if (existingStage && JSON.stringify(existingStage.executionPolicy ?? {}) !== JSON.stringify(executionPolicy)) {
-        await svc.update(existingStage.id, { companyGuard: input.companyId, executionPolicy });
+      if (existingStage) {
+        const stagePatch: Partial<typeof issues.$inferInsert> & {
+          companyGuard: string;
+          parentDepthPolicy?: "allow_nested";
+          expectedParentId?: string;
+        } = { companyGuard: input.companyId };
+        if (existingStage.parentId !== root.id) {
+          stagePatch.parentId = root.id;
+          stagePatch.parentDepthPolicy = "allow_nested";
+          stagePatch.expectedParentId = root.id;
+        }
+        if (JSON.stringify(existingStage.executionPolicy ?? {}) !== JSON.stringify(executionPolicy)) {
+          stagePatch.executionPolicy = executionPolicy;
+        }
+        if (stage.dependsOn.length === 0 && !specialBrief && existingStage.status === "backlog") {
+          stagePatch.status = "todo";
+        }
+        if (Object.keys(stagePatch).length > 1) {
+          stageIssue = await svc.update(existingStage.id, stagePatch) ?? existingStage;
+        }
       }
       stageIssues.set(stage.key, stageIssue);
       const dependencyIssueRows = dependencyIds.length > 0 ? await tx.select().from(issues).where(inArray(issues.id, dependencyIds)) : [];
@@ -392,13 +479,38 @@ export async function ensureAtelierProjectWorkflow(db: Db, input: {
           status: derivedStatus,
           blockerReason: derivedStatus === "pending" ? `Waiting for: ${stage.dependsOn.join(", ") || "Chief intake"}` : derivedStatus === "needs_input" ? "Need verified electrical/AC data and user-confirmed finish preferences before execution." : null,
         });
-      } else if (current.issueId !== stageIssue.id || current.agentId !== assignedAgentId || (specialBrief && stage.key === "floorplan" && current.status === "pending")) {
+      } else if (
+        current.issueId !== stageIssue.id ||
+        current.agentId !== assignedAgentId ||
+        current.status !== derivedStatus ||
+        (specialBrief && stage.key === "floorplan" && current.status === "pending")
+      ) {
         await tx.update(atelierWorkflowStageExecutions).set({
           issueId: stageIssue.id,
           agentId: assignedAgentId,
-          ...(specialBrief && stage.key === "floorplan" && current.status === "pending" ? { status: "needs_input" as const, blockerReason: "Need verified electrical/AC data and user-confirmed finish preferences before execution." } : {}),
+          status: derivedStatus,
+          blockerReason: derivedStatus === "pending"
+            ? `Waiting for: ${stage.dependsOn.join(", ") || "Chief intake"}`
+            : derivedStatus === "needs_input"
+              ? "Need verified electrical/AC data and user-confirmed finish preferences before execution."
+              : null,
           updatedAt: new Date(),
         }).where(eq(atelierWorkflowStageExecutions.id, current.id));
+      }
+    }
+    if (sourceRoot) {
+      const obsoleteRoots = existingIssues.filter((issue) =>
+        issue.id !== root.id &&
+        issue.parentId === null &&
+        issue.hiddenAt === null &&
+        issue.originId?.startsWith(`${ATELIER_COMPANY_WORKFLOW_ORIGIN}:${input.projectId}:root`),
+      );
+      for (const obsoleteRoot of obsoleteRoots) {
+        await svc.update(obsoleteRoot.id, {
+          companyGuard: input.companyId,
+          status: "cancelled",
+          hiddenAt: new Date(),
+        });
       }
     }
     return getAtelierProjectWorkflowView(tx, input.companyId, input.projectId, run.id);
@@ -410,6 +522,7 @@ export async function getAtelierProjectWorkflowView(db: Db, companyId: string, p
     eq(atelierWorkflowRuns.companyId, companyId), eq(atelierWorkflowRuns.projectId, projectId), ...(runId ? [eq(atelierWorkflowRuns.id, runId)] : []),
   )).orderBy(asc(atelierWorkflowRuns.createdAt)).then((rows) => rows[0] ?? null);
   if (!run) throw unprocessable("Atelier workflow run not found for this project");
+  if (readDeliverySnapshot(run.decisionLedger)) return specialistDeliveryView(db, companyId, run.id);
   const stageRows = await db.select().from(atelierWorkflowStageExecutions).where(eq(atelierWorkflowStageExecutions.workflowRunId, run.id)).orderBy(asc(atelierWorkflowStageExecutions.createdAt));
   const issueIds = stageRows.map((row) => row.issueId).filter((id): id is string => Boolean(id));
   const issueRows = issueIds.length > 0 ? await db.select().from(issues).where(and(eq(issues.companyId, companyId), inArray(issues.id, issueIds))) : [];
@@ -464,6 +577,8 @@ export async function acceptAtelierStageHandoff(db: Db, input: {
   outputReferences: unknown;
   approvalReference?: unknown;
 }) {
+  const [deliveryRun] = await db.select().from(atelierWorkflowRuns).where(and(eq(atelierWorkflowRuns.id, input.workflowRunId), eq(atelierWorkflowRuns.companyId, input.companyId)));
+  if (deliveryRun && readDeliverySnapshot(deliveryRun.decisionLedger)) throw conflict("Use the specialist stage completion endpoint; downstream dispatch is automatic");
   if (input.companyId !== ATELIER_COMPANY_ID) throw forbidden("Atelier canonical workflow is not enabled for this company");
   const source = stageByKey(input.sourceStageKey);
   const target = stageByKey(input.targetStageKey);

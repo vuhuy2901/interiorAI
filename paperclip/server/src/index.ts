@@ -63,6 +63,7 @@ import { registerBudgetEnforcementWork, registerCostAccountingWork } from "./ser
 import { caseHandoffDeliveryService } from "./services/case-handoff-delivery.js";
 import { registerScheduledWork } from "./services/scheduled-work.js";
 import type { createDeliveryWorkCoordinator } from "./services/delivery-work-coordinator.js";
+import { atelierDeliveryDispatch } from "./services/atelier-delivery-dispatch.js";
 import { assertEphemeralServerConfig, assertEphemeralServerData } from "./services/ephemeral-server-contract.js";
 import { deploymentNotifications } from "./services/deployment-notifications.js";
 import { registerTerminalWorkspaceWork, TERMINAL_WORKSPACE_RETRY_MS } from "./services/terminal-workspace-work.js";
@@ -791,6 +792,9 @@ async function startServerWithDatabaseTeardown(
     port: requestedListenPort,
     hostname: config.host,
   });
+  if (process.env.PAPERCLIP_STRICT_PORT === "true" && listenPort !== requestedListenPort) {
+    throw new Error(`Paperclip port ${requestedListenPort} is already occupied; refusing to start a second control plane on ${listenPort}`);
+  }
   if (config.authBaseUrlMode === "explicit" && config.authPublicBaseUrl) {
     config.authPublicBaseUrl = rewriteLoopbackUrlPort(config.authPublicBaseUrl, listenPort);
   }
@@ -1395,6 +1399,12 @@ async function startServerWithDatabaseTeardown(
     cancelWorkForScope: accountingHeartbeat.cancelBudgetScopeWork,
   });
   const accountingWorker = registerCostAccountingWork(db, deliveryWork, accountingHeartbeat.reconcileCostAccounting);
+  const atelierDispatch = atelierDeliveryDispatch(db, environmentLeaseCleanupHeartbeat);
+  deliveryWork.register(DELIVERY_QUEUES.atelierDelivery, {
+    retryMs: 5_000,
+    run: signal => atelierDispatch.sweep(signal),
+    hasPending: () => atelierDispatch.hasPending(),
+  });
   server.on("close", accountingWorker.stop);
   skillSourceSync.start(deliveryWork);
   idleDeadlineOwners.skills = bindIdleDeadlineOwner(skillSourceSync.reconciliationSnapshot, readIdleSkillSourceSchedule,

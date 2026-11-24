@@ -50,6 +50,11 @@ const AtelierDesignStudioPage = lazy(() =>
     default: m.AtelierDesignStudioPage,
   })),
 );
+const AtelierOfficeSimulationPage = lazy(() =>
+  import("./features/atelier/AtelierOfficeSimulationPage").then((m) => ({
+    default: m.AtelierOfficeSimulationPage,
+  })),
+);
 const AtelierFloorPlanImportRoute = lazy(() =>
   import("./features/atelier/AtelierPages").then((m) => ({
     default: m.AtelierFloorPlanImportRoute,
@@ -58,6 +63,11 @@ const AtelierFloorPlanImportRoute = lazy(() =>
 const AtelierRenderCompareRoute = lazy(() =>
   import("./features/atelier/AtelierPhotorealRenderPage").then((m) => ({
     default: m.AtelierPhotorealRenderPage,
+  })),
+);
+const AtelierRenderGalleryRoute = lazy(() =>
+  import("./features/atelier/AtelierRenderGalleryPage").then((m) => ({
+    default: m.AtelierRenderGalleryPage,
   })),
 );
 const AtelierCostEstimationRoute = lazy(() =>
@@ -498,9 +508,12 @@ function boardRoutes(streamlinedUiEnabled: boolean, combinedInboxTasksEnabled: b
       <Route path="u/:userSlug" element={<UserProfile />} />
       <Route path="design-guide" element={<DesignGuide />} />
       <Route path="design-studio" element={<AtelierDesignStudioPage />} />
+      <Route path="office-3d" element={<AtelierOfficeSimulationPage />} />
+      <Route path="ai-office" element={<Navigate to="../office-3d" replace />} />
       <Route path="floorplan-import" element={<AtelierFloorPlanImportRoute />} />
       <Route path="materials-catalog" element={<Navigate to="../design-studio" replace />} />
       <Route path="render-compare" element={<AtelierRenderCompareRoute />} />
+      <Route path="render-gallery" element={<AtelierRenderGalleryRoute />} />
       <Route path="cost-estimation" element={<AtelierCostEstimationRoute />} />
       <Route path="inventory-bom" element={<AtelierInventoryBOMPage />} />
       <Route path="shopping-catalog" element={<AtelierShoppingCatalogRoute />} />
@@ -941,6 +954,8 @@ export function App() {
           <Route path="execution-workspaces/:workspaceId/issues" element={<UnprefixedExecutionWorkspaceRedirect />} />
           <Route path="execution-workspaces/:workspaceId/routines" element={<UnprefixedExecutionWorkspaceRedirect />} />
           <Route path="design-studio" element={<UnprefixedBoardRedirect />} />
+          <Route path="office-3d" element={<UnprefixedBoardRedirect />} />
+          <Route path="ai-office" element={<UnprefixedBoardRedirect />} />
           <Route path="floorplan-import" element={<UnprefixedBoardRedirect />} />
           <Route path="materials-catalog" element={<UnprefixedBoardRedirect />} />
           <Route path="render-compare" element={<UnprefixedBoardRedirect />} />
