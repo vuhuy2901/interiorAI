@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Save,
   Sliders,
+  Smartphone,
   Sun,
   Sunset,
   X,
@@ -24,6 +25,7 @@ import { commandEvent, constructionKey } from "./constructionHistory";
 import { ObjectInspector } from "./ObjectInspector";
 import { AIDesignAssistant } from "./AIDesignAssistant";
 import { RevisionHistoryDrawer } from "./RevisionHistoryDrawer";
+import { LocalPreviewModal } from "./LocalPreviewModal";
 
 const LazyStudioViewport = lazy(() =>
   import("./StudioViewport").then((mod) => ({ default: mod.StudioViewport })),
@@ -70,6 +72,7 @@ export function AtelierDesignStudioPage() {
   const viewportToRenderCam: Record<string, string> = { orbit: "wide", top: "top", walk: "tour" };
   const selectedRenderCam = viewportToRenderCam[cameraPreset] ?? "tour";
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
+  const [localPreviewOpen, setLocalPreviewOpen] = useState(false);
   const [cameraResetTrigger, setCameraResetTrigger] = useState(0);
   const [deliveryReplayTrigger, setDeliveryReplayTrigger] = useState(0);
   const [externalSceneObjects, setExternalSceneObjects] = useState<Array<{ id: string; name: string; parentName: string; dimensionsMm: [number, number, number] }>>([]);
@@ -282,6 +285,7 @@ export function AtelierDesignStudioPage() {
           <button type="button" className="btn btn-sm" onClick={() => setRevisionDrawerOpen(true)}><History size={13} /> Rev #{project?.revision || 0}</button>
           <button type="button" className="btn btn-sm" data-testid="export-dxf" onClick={() => void handleExport("dxf")}><Download size={13} /> DXF</button>
           <button type="button" className="btn btn-sm btn-primary" data-testid="export-glb" onClick={() => void handleExport("glb")}><Download size={13} /> GLB</button>
+          <button type="button" className="btn btn-sm btn-primary" data-testid="export-3d-link" disabled={!project} onClick={() => setLocalPreviewOpen(true)} title="Tạo link xem 3D trong mạng LAN cho điện thoại"><Smartphone size={13} /> Xuất link 3D</button>
         </div>
       </header>
 
@@ -469,6 +473,7 @@ export function AtelierDesignStudioPage() {
         </div>
       )}
 
+      <LocalPreviewModal isOpen={localPreviewOpen} onClose={() => setLocalPreviewOpen(false)} project={project} onSaveScene={handleSaveScene} busy={Boolean(busyMessage)} />
       <RevisionHistoryDrawer isOpen={revisionDrawerOpen} onClose={() => setRevisionDrawerOpen(false)} project={project ? { ...project, revisions } : project} onRestoreRevision={handleRestoreRevision} />
       {selectedEntity ? <span className="sr-only">Đang chọn {selectedEntity.name || selectedEntity.id}</span> : null}
     </div>

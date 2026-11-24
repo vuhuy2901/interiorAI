@@ -1,5 +1,5 @@
-import { db } from '../db';
-import { costEvents } from '../db/schema';
+import type { Db } from '@paperclipai/db';
+import { costEvents } from '@paperclipai/db';
 import { and, eq, gte, lte, sql, desc, asc } from 'drizzle-orm';
 
 export interface TokenSummary {
@@ -68,6 +68,7 @@ export interface AgentRunHistory {
 }
 
 export async function getCompanyTokenSummary(
+  db: Db,
   companyId: string,
   startDate: Date,
   endDate: Date
@@ -79,7 +80,7 @@ export async function getCompanyTokenSummary(
       totalOutput: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       runCount: sql<number>`COUNT(DISTINCT ${costEvents.id})`,
       agentCount: sql<number>`COUNT(DISTINCT ${costEvents.agentId})`,
-      totalCost: sql<string>`COALESCE(SUM(${costEvents.costCentsExact}), '0')`,
+      totalCost: sql<string>`COALESCE(SUM(${costEvents.costCents}), '0')`,
     })
     .from(costEvents)
     .where(
@@ -108,6 +109,7 @@ export async function getCompanyTokenSummary(
 }
 
 export async function getAgentTokenUsage(
+  db: Db,
   companyId: string,
   startDate: Date,
   endDate: Date
@@ -121,7 +123,7 @@ export async function getAgentTokenUsage(
       outputTokens: sql<number>`COALESCE(SUM(${costEvents.outputTokens}), 0)`,
       runCount: sql<number>`COUNT(*)`,
       lastActive: sql<Date>`MAX(${costEvents.occurredAt})`,
-      totalCost: sql<string>`COALESCE(SUM(${costEvents.costCentsExact}), '0')`,
+      totalCost: sql<string>`COALESCE(SUM(${costEvents.costCents}), '0')`,
     })
     .from(costEvents)
     .where(
@@ -150,6 +152,7 @@ export async function getAgentTokenUsage(
 }
 
 export async function getTokenUsageTimeseries(
+  db: Db,
   companyId: string,
   startDate: Date,
   endDate: Date,
@@ -184,6 +187,7 @@ export async function getTokenUsageTimeseries(
 }
 
 export async function getModelTokenBreakdown(
+  db: Db,
   companyId: string,
   startDate: Date,
   endDate: Date
@@ -220,6 +224,7 @@ export async function getModelTokenBreakdown(
 }
 
 export async function getProjectTokenUsage(
+  db: Db,
   companyId: string,
   startDate: Date,
   endDate: Date
@@ -254,6 +259,7 @@ export async function getProjectTokenUsage(
 }
 
 export async function getAgentRunTokenHistory(
+  db: Db,
   agentId: string,
   startDate: Date,
   endDate: Date,

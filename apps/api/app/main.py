@@ -1104,3 +1104,850 @@ def api_generate_blender_mesh(body: BlenderMeshPayload):
         output_glb_path=out_path,
     )
     return res
+
+
+# ==============================================================================
+# G1: LICENSED ASSET DISCOVERY, IMPORT, VALIDATION & SCENE ASSIGNMENT
+# ==============================================================================
+class AssetSearchPayload(BaseModel):
+    query: str
+    source: str = "poly_haven"
+    limit: int = 3
+    asset_type: str = "3d-model"
+
+
+class FurniMeshSearchPayload(BaseModel):
+    query: str = ""
+    category: Optional[str] = None
+    style: Optional[str] = None
+    color: Optional[str] = None
+    limit: int = 12
+    page: int = 1
+
+
+class FurniMeshModelPayload(BaseModel):
+    model_id: Optional[str] = None
+    detail_url: Optional[str] = None
+
+
+class FurniMeshCompatibilityPayload(FurniMeshModelPayload):
+    max_bytes: int = 300 * 1024 * 1024
+
+
+class PolyHavenImportPayload(BaseModel):
+    slug: str
+    resolution: str = "1k"
+    category: str = "furniture"
+    scene_object_id: Optional[str] = None
+
+
+class AssignAssetPayload(BaseModel):
+    asset_id: str
+
+
+class MaterialProposalPayload(BaseModel):
+    slot_id: str
+    material_id: str
+    material_version: int = 1
+    tint: Optional[str] = None
+    pbr: Dict[str, float | str] = {}
+
+
+class SmartResizePayload(BaseModel):
+    target_dimensions_mm: List[float]
+
+
+class PlacementProposalPayload(BaseModel):
+    x_mm: float
+    y_mm: float
+    rotation_deg: float = 0.0
+
+
+def _asset_error(exc: AssetPipelineError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v1/assets/search")
+def api_search_assets(body: AssetSearchPayload):
+    try:
+        if body.source not in {"poly_haven", "ambientcg", "sketchfab"}:
+            raise AssetPipelineError("Nguồn asset không được hỗ trợ")
+        results = search_assets(body.query, body.source, body.limit, body.asset_type)
+        return {"ok": True, "source": body.source, "results": [item.model_dump() for item in results]}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+# FurniMesh public library adapter.  These endpoints are deliberately
+# metadata/URL-only: no catalog sync and no download-to-disk operation.
+@app.post("/api/v1/furnimesh/search")
+def api_search_furnimesh(body: FurniMeshSearchPayload):
+    try:
+        results = search_furnimesh(**body.model_dump())
+        return {"ok": True, "source": "furnimesh", "results": [item.model_dump() for item in results]}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/details")
+def api_get_furnimesh_details(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, "model": get_furnimesh_details(**body.model_dump()).model_dump()}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/glb-url")
+def api_get_furnimesh_glb_url(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, **get_furnimesh_glb_url(**body.model_dump())}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/preview")
+def api_preview_furnimesh(body: FurniMeshModelPayload):
+    try:
+        return {"ok": True, **preview_furnimesh(**body.model_dump())}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/furnimesh/compatibility")
+def api_check_furnimesh_compatibility(body: FurniMeshCompatibilityPayload):
+    try:
+        return {"ok": True, **check_furnimesh_asset_compatibility(**body.model_dump())}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/assets/import/poly-haven")
+def api_import_poly_haven_asset(body: PolyHavenImportPayload):
+    try:
+        if body.resolution not in {"1k", "2k", "4k"}:
+            raise AssetPipelineError("Resolution phải là 1k, 2k hoặc 4k")
+        metadata = import_poly_haven_model(
+            body.slug, body.resolution, body.category, body.scene_object_id
+        )
+        return {"ok": metadata.validation_status == "VALID", "asset": metadata.model_dump()}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.post("/api/v1/assets/import/user")
+async def api_import_user_asset(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    category: str = Form("furniture"),
+    author: str = Form(...),
+    license_name: str = Form(...),
+    source_url: Optional[str] = Form(None),
+    scene_object_id: Optional[str] = Form(None),
+):
+    original_name = Path(file.filename or "asset.glb").name
+    if Path(original_name).suffix.lower() != ".glb":
+        raise HTTPException(status_code=400, detail="User Asset Library hiện chỉ nhận file .glb")
+    upload_dir = UPLOADS_DIR / "assets"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_dir / f"{uuid.uuid4().hex}_{original_name}"
+    upload_path.write_bytes(await file.read())
+    try:
+        metadata = register_user_glb(
+            upload_path,
+            name=name,
+            category=category,
+            author=author,
+            license_name=license_name,
+            source_url=source_url,
+            scene_object_id=scene_object_id,
+        )
+        return {"ok": True, "asset": metadata.model_dump()}
+    except AssetPipelineError as exc:
+        raise _asset_error(exc) from exc
+
+
+@app.get("/api/v1/assets")
+def api_list_assets():
+    return {"ok": True, "assets": [asset.model_dump() for asset in list_registered_assets()]}
+
+
+@app.get("/api/v1/assets/library")
+def api_list_assets_library():
+    return {"ok": True, "assets": [asset.model_dump() for asset in list_registered_assets()]}
+
+
+@app.get("/api/v1/assets/license-report")
+def api_asset_license_report():
+    return asset_license_report()
+
+
+@app.get("/api/v1/assets/{asset_id}")
+def api_get_asset(asset_id: str):
+    metadata = get_asset_metadata(asset_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Không tìm thấy asset")
+    return metadata.model_dump()
+
+
+@app.get("/api/v1/assets/{asset_id}/file")
+def api_get_asset_file(asset_id: str):
+    metadata = get_asset_metadata(asset_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Không tìm thấy asset")
+    path = (ASSET_LIBRARY_DIR / asset_id / "normalized.glb").resolve()
+    root = ASSET_LIBRARY_DIR.resolve()
+    if root not in path.parents or not path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy GLB đã chuẩn hóa")
+    return FileResponse(path=str(path), filename=f"{asset_id}.glb", media_type="model/gltf-binary")
+
+
+@app.get("/api/v1/scene-assets/{asset_id}/file")
+def api_get_whole_scene_asset(asset_id: str):
+    """Serve an imported whole-scene GLB while preserving its hierarchy."""
+    safe_id = Path(asset_id).name
+    if safe_id != asset_id:
+        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
+    scene_root = (ASSET_ROOT / "scenes" / safe_id).resolve()
+    scenes_root = (ASSET_ROOT / "scenes").resolve()
+    if scenes_root not in scene_root.parents or not scene_root.is_dir():
+        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
+    candidates = sorted(scene_root.glob("*.glb"))
+    if not candidates:
+        raise HTTPException(status_code=404, detail="Không tìm thấy whole-scene GLB")
+    return FileResponse(
+        path=str(candidates[0]),
+        filename=candidates[0].name,
+        media_type="model/gltf-binary",
+    )
+
+
+@app.get("/api/v1/scene-assets/{asset_id}/audit")
+def api_get_whole_scene_audit(asset_id: str):
+    """Return the persisted audit metadata for an imported whole scene."""
+    safe_id = Path(asset_id).name
+    if safe_id != asset_id:
+        raise HTTPException(status_code=400, detail="Scene asset id không hợp lệ")
+    audit_path = (ASSET_ROOT / "scenes" / safe_id / "audit.json").resolve()
+    scenes_root = (ASSET_ROOT / "scenes").resolve()
+    if scenes_root not in audit_path.parents or not audit_path.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo scene")
+    return json.loads(audit_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/v1/assets/{asset_id}/material-structure")
+def api_get_asset_material_structure(asset_id: str):
+    metadata = get_asset_metadata(asset_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Không tìm thấy asset")
+    path = ASSET_LIBRARY_DIR / asset_id / "normalized.glb"
+    try:
+        return {"ok": True, "asset_id": asset_id, **inspect_glb_material_structure(path)}
+    except MaterialSystemError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/projects/{project_id}/furniture/{object_id}/asset")
+@app.post("/api/v1/projects/{project_id}/furniture/{object_id}/assign-asset")
+async def api_assign_asset_to_furniture(project_id: str, object_id: str, body: AssignAssetPayload):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    metadata = get_asset_metadata(body.asset_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Không tìm thấy asset")
+    if metadata.validation_status != "VALID":
+        raise HTTPException(status_code=409, detail="Asset chưa vượt qua kiểm tra GLB")
+    furniture = next((item for item in project.furniture_instances if item.id == object_id), None)
+    if not furniture:
+        raise HTTPException(status_code=404, detail="Không tìm thấy furniture instance")
+    furniture.asset_id = metadata.asset_id
+    furniture.asset_version = metadata.asset_version
+    furniture.geometry_hash = metadata.geometry_hash
+    furniture.normalized_glb = metadata.normalized_glb
+    furniture.material_slots = metadata.material_slots
+    furniture.source_url = metadata.source_url
+    sync_res = await sync_canonical_to_pascal(project)
+    if sync_res.get("ok") and sync_res.get("sceneJson"):
+        project.pascal_scene_json = sync_res["sceneJson"]
+    saved = save_project(
+        project,
+        author="Licensed Asset Pipeline",
+        reason=f"Gắn asset {metadata.asset_id} vào {object_id}",
+        bump_revision=True,
+    )
+    return {"ok": True, "asset": metadata.model_dump(), "project": saved.model_dump()}
+
+
+@app.post("/api/v1/projects/{project_id}/furniture/{object_id}/material-proposals")
+def api_create_furniture_material_proposal(
+    project_id: str, object_id: str, body: MaterialProposalPayload
+):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    furniture = next((item for item in project.furniture_instances if item.id == object_id), None)
+    if not furniture:
+        raise HTTPException(status_code=404, detail="Không tìm thấy furniture instance")
+    slot = next((item for item in furniture.material_slots if item.slot_id == body.slot_id), None)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Material slot không tồn tại trên object")
+
+    override = MaterialOverride(
+        material_id=body.material_id,
+        material_version=body.material_version,
+        tint=body.tint,
+        pbr=body.pbr,
+    )
+    try:
+        resolved = resolve_material(override)
+    except MaterialSystemError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    proposed = project.model_copy(deep=True)
+    proposed_furniture = next(item for item in proposed.furniture_instances if item.id == object_id)
+    old_override = proposed_furniture.material_overrides.get(body.slot_id)
+    proposed_furniture.material_overrides[body.slot_id] = override
+    proposed.approval_state = "WAITING_FOR_APPROVAL"
+
+    proposal_id = f"prop_mat_{uuid.uuid4().hex[:10]}"
+    proposal = SceneProposal(
+        proposal_id=proposal_id,
+        project_id=project_id,
+        base_revision=project.revision,
+        origin_agent="Material Editor G2",
+        title=f"Đổi vật liệu {furniture.name} / {body.slot_id}",
+        reason="Material override theo slot; không thay geometry, vị trí, kích thước hoặc số lượng BOM.",
+        diffs=[
+            SceneDiffItem(
+                entity_type="material_slot",
+                entity_id=f"{object_id}:{body.slot_id}",
+                action="UPDATE",
+                before_summary=old_override.model_dump_json() if old_override else "Vật liệu gốc từ GLB",
+                after_summary=f"{body.material_id} v{body.material_version}, tint={resolved['tint']}",
+                cost_delta_vnd=0.0,
+            )
+        ],
+        cost_delta_vnd=0.0,
+        projected_total_vnd=project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0,
+        budget_limit_vnd=project.design_brief.budget_limit_vnd,
+        proposed_canonical=proposed.model_dump(),
+        status="PENDING",
+        created_at=now_iso(),
+    )
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        (proposal_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "persisted": False,
+        "proposal": proposal.model_dump(),
+        "preview_project": proposed.model_dump(),
+        "resolved_material": resolved,
+    }
+
+
+@app.get("/api/v1/projects/{project_id}/furniture/{object_id}/smart-fit")
+def api_assess_furniture_smart_fit(project_id: str, object_id: str):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    furniture = next((item for item in project.furniture_instances if item.id == object_id), None)
+    if not furniture:
+        raise HTTPException(status_code=404, detail="Không tìm thấy furniture instance")
+    return {
+        "ok": True,
+        "sizing_policy": furniture.sizing_policy,
+        "measured_dimensions_mm": [furniture.width_mm, furniture.depth_mm, furniture.height_mm],
+        "assessment": assess_fit(project, furniture),
+    }
+
+
+@app.get("/api/v1/projects/{project_id}/furniture/{object_id}/placement-options")
+def api_generate_furniture_placement_options(project_id: str, object_id: str, limit: int = 2):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    return generate_placement_options(project, object_id, limit)
+
+
+@app.post("/api/v1/projects/{project_id}/furniture/{object_id}/resize-plan")
+def api_plan_furniture_resize(project_id: str, object_id: str, body: SmartResizePayload):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    furniture = next((item for item in project.furniture_instances if item.id == object_id), None)
+    if not furniture:
+        raise HTTPException(status_code=404, detail="Không tìm thấy furniture instance")
+    return plan_resize(furniture, body.target_dimensions_mm)
+
+
+@app.post("/api/v1/projects/{project_id}/furniture/{object_id}/placement-proposals")
+def api_create_placement_proposal(project_id: str, object_id: str, body: PlacementProposalPayload):
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    furniture = next((item for item in project.furniture_instances if item.id == object_id), None)
+    if not furniture:
+        raise HTTPException(status_code=404, detail="Không tìm thấy furniture instance")
+    fit = assess_fit(project, furniture, x_mm=body.x_mm, y_mm=body.y_mm, rotation_deg=body.rotation_deg)
+    if not fit["fits"]:
+        raise HTTPException(status_code=409, detail={"message": "Vị trí đề xuất không đạt Smart Fit", "fit": fit})
+    proposed = project.model_copy(deep=True)
+    proposed_furniture = next(item for item in proposed.furniture_instances if item.id == object_id)
+    before = [proposed_furniture.x_mm, proposed_furniture.y_mm, proposed_furniture.rotation_deg]
+    proposed_furniture.x_mm = body.x_mm
+    proposed_furniture.y_mm = body.y_mm
+    proposed_furniture.rotation_deg = body.rotation_deg
+    proposed.approval_state = "WAITING_FOR_APPROVAL"
+    proposal_id = f"prop_fit_{uuid.uuid4().hex[:10]}"
+    proposal = SceneProposal(
+        proposal_id=proposal_id,
+        project_id=project_id,
+        base_revision=project.revision,
+        origin_agent="Smart Furniture Fit G3",
+        title=f"Bố trí lại {furniture.name}",
+        reason="Phương án vượt qua room polygon, SAT collision, doorway và ceiling constraints.",
+        diffs=[SceneDiffItem(
+            entity_type="furniture",
+            entity_id=object_id,
+            action="UPDATE",
+            before_summary=f"x/y/rotation={before}",
+            after_summary=f"x/y/rotation={[body.x_mm, body.y_mm, body.rotation_deg]}",
+        )],
+        proposed_canonical=proposed.model_dump(),
+        projected_total_vnd=project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0,
+        budget_limit_vnd=project.design_brief.budget_limit_vnd,
+        created_at=now_iso(),
+    )
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        (proposal_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
+    return {"ok": True, "persisted": False, "proposal": proposal.model_dump(), "fit": fit, "preview_project": proposed.model_dump()}
+
+
+
+# ==============================================================================
+# G3 HDRI SERVING, G4 SURFACE MATERIAL PROPOSALS, G5 SCENE BRIDGE & G6 CYCLES QUEUE
+# ==============================================================================
+class SurfaceMaterialProposalPayload(BaseModel):
+    slot_id: Optional[str] = "FLOOR_MAIN"
+    material_id: str
+    material_version: int = 1
+    tint: Optional[str] = None
+    pbr: Dict[str, float | str] = {}
+    texture_scale: Optional[PhysicalTextureScale] = None
+    uv_transform: Optional[Dict[str, Any]] = None
+
+
+class SceneBridgePayload(BaseModel):
+    camera: str = "eye_level"
+    camera_id: Optional[str] = None
+    time_of_day: str = "day"
+    lighting_preset: Optional[str] = None
+
+
+class RenderScenePayload(BaseModel):
+    camera: str = "eye_level"
+    camera_id: Optional[str] = None
+    time_of_day: str = "day"
+    lighting_preset: Optional[str] = None
+    mode: str = "preview"
+    seed: int = 1234
+    width_px: Optional[int] = None
+    height_px: Optional[int] = None
+    samples: Optional[int] = None
+    use_cache: bool = True
+    async_exec: bool = False
+    wait_for_completion: Optional[bool] = None
+    simulate_delay_ms: int = 0
+    force_invalid_arg: bool = False
+
+
+class RetryRenderJobPayload(BaseModel):
+    async_exec: bool = False
+    wait_for_completion: Optional[bool] = None
+
+
+VALID_RENDER_CAMERAS = {"dollhouse", "eye_level", "corner", "detail_sofa", "wide", "top", "cutaway", "walk", "orbit", "tour", "walkthrough", "tham_quan", "door", "front", "perspective"}
+
+
+@app.get("/api/v1/render/capabilities")
+@app.get("/api/v1/blender/capabilities")
+def api_get_render_capabilities():
+    probe = probe_blender_capabilities()
+    return {
+        **probe,
+        "available": bool(probe.get("blender_available") or probe.get("ok")),
+    }
+
+
+@app.get("/api/v1/assets/hdri")
+def api_list_hdris():
+    hdri_root = ASSET_ROOT / "hdri"
+    items = []
+    if hdri_root.exists():
+        for mp in sorted(hdri_root.glob("*/metadata.json")):
+            try:
+                items.append(json.loads(mp.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+    return {"ok": True, "hdris": items}
+
+
+@app.get("/api/v1/assets/hdri/{filename}")
+def api_get_hdri_file(filename: str):
+    safe = "".join(c for c in filename if c.isalnum() or c in {"_", "-", "."})
+    if not safe or safe != filename:
+        raise HTTPException(status_code=400, detail="Tên file HDRI không hợp lệ")
+    stem = Path(safe).stem
+    candidate = ASSET_ROOT / "hdri" / stem / safe
+    if not candidate.is_file() and stem == "photo_studio_loft_hall_1k":
+        import_poly_haven_hdri("photo_studio_loft_hall", "1k")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Không tìm thấy file HDRI")
+    return FileResponse(path=str(candidate), filename=safe, media_type="application/octet-stream")
+
+
+@app.post("/api/v1/projects/{project_id}/surfaces/{surface_key}/material-proposals")
+def api_create_surface_material_proposal(
+    project_id: str, surface_key: str, body: SurfaceMaterialProposalPayload
+):
+    if surface_key not in {"floor", "wall", "ceiling"}:
+        raise HTTPException(status_code=400, detail="Surface key phải là floor, wall hoặc ceiling")
+    project = get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+
+    tex_scale = body.texture_scale
+    if not tex_scale and body.uv_transform:
+        uv = body.uv_transform
+        tile_sz = uv.get("tile_size_mm") or [800.0, 800.0]
+        off_mm = uv.get("offset_mm") or [0.0, 0.0]
+        tex_scale = PhysicalTextureScale(
+            width_mm=float(tile_sz[0]),
+            height_mm=float(tile_sz[1]),
+            grout_width_mm=float(uv.get("grout_thickness_mm", 3.0)),
+            grout_color_hex=str(uv.get("grout_color", "#B8B1A6")),
+            rotation_deg=float(uv.get("rotation_deg", 0.0)),
+            offset_x_mm=float(off_mm[0]),
+            offset_y_mm=float(off_mm[1]),
+        )
+
+    override = MaterialOverride(
+        material_id=body.material_id,
+        material_version=body.material_version,
+        tint=body.tint,
+        pbr=body.pbr,
+        texture_scale=tex_scale,
+    )
+    try:
+        resolved = resolve_material(override)
+    except MaterialSystemError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    proposed = project.model_copy(deep=True)
+    old_override = proposed.surface_material_overrides.get(surface_key)
+    proposed.surface_material_overrides[surface_key] = override
+    if proposed.rooms:
+        for rm in proposed.rooms:
+            if surface_key == "floor":
+                rm.floor_material_id = body.material_id
+            elif surface_key == "wall":
+                rm.wall_base_material_id = body.material_id
+            elif surface_key == "ceiling":
+                rm.ceiling_material_id = body.material_id
+    proposed.approval_state = "WAITING_FOR_APPROVAL"
+
+    scale_info = resolved.get("physical_scale") or {}
+    proposal_id = f"prop_surf_{uuid.uuid4().hex[:10]}"
+    proposal = SceneProposal(
+        proposal_id=proposal_id,
+        project_id=project_id,
+        base_revision=project.revision,
+        origin_agent="Surface Material Editor G4",
+        title=f"Đổi vật liệu bề mặt {surface_key}: {body.material_id}",
+        reason=(
+            f"Cập nhật vật liệu {surface_key} sang {body.material_id} "
+            f"({scale_info.get('width_mm', 800)}×{scale_info.get('height_mm', 800)}mm, "
+            f"ron {scale_info.get('grout_width_mm', 0)}mm)."
+        ),
+        diffs=[
+            SceneDiffItem(
+                entity_type="surface_material",
+                entity_id=surface_key,
+                action="UPDATE",
+                before_summary=old_override.model_dump_json() if old_override else (project.rooms[0].floor_material_id if project.rooms else "default"),
+                after_summary=f"{body.material_id} v{body.material_version}, tint={resolved['tint']}, scale={scale_info}",
+                cost_delta_vnd=0.0,
+            )
+        ],
+        cost_delta_vnd=0.0,
+        projected_total_vnd=project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0,
+        budget_limit_vnd=project.design_brief.budget_limit_vnd,
+        proposed_canonical=proposed.model_dump(),
+        status="PENDING",
+        created_at=now_iso(),
+    )
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+        (proposal_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        from app.services.multi_agent_chat_sync import sync_workflow_run_to_chat
+        sync_workflow_run_to_chat(run["run_id"], project_id=pid)
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "persisted": False,
+        "proposal": proposal.model_dump(),
+        "preview_project": proposed.model_dump(),
+        "resolved_material": resolved,
+    }
+
+
+@app.post("/api/v1/projects/{project_id}/scene-bridge")
+@app.post("/api/v1/projects/{project_id}/scene-bridge/verify")
+def api_build_project_scene_bridge(project_id: str, body: SceneBridgePayload = SceneBridgePayload()):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    cam = body.camera_id or body.camera or "eye_level"
+    tod = body.lighting_preset or body.time_of_day or "day"
+    if cam not in VALID_RENDER_CAMERAS:
+        raise HTTPException(status_code=422, detail=f"Camera '{cam}' không hợp lệ")
+    return build_and_verify_blender_scene(proj, camera=cam, time_of_day=tod)
+
+
+@app.post("/api/v1/projects/{project_id}/render")
+@app.post("/api/v1/projects/{project_id}/render-jobs")
+def api_enqueue_project_render_job(project_id: str, body: RenderScenePayload = RenderScenePayload()):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    cam = body.camera_id or body.camera or "eye_level"
+    tod = body.lighting_preset or body.time_of_day or "day"
+    if cam not in VALID_RENDER_CAMERAS:
+        raise HTTPException(status_code=422, detail=f"Camera '{cam}' không hợp lệ")
+    if body.mode not in {"preview", "final"}:
+        raise HTTPException(status_code=422, detail=f"Render mode '{body.mode}' không hợp lệ")
+    render_mode = "final" if body.mode == "final" else "preview"
+    is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
+    return enqueue_render_job(
+        project_id,
+        mode=render_mode,
+        camera=cam,
+        time_of_day=tod,
+        seed=body.seed,
+        width_px=body.width_px,
+        height_px=body.height_px,
+        samples=body.samples,
+        use_cache=body.use_cache,
+        async_exec=is_async,
+        simulate_delay_ms=body.simulate_delay_ms,
+        force_invalid_arg=body.force_invalid_arg,
+    )
+
+
+@app.get("/api/v1/projects/{project_id}/render-jobs")
+def api_list_project_render_jobs(project_id: str, limit: int = 30):
+    return {"ok": True, "project_id": project_id, "jobs": list_project_render_jobs(project_id, limit=limit)}
+
+
+@app.get("/api/v1/projects/{project_id}/render-gallery")
+def api_get_project_render_gallery(project_id: str):
+    jobs = list_project_render_jobs(project_id, limit=50)
+    completed = [j for j in jobs if j.get("status") == "COMPLETED" and j.get("renderer") == "BLENDER_CYCLES"]
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "count": len(completed),
+        "gallery": completed,
+    }
+
+
+@app.get("/api/v1/render-jobs/{job_id}")
+def api_get_render_job_detail(job_id: str):
+    job = get_render_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Không tìm thấy render job")
+    return job
+
+
+@app.post("/api/v1/render-jobs/{job_id}/cancel")
+def api_cancel_render_job(job_id: str):
+    try:
+        return cancel_render_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/render-jobs/{job_id}/retry")
+def api_retry_render_job(job_id: str, body: Optional[RetryRenderJobPayload] = None):
+    try:
+        is_async = False
+        if body is not None:
+            is_async = (not body.wait_for_completion) if body.wait_for_completion is not None else body.async_exec
+        return retry_render_job(job_id, async_exec=is_async)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/render-jobs/{job_id}/download")
+def api_download_render_job_image(job_id: str):
+    job = get_render_job(job_id)
+    if not job or not job.get("out_path"):
+        raise HTTPException(status_code=404, detail="Không tìm thấy ảnh kết xuất của job")
+    file_path = Path(job["out_path"])
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Tệp ảnh không tồn tại trên đĩa")
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{file_path.name}"'},
+    )
+
+
+@app.get("/api/v1/renders/{filename}")
+def api_get_rendered_image(filename: str):
+    file_path = ROOT_DIR / "data" / "exports" / "renders" / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy tệp kết xuất")
+    suffix = file_path.suffix.lower()
+    media_type = (
+        "application/json"
+        if suffix == ".json"
+        else ("text/markdown; charset=utf-8" if suffix == ".md" else "image/png")
+    )
+    return FileResponse(path=str(file_path), filename=filename, media_type=media_type)
+
+
+@app.get("/api/v1/projects/{project_id}/credits")
+def api_get_project_credits(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    return build_project_credits_report(proj)
+
+
+@app.get("/api/v1/projects/{project_id}/credits.md")
+def api_get_project_credits_markdown(project_id: str):
+    proj = get_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+    report = build_project_credits_report(proj)
+    return PlainTextResponse(report["markdown"], media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/api/v1/credits")
+def api_get_default_credits():
+    proj = get_project("proj_demo_4x5m") or build_default_demo_project()
+    return build_project_credits_report(proj)
+
+
+# --- FEAT-2026-165: Local LAN 3D preview (admin surface, loopback only) -----------------
+from app.services import lan_preview as _lan_preview
+
+
+def _require_loopback(request: Request) -> None:
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail={"code": "loopback_only", "message": "Chỉ truy cập được từ máy chủ."})
+
+
+def _preview_error(exc: "_lan_preview.PublishBlocked") -> HTTPException:
+    status = 404 if exc.code in {"project_not_found", "share_not_found"} else 409 if exc.code in {"missing_assets", "scene_not_saved", "share_revoked"} else 400
+    if exc.code in {"preview_server_down", "port_busy", "qr_unavailable"}:
+        status = 503
+    return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message, "missing_assets": exc.missing_assets})
+
+
+class PreviewShareCreate(BaseModel):
+    lan_ip: Optional[str] = None
+    port: Optional[int] = None
+    expires_hours: Optional[int] = None
+
+
+class PreviewShareRefresh(BaseModel):
+    lan_ip: Optional[str] = None
+
+
+@app.get("/api/v1/preview/network")
+def api_preview_network(request: Request, port: Optional[int] = None):
+    _require_loopback(request)
+    return _lan_preview.get_network_info(port or _lan_preview.DEFAULT_PREVIEW_PORT)
+
+
+@app.get("/api/v1/projects/{project_id}/preview-shares")
+def api_list_preview_shares(project_id: str, request: Request):
+    _require_loopback(request)
+    return {"shares": _lan_preview.list_shares(project_id)}
+
+
+@app.post("/api/v1/projects/{project_id}/preview-shares")
+def api_create_preview_share(project_id: str, body: PreviewShareCreate, request: Request):
+    _require_loopback(request)
+    try:
+        return _lan_preview.create_share(project_id, body.lan_ip, body.port or _lan_preview.DEFAULT_PREVIEW_PORT, body.expires_hours)
+    except _lan_preview.PublishBlocked as exc:
+        raise _preview_error(exc) from exc
+
+
+@app.post("/api/v1/preview-shares/{publication_id}/refresh")
+def api_refresh_preview_share(publication_id: str, body: PreviewShareRefresh, request: Request):
+    _require_loopback(request)
+    try:
+        return _lan_preview.refresh_share(publication_id, body.lan_ip)
+    except _lan_preview.PublishBlocked as exc:
+        raise _preview_error(exc) from exc
+
+
+@app.post("/api/v1/preview-shares/{publication_id}/revoke")
+def api_revoke_preview_share(publication_id: str, request: Request):
+    _require_loopback(request)
+    if not _lan_preview.revoke_share(publication_id):
+        raise HTTPException(status_code=404, detail={"code": "share_not_found", "message": "Không tìm thấy bản chia sẻ."})
+    return {"ok": True}
+
+
+@app.get("/api/v1/preview-shares/{publication_id}/qr.svg")
+def api_preview_share_qr(publication_id: str, request: Request):
+    _require_loopback(request)
+    share = _lan_preview.get_share(publication_id)
+    if not share or not share["url"]:
+        raise HTTPException(status_code=404, detail={"code": "share_not_found", "message": "Không có link đang hoạt động."})
+    try:
+        return Response(content=_lan_preview.qr_svg(share["url"]), media_type="image/svg+xml")
+    except _lan_preview.PublishBlocked as exc:
+        raise _preview_error(exc) from exc
+
+
+@app.get("/api/v1/preview-shares/{publication_id}/diagnostics")
+def api_preview_share_diagnostics(publication_id: str, request: Request):
+    _require_loopback(request)
+    try:
+        return _lan_preview.diagnostics(publication_id)
+    except _lan_preview.PublishBlocked as exc:
+        raise _preview_error(exc) from exc

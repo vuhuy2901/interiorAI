@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0F766E">
+<title>ATELIER 3D Preview</title>
+<link rel="stylesheet" href="/viewer/viewer.css">
+<script type="importmap">
+{"imports":{"three":"/viewer/vendor/three.module.min.js","three/addons/":"/viewer/vendor/addons/"}}
+</script>
+</head>
+<body>
+<div id="app" data-mode="3d">
+  <header id="topbar">
+    <div class="brand"><span class="logo">A</span><span id="projectName">ATELIER</span></div>
+    <div class="top-actions">
+      <button id="btnFullscreen" class="icon-btn" aria-label="Toàn màn hình" title="Toàn màn hình">&#x26F6;</button>
+      <button id="btnMenu" class="icon-btn" aria-label="Thêm" title="Thêm">&#x22EE;</button>
+    </div>
+    <div id="menuPanel" class="menu" hidden>
+      <div id="menuInfo"></div>
+    </div>
+  </header>
+
+  <main id="stage">
+    <canvas id="gl"></canvas>
+    <canvas id="plan" hidden></canvas>
+
+    <div id="floating">
+      <button id="btnMode" class="fab wide">Mặt bằng 2D</button>
+      <button id="btnReset" class="fab" aria-label="Đặt lại góc nhìn" title="Đặt lại góc nhìn">&#x27F2;</button>
+      <button id="btnZoomIn" class="fab" aria-label="Phóng to">+</button>
+      <button id="btnZoomOut" class="fab" aria-label="Thu nhỏ">&#x2212;</button>
+      <button id="btnList" class="fab" aria-label="Danh sách vật thể" title="Danh sách vật thể">&#x2630;</button>
+    </div>
+
+    <div id="warnings" aria-live="polite"></div>
+    <div id="hint" hidden>Kéo 1 ngón để xoay &middot; chụm 2 ngón để zoom &middot; kéo 2 ngón để di chuyển &middot; chạm vật thể để xem thông tin</div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <div id="loadingText">Đang tải scene...</div>
+      <div class="bar"><i id="loadingBar"></i></div>
+    </div>
+
+    <div id="errorBox" hidden>
+      <h2 id="errorTitle"></h2>
+      <p id="errorMsg"></p>
+    </div>
+
+    <section id="sheet" class="sheet" hidden>
+      <div class="sheet-grip"></div>
+      <div class="sheet-head">
+        <div>
+          <h3 id="sName"></h3>
+          <div id="sCat" class="muted"></div>
+        </div>
+        <button id="sClose" class="icon-btn" aria-label="Đóng">&times;</button>
+      </div>
+      <dl id="sBody"></dl>
+      <div class="sheet-actions">
+        <button id="sFocus" class="primary">Focus vật thể</button>
+      </div>
+    </section>
+
+    <aside id="drawer" hidden>
+      <div class="drawer-head"><strong>Vật thể</strong><button id="drawerClose" class="icon-btn" aria-label="Đóng">&times;</button></div>
+      <ul id="objList"></ul>
+    </aside>
+  </main>
+</div>
+<script type="module" src="/viewer/viewer.js"></script>
+</body>
+</html>

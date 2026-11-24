@@ -2,6 +2,7 @@ import { and, desc, eq, max, sql } from "drizzle-orm";
 import {
   agents,
   atelierWorkflowRuns,
+  atelierWorkflowSelections,
   atelierWorkflowStageExecutions,
   issues,
   projects,
@@ -9,7 +10,7 @@ import {
   type Db,
 } from "@paperclipai/db";
 import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
-const ATELIER_COMPANY_WORKFLOW_NAME = "Atelier Company Workflow";
+export const ATELIER_COMPANY_WORKFLOW_NAME = "Atelier Company Workflow";
 
 export const ATELIER_NODE_TYPES = [
   "START", "AGENT_TASK", "TOOL_EXECUTION", "HUMAN_INPUT", "APPROVAL_GATE",
@@ -397,7 +398,85 @@ export async function publishAtelierWorkflowDraft(db: Db, companyId: string, id:
   if (row.status !== "draft") throw conflict("Only draft workflows can be published", { code: "workflow_not_draft" });
   const validation = await validateAtelierWorkflowDefinition(db, companyId, row.definition);
   if (!validation.valid) throw unprocessable("Workflow validation failed", { code: "workflow_validation_failed", issues: validation.issues });
-  return db.update(workflows).set({ status: "published", updatedAt: new Date() }).where(and(eq(workflows.id, id), eq(workflows.companyId, companyId), eq(workflows.status, "draft"))).returning().then((rows) => rows[0]!);
+  const publishedSummary = buildWorkflowSummary(validation.definition);
+  return db.update(workflows).set({ status: "published", publishedSummary, updatedAt: new Date() }).where(and(eq(workflows.id, id), eq(workflows.companyId, companyId), eq(workflows.status, "draft"))).returning().then((rows) => rows[0]!);
+}
+
+function buildWorkflowSummary(definition: AtelierEditableDefinition | null): string {
+  if (!definition) return "";
+  const parts: string[] = [];
+  for (const node of definition.nodes) {
+    if (node.type === "AGENT_TASK") {
+      parts.push(node.name);
+      if (node.requiredRole) parts.push(node.requiredRole);
+    } else if (node.type === "END") {
+      parts.push("Ket thuc");
+    }
+  }
+  return parts.join(", ");
+}
+
+export async function resolveActiveAtelierWorkflowName(db: Db, companyId: string): Promise<string> {
+  const row = await db.select().from(atelierWorkflowSelections).where(eq(atelierWorkflowSelections.companyId, companyId)).then((rows) => rows[0] ?? null);
+  return row?.workflowName ?? ATELIER_COMPANY_WORKFLOW_NAME;
+}
+
+export async function selectAtelierWorkflowFamily(db: Db, companyId: string, name: string, userId?: string | null): Promise<{ workflowName: string }> {
+  const hasPublished = await db.select({ id: workflows.id }).from(workflows).where(and(eq(workflows.companyId, companyId), eq(workflows.name, name), eq(workflows.status, "published"))).limit(1).then((rows) => rows.length > 0);
+  if (!hasPublished) throw unprocessable("Workflow family has no published version", { code: "workflow_family_not_publishable" });
+  await db.insert(atelierWorkflowSelections).values({ companyId, workflowName: name, updatedByUserId: userId ?? null }).onConflictDoUpdate({ target: atelierWorkflowSelections.companyId, set: { workflowName: name, updatedAt: new Date(), updatedByUserId: userId ?? null } });
+  return { workflowName: name };
+}
+
+export async function createAtelierWorkflowFamily(db: Db, companyId: string, input: { name: string; prompt: string; definition: AtelierEditableDefinition }): Promise<typeof workflows.$inferSelect> {
+  const existing = await db.select({ id: workflows.id }).from(workflows).where(and(eq(workflows.companyId, companyId), eq(workflows.name, input.name))).limit(1).then((rows) => rows[0] ?? null);
+  if (existing) throw conflict("A workflow family with this name already exists", { code: "workflow_family_name_conflict" });
+  return db.insert(workflows).values({ companyId, name: input.name, prompt: input.prompt, scope: "company", version: 1, status: "draft", definition: input.definition as unknown as Record<string, unknown> }).returning().then((rows) => rows[0]!);
+}
+
+export type AtelierWorkflowFamilySummary = {
+  id: string;
+  name: string;
+  prompt: string;
+  status: string;
+  latestVersion: number;
+  hasPublishedVersion: boolean;
+  publishedVersion: number | null;
+  publishedSummary: string | null;
+  isActive: boolean;
+};
+
+export async function getAtelierWorkflowVersionById(db: Db, companyId: string, id: string) {
+  const row = await db.select().from(workflows).where(and(eq(workflows.id, id), eq(workflows.companyId, companyId))).then((rows) => rows[0] ?? null);
+  if (!row) throw notFound("Workflow version not found");
+  return row;
+}
+
+export async function listAtelierWorkflowFamilies(db: Db, companyId: string): Promise<AtelierWorkflowFamilySummary[]> {
+  const activeName = await resolveActiveAtelierWorkflowName(db, companyId);
+  const rows = await db.select().from(workflows).where(eq(workflows.companyId, companyId)).orderBy(desc(workflows.version));
+  const byName = new Map<string, typeof rows>();
+  for (const row of rows) {
+    if (!byName.has(row.name)) byName.set(row.name, []);
+    byName.get(row.name)!.push(row);
+  }
+  const result: AtelierWorkflowFamilySummary[] = [];
+  for (const [name, versions] of byName) {
+    const latest = versions[0]!;
+    const published = versions.find((v) => v.status === "published");
+    result.push({
+      id: latest.id,
+      name,
+      prompt: latest.prompt,
+      status: latest.status,
+      latestVersion: latest.version,
+      hasPublishedVersion: !!published,
+      publishedVersion: published?.version ?? null,
+      publishedSummary: published?.publishedSummary ?? null,
+      isActive: name === activeName,
+    });
+  }
+  return result;
 }
 
 export async function assertAtelierNodeAssignment(db: Db, input: { companyId: string; node: AtelierWorkflowNode; agentId: string }) {
