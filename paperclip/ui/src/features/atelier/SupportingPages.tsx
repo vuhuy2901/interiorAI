@@ -39,9 +39,15 @@ export const DashboardOverviewPage: React.FC<{
   mcpToolsCount: number
   onOpenWorkspace: (projectId?: string) => void
   onNavigate: (tab: any) => void
-}> = ({ projects, project, mcpToolsCount, onOpenWorkspace, onNavigate }) => {
+  onCreateProject: () => void
+}> = ({ projects, project, mcpToolsCount, onOpenWorkspace, onNavigate, onCreateProject }) => {
   const est = project?.estimate_snapshot
   const budgetDiff = (est?.budget_limit_vnd || 120000000) - (est?.total_vnd || 0)
+  const polygon = project?.rooms?.[0]?.polygon_mm || []
+  const xs = polygon.map((p: number[]) => p[0]); const ys = polygon.map((p: number[]) => p[1])
+  const roomW = xs.length ? Math.max(...xs) - Math.min(...xs) : 0
+  const roomD = ys.length ? Math.max(...ys) - Math.min(...ys) : 0
+  const roomArea = roomW * roomD / 1_000_000
 
   return (
     <div className="page-container">
@@ -53,6 +59,7 @@ export const DashboardOverviewPage: React.FC<{
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={onCreateProject}>+ Tạo Dự Án Mới</button>
           <button className="btn" onClick={() => onNavigate('import')}>
             <Upload size={14} /> Nhập Bản Vẽ 2D
           </button>
@@ -75,7 +82,7 @@ export const DashboardOverviewPage: React.FC<{
           <div className="text-caption">Dự án đang làm việc</div>
           <div style={{ fontSize: 15.5, fontWeight: 600, marginTop: 6 }}>{project?.name}</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            <span className="status-badge teal">4000 × 5000 mm (20 m²)</span>
+            <span className="status-badge teal">{roomW} × {roomD} mm ({roomArea.toFixed(1)} m²)</span>
             <span className="status-badge emerald">Rev #{project?.revision}</span>
           </div>
         </div>
@@ -118,7 +125,7 @@ export const DashboardOverviewPage: React.FC<{
       <div className="surface-card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className="text-section-title">Danh Sách Dự Án Trong Workspace</h2>
-          <span className="status-badge neutral">{projects.length} dự án</span>
+          <div style={{ display: 'flex', gap: 8 }}><span className="status-badge neutral">{projects.length} dự án</span><button className="btn btn-sm btn-primary" onClick={onCreateProject}>+ Tạo Dự Án Mới</button></div>
         </div>
         <table className="financial-table">
           <thead>
@@ -134,9 +141,9 @@ export const DashboardOverviewPage: React.FC<{
           </thead>
           <tbody>
             {projects.map((p: any) => (
-              <tr key={p.project_id}>
+              <tr key={p.project_id} onClick={() => onOpenWorkspace(p.project_id)} style={{ cursor: 'pointer', background: p.project_id === project?.project_id ? 'var(--accent-soft)' : undefined }}>
                 <td className="mono">{p.project_id}</td>
-                <td style={{ fontWeight: 600 }}>{p.name}</td>
+                <td style={{ fontWeight: 600 }}>{p.name} {p.project_id === project?.project_id && <span className="status-badge teal" style={{ marginLeft: 6 }}>Đang mở</span>}</td>
                 <td>{p.design_brief?.style}</td>
                 <td>
                   <span className={`status-badge ${p.scale_calibrated ? 'emerald' : 'amber'}`}>
@@ -148,7 +155,7 @@ export const DashboardOverviewPage: React.FC<{
                   {formatVnd(p.estimate_snapshot?.total_vnd)}
                 </td>
                 <td className="num">
-                  <button className="btn btn-sm btn-primary" onClick={() => onOpenWorkspace(p.project_id)}>
+                  <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); onOpenWorkspace(p.project_id) }}>
                     Mở Studio <ArrowUpRight size={12} />
                   </button>
                 </td>

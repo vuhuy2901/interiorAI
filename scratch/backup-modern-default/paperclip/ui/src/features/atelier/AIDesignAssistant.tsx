@@ -4,13 +4,13 @@
  * - Agent Header with live connection & reasoning status
  * - Structured Interactive Question Cards (ask_user human-in-the-loop gate)
  * - Redesigned Proposal Cards (Title, Status, Origin Agent, Reason, Cost Delta, New Total, Affected Entities)
- * - Inline Blender Cycles Render Output Card (G6 Conversation Output with Revision, Camera ID, Material Hash, and mandatory label)
  * - Strict Proposal Deduplication & Priority Grouping (Pending prioritized at top, Processed in collapsible archive,
  *   no re-approving already APPROVED proposals, Undo action button when applied)
  * - Auto-expanding textarea & contextual quick actions
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Sparkles,
   Send,
   CheckCircle2,
   XCircle,
@@ -19,8 +19,9 @@ import {
   ChevronRight,
   HelpCircle,
   Bot,
+  SlidersHorizontal,
   X,
-  ExternalLink,
+  ArrowUpRight,
 } from 'lucide-react'
 
 interface AIDesignAssistantProps {
@@ -48,17 +49,6 @@ const formatDeltaVnd = (v?: number) => {
   return num > 0 ? `+${num.toLocaleString('vi-VN')} ₫` : `−${Math.abs(num).toLocaleString('vi-VN')} ₫`
 }
 
-const formatTimestamp = (ts?: string | number) => {
-  if (!ts) return ''
-  try {
-    const d = new Date(ts)
-    if (isNaN(d.getTime())) return ''
-    return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return ''
-  }
-}
-
 export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
   project,
   chatHistory,
@@ -75,55 +65,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
   const [subTab, setSubTab] = useState<'chat' | 'proposals' | 'brief'>('chat')
   const [showProcessedHistory, setShowProcessedHistory] = useState(false)
   const scrollEndRef = useRef<HTMLDivElement | null>(null)
-  const chatContainerRef = useRef<HTMLDivElement | null>(null)
-  const isAtBottomRef = useRef(true)
-  const [expandedHandoffs, setExpandedHandoffs] = useState<Record<string, boolean>>({})
-
-  const toggleExpandHandoff = (msgId: string) => {
-    setExpandedHandoffs((prev) => ({ ...prev, [msgId]: !prev[msgId] }))
-  }
-
-  const handleChatScroll = () => {
-    if (!chatContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current
-    isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 80
-  }
-
-  // Derive participating agents and their live states from chat messages
-  const activeAgents = useMemo(() => {
-    const map = new Map<string, {
-      agent_id: string
-      name: string
-      role: string
-      avatar: string
-      color: string
-      is_lead: boolean
-      status?: string
-      task_identifier?: string
-    }>()
-
-    ;(chatHistory.messages || []).forEach((m: any) => {
-      if (m.role === 'user') return
-      const agentId = m.metadata?.agent_id || (m.sender_name?.toLowerCase().includes('chief') ? 'agent_chief_architect' : 'agent_specialist')
-      const name = m.metadata?.agent_name || m.sender_name || 'AI Agent'
-      const role = m.metadata?.agent_role || (m.metadata?.is_lead ? 'Trưởng nhóm' : 'Chuyên viên')
-      const avatar = m.metadata?.agent_avatar || '🤖'
-      const color = m.metadata?.agent_color || '#0F766E'
-      const is_lead = !!m.metadata?.is_lead
-      const status = m.metadata?.status
-      const task_identifier = m.metadata?.task_identifier
-
-      const existing = map.get(agentId)
-      if (!existing) {
-        map.set(agentId, { agent_id: agentId, name, role, avatar, color, is_lead, status, task_identifier })
-      } else {
-        if (status) existing.status = status
-        if (task_identifier) existing.task_identifier = task_identifier
-      }
-    })
-
-    return Array.from(map.values())
-  }, [chatHistory.messages])
 
   const proposals = chatHistory.proposals || []
 
@@ -162,9 +103,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
   }, [proposals])
 
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
+    scrollEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatHistory.messages?.length, sendingChat])
 
   // Render a single high-craft Proposal Card (Section 10)
@@ -177,7 +116,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
     return (
       <div
         key={prop.proposal_id}
-        data-testid={`proposal-card-${prop.proposal_id}`}
         className="surface-card"
         style={{
           padding: 14,
@@ -197,7 +135,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
             )}
           </div>
           <span
-            data-testid={`proposal-status-${prop.proposal_id}`}
             className={`status-badge ${
               isPending ? 'amber' : isApproved ? 'emerald' : 'neutral'
             }`}
@@ -291,7 +228,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                   </span>
                   {isPending && (
                     <button
-                      data-testid={`approve-option-${prop.proposal_id}-${opt.option_id}`}
                       className="btn btn-sm btn-primary"
                       onClick={() => onApproveProposal(prop.proposal_id, opt.option_id)}
                     >
@@ -308,7 +244,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
         {(!prop.options || prop.options.length === 0) && isPending && (
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button
-              data-testid={`approve-proposal-${prop.proposal_id}`}
               className="btn btn-sm btn-primary"
               style={{ flex: 1 }}
               onClick={() => onApproveProposal(prop.proposal_id)}
@@ -316,7 +251,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
               <CheckCircle2 size={13} /> Duyệt & Áp dụng
             </button>
             <button
-              data-testid={`reject-proposal-${prop.proposal_id}`}
               className="btn btn-sm"
               onClick={() => onRejectProposal(prop.proposal_id)}
             >
@@ -340,7 +274,7 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
   }
 
   return (
-    <aside id="architect-panel-dock" className="ai-assistant-dock" aria-label="Kiến trúc sư trưởng AI">
+    <aside className="ai-assistant-dock" aria-label="AI Design Assistant">
       {/* Assistant Header (Section 7) */}
       <div
         style={{
@@ -374,18 +308,16 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
               <span className={`status-dot ${sendingChat ? 'amber' : ''}`} />
-              <span>{sendingChat ? 'Đang xử lý yêu cầu...' : 'Chờ yêu cầu mới'}</span>
+              <span>{sendingChat ? 'Đang suy luận & gọi Pascal MCP...' : 'Sẵn sàng • 8 Agents kết nối'}</span>
+            </div>
+            <div className="status-badge teal" style={{ marginTop: 4, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Dự án: {project?.name} • Rev #{project?.revision}
             </div>
           </div>
         </div>
 
         {onCloseMobile && (
-          <button
-            className="btn btn-icon btn-sm"
-            onClick={onCloseMobile}
-            aria-label="Đóng bảng Kiến trúc sư trưởng AI"
-            title="Đóng trợ lý AI"
-          >
+          <button className="btn btn-icon btn-sm" onClick={onCloseMobile} aria-label="Đóng">
             <X size={14} />
           </button>
         )}
@@ -402,7 +334,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
         }}
       >
         <button
-          data-testid="ai-subtab-chat"
           className={`seg-btn ${subTab === 'chat' ? 'active' : ''}`}
           style={{ flex: 1 }}
           onClick={() => setSubTab('chat')}
@@ -410,7 +341,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
           Hội Thoại ({chatHistory.messages?.length || 0})
         </button>
         <button
-          data-testid="ai-subtab-proposals"
           className={`seg-btn ${subTab === 'proposals' ? 'active' : ''}`}
           style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
           onClick={() => setSubTab('proposals')}
@@ -423,7 +353,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
           )}
         </button>
         <button
-          data-testid="ai-subtab-brief"
           className={`seg-btn ${subTab === 'brief' ? 'active' : ''}`}
           style={{ flex: 1 }}
           onClick={() => setSubTab('brief')}
@@ -436,8 +365,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
       {subTab === 'chat' && (
         <>
           <div
-            ref={chatContainerRef}
-            onScroll={handleChatScroll}
             style={{
               flex: 1,
               overflowY: 'auto',
@@ -448,59 +375,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
               background: 'var(--app-bg)',
             }}
           >
-            {/* Active Multi-Agent Team Roster Strip (Section 2 & 7) */}
-            {activeAgents.length > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 10px',
-                  borderRadius: 'var(--radius-btn)',
-                  background: 'var(--surface-primary)',
-                  border: '1px solid var(--border-subtle)',
-                  overflowX: 'auto',
-                  scrollbarWidth: 'none',
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                  Đội ngũ ({activeAgents.length}):
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
-                  {activeAgents.map((ag) => {
-                    const isRunning = ag.status === 'RUNNING'
-                    return (
-                      <div
-                        key={ag.agent_id}
-                        title={`${ag.name} (${ag.role}) — ${ag.status || 'READY'}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          background: 'var(--surface-secondary)',
-                          border: `1px solid ${isRunning ? 'var(--amber-border)' : 'var(--border-subtle)'}`,
-                          fontSize: 11,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <span style={{ fontSize: 12 }}>{ag.avatar}</span>
-                        <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                          {ag.name.split(' (')[0]}
-                        </span>
-                        {isRunning ? (
-                          <span className="status-dot amber" style={{ width: 6, height: 6 }} />
-                        ) : ag.status === 'COMPLETED' ? (
-                          <span style={{ color: 'var(--emerald-text)', fontSize: 10 }}>✓</span>
-                        ) : null}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* Suggested Quick Prompts */}
             <div className="surface-subtle" style={{ padding: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -528,13 +402,9 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
             {/* Conversation Messages */}
             {(chatHistory.messages || []).map((m: any) => {
               const isUser = m.role === 'user'
-              const isRunning = m.metadata?.status === 'RUNNING'
-              const isCompleted = m.metadata?.status === 'COMPLETED'
-
               return (
                 <div
                   key={m.message_id}
-                  data-testid={`chat-message-${m.message_id}`}
                   style={{
                     alignSelf: isUser ? 'flex-end' : 'stretch',
                     maxWidth: isUser ? '88%' : '100%',
@@ -542,245 +412,34 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
                     borderRadius: 'var(--radius-card)',
                     background: isUser ? 'var(--accent)' : 'var(--surface-primary)',
                     color: isUser ? '#FFFFFF' : 'var(--text-primary)',
-                    border: isUser ? 'none' : `1px solid ${isRunning ? 'var(--amber-border)' : 'var(--border-subtle)'}`,
+                    border: isUser ? 'none' : '1px solid var(--border-subtle)',
                     boxShadow: 'var(--shadow-xs)',
                     fontSize: 13,
                     lineHeight: 1.55,
                   }}
                 >
-                  {/* Top Bar for User Message */}
-                  {isUser && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        fontSize: 11,
-                        color: 'rgba(255,255,255,0.85)',
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600 }}>{m.sender_name || 'Người dùng'}</span>
-                      <span style={{ fontSize: 10.5, opacity: 0.8 }}>
-                        {formatTimestamp(m.metadata?.timestamp || m.created_at)}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: isUser ? 'rgba(255,255,255,0.85)' : 'var(--accent)',
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span>{m.sender_name}</span>
+                    {m.metadata?.agent_id && !isUser && (
+                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                        {m.metadata.agent_id}
                       </span>
-                    </div>
-                  )}
-
-                  {/* Top Bar for Multi-Agent Message (Section 2, 4, 6) */}
-                  {!isUser && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        marginBottom: 8,
-                        paddingBottom: 6,
-                        borderBottom: '1px solid var(--border-subtle)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                        {/* Agent Avatar Icon */}
-                        <div
-                          style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 6,
-                            background: m.metadata?.agent_color
-                              ? `${m.metadata.agent_color}22`
-                              : 'var(--accent-soft)',
-                            border: `1px solid ${m.metadata?.agent_color || 'var(--accent-border)'}`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 13,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {m.metadata?.agent_avatar || '🤖'}
-                        </div>
-
-                        {/* Agent Name */}
-                        <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--text-primary)' }}>
-                          {m.metadata?.agent_name || m.sender_name}
-                        </span>
-
-                        {/* Lead or Role Badge */}
-                        {m.metadata?.is_lead ? (
-                          <span className="status-badge amber" style={{ fontSize: 10, padding: '1px 6px' }}>
-                            Trưởng Nhóm Điều Phối
-                          </span>
-                        ) : m.metadata?.agent_role ? (
-                          <span className="status-badge teal" style={{ fontSize: 10, padding: '1px 6px' }}>
-                            {m.metadata.agent_role}
-                          </span>
-                        ) : null}
-
-                        {/* Native Task ID Link */}
-                        {(m.metadata?.task_identifier || m.metadata?.native_task_id) && (
-                          <a
-                            href={`/ATL/issues/${m.metadata.task_identifier || m.metadata.native_task_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="status-badge neutral"
-                            title="Mở Task trên Paperclip"
-                            style={{
-                              fontSize: 10.5,
-                              padding: '1px 7px',
-                              textDecoration: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 3,
-                              color: 'var(--text-secondary)',
-                            }}
-                          >
-                            <ExternalLink size={10} />
-                            Task: {m.metadata.task_identifier || m.metadata.native_task_id}
-                          </a>
-                        )}
-
-                        {/* Execution Status Badge */}
-                        {m.metadata?.status && (
-                          <span
-                            className={`status-badge ${
-                              isRunning
-                                ? 'amber'
-                                : isCompleted
-                                ? 'emerald'
-                                : m.metadata.status === 'ACCEPTED'
-                                ? 'teal'
-                                : m.metadata.status === 'BLOCKED'
-                                ? 'rose'
-                                : 'neutral'
-                            }`}
-                            style={{ fontSize: 10, padding: '1px 6px' }}
-                          >
-                            {isRunning && (
-                              <span className="status-dot amber" style={{ width: 5, height: 5 }} />
-                            )}
-                            {isCompleted && '✓ '}
-                            {m.metadata.status}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Timestamp */}
-                      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                        {formatTimestamp(m.metadata?.timestamp || m.created_at)}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Message Content */}
-                  <div style={{ whiteSpace: 'pre-line', fontSize: 13, lineHeight: 1.55 }}>
-                    {m.content}
+                    )}
                   </div>
 
-                  {/* Collapsible Handoff Artifact Card (Section 4, 6) */}
-                  {(m.metadata?.handoff_summary || m.metadata?.payload?.handoff_artifact_id) && (
-                    <div
-                      className="surface-subtle"
-                      style={{
-                        marginTop: 10,
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border-subtle)',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                        }}
-                        onClick={() => toggleExpandHandoff(m.message_id)}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
-                          <span>📦 Bàn giao dữ liệu (Handoff Artifact)</span>
-                          {m.metadata.payload?.handoff_artifact_id && (
-                            <span className="mono" style={{ fontSize: 11, color: 'var(--accent)' }}>
-                              {m.metadata.payload.handoff_artifact_id}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)' }}>
-                          <span style={{ fontSize: 11 }}>
-                            {expandedHandoffs[m.message_id] ? 'Thu gọn' : 'Xem chi tiết'}
-                          </span>
-                          {expandedHandoffs[m.message_id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                        </div>
-                      </div>
-
-                      {expandedHandoffs[m.message_id] && (
-                        <div
-                          style={{
-                            marginTop: 8,
-                            paddingTop: 8,
-                            borderTop: '1px dashed var(--border-subtle)',
-                            fontSize: 12,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 5,
-                          }}
-                        >
-                          {m.metadata.handoff_summary?.envelope && (
-                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                              <div>
-                                <span style={{ color: 'var(--text-secondary)' }}>Kích thước: </span>
-                                <span className="mono" style={{ fontWeight: 600 }}>
-                                  {m.metadata.handoff_summary.envelope.width_m}m × {m.metadata.handoff_summary.envelope.length_m}m × {m.metadata.handoff_summary.envelope.height_m}m
-                                </span>
-                              </div>
-                              <div>
-                                <span style={{ color: 'var(--text-secondary)' }}>Diện tích: </span>
-                                <span className="mono" style={{ fontWeight: 600 }}>
-                                  {m.metadata.handoff_summary.envelope.area_m2} m²
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                          {m.metadata.handoff_summary?.detected_structures && (
-                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)' }}>
-                              <span>
-                                Tường: <strong style={{ color: 'var(--text-primary)' }}>{m.metadata.handoff_summary.detected_structures.walls_count}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Cửa đi: <strong style={{ color: 'var(--text-primary)' }}>{m.metadata.handoff_summary.detected_structures.doors_count}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Cửa sổ: <strong style={{ color: 'var(--text-primary)' }}>{m.metadata.handoff_summary.detected_structures.windows_count}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Đồ đạc: <strong style={{ color: 'var(--text-primary)' }}>{m.metadata.handoff_summary.detected_structures.furniture_count}</strong>
-                              </span>
-                            </div>
-                          )}
-                          {m.metadata.handoff_summary?.summary_text && (
-                            <div
-                              style={{
-                                color: 'var(--text-secondary)',
-                                background: 'var(--surface-primary)',
-                                padding: '6px 8px',
-                                borderRadius: 4,
-                                marginTop: 3,
-                              }}
-                            >
-                              {m.metadata.handoff_summary.summary_text}
-                            </div>
-                          )}
-                          {m.metadata.node_id && (
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                              Workflow Node: <span className="mono">{m.metadata.node_id}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  <div style={{ whiteSpace: 'pre-line' }}>{m.content}</div>
+                  {m.metadata?.task_progress?.task_id && !isUser && (
+                    <div className="status-badge teal" style={{ marginTop: 8, width: 'fit-content' }}>
+                      📲 Đã đồng bộ tiến độ Telegram #{m.metadata.task_progress.task_id}
                     </div>
                   )}
 
@@ -823,28 +482,6 @@ export const AIDesignAssistant: React.FC<AIDesignAssistantProps> = ({
 
                   {/* Interactive Proposal Card inside Chat Stream */}
                   {m.metadata?.proposal && renderProposalCard(m.metadata.proposal)}
-
-                  {/* G6 Conversation Output: Blender Cycles Rendered Image inside Chat Stream */}
-                  {m.metadata?.render_job && m.metadata.render_job.image_url && (
-                    <div
-                      className="surface-subtle"
-                      data-testid={`chat-render-card-${m.metadata.render_job.job_id}`}
-                      style={{ marginTop: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
-                    >
-                      <img
-                        src={m.metadata.render_job.image_url}
-                        alt={`Blender Cycles ${m.metadata.render_job.job_id}`}
-                        style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border-strong)' }}
-                      />
-                      <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-secondary)' }}>
-                        REV #{m.metadata.render_job.revision} | CAM: {m.metadata.render_job.camera_id} | MAT_HASH:{' '}
-                        {m.metadata.render_job.material_hash?.slice(0, 12)}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber-text)' }}>
-                        {m.metadata.render_job.mandatory_label || 'ẢNH MINH HỌA — KHÔNG DÙNG LÀM CĂN CỨ THI CÔNG.'}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )
             })}

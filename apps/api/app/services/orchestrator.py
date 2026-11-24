@@ -5,7 +5,7 @@ Implements:
 2. Human-in-the-Loop `ask_user` interrupt & resume (Scale missing, Budget/Style clarification)
 3. Layout Option A / B / C generation with pros/cons, clearance check, and deterministic BOQ
 4. Natural feedback handling ("Sofa hơi to, đổi sofa nhỏ hơn 1.8m", "Đổi sơn tường sang xanh sage",
-   "Lát gạch 800x800", "Thiết kế phong cách hiện đại dưới 100 triệu")
+   "Lát gạch 800x800", "Thiết kế Japandi dưới 100 triệu")
 5. `SceneProposal` diff generation (`WAITING_FOR_APPROVAL`) with Optimistic Concurrency (`base_revision`)
 6. Dependency-aware selective workflow node invalidation (changing paint does NOT rebuild 3D walls)
 7. Multi-provider connection testing (Model API, CLI Subprocess, Pascal MCP Server, Local Ollama)
@@ -44,7 +44,13 @@ from app.services.house_plan_designer import (
 )
 from app.services.inventory_bom import generate_project_inventory_bom
 from app.services.research_agent import search_real_products
-from app.services import finish_decisions as fin
+from app.services.skill_router import route_user_request
+from app.services.telegram_progress import (
+    advance_task_progress,
+    attach_proposal_or_question_to_progress,
+    complete_task_progress,
+    start_task_progress,
+)
 
 
 # ==============================================================================
@@ -87,36 +93,27 @@ def generate_design_options(project: CanonicalProject) -> List[DesignOptionCard]
     Produces 3 distinct, spatially verified interior design options (A, B, C)
     with real catalog SKUs, surface material pairings, and deterministic BOQ totals.
     """
-    style = (project.design_brief.style or fin.DEFAULT_STYLE).strip() or fin.DEFAULT_STYLE
-    style_vi = fin.style_label(style)
-    brief_decisions = project.design_brief.finish_decisions or {}
-    fully_decided = fin.is_fully_decided(brief_decisions)
-    pending_note = "" if fully_decided else " (đề xuất, chờ bạn chọn)"
-
-    def _variant(idx_wall: int, idx_accent: int, idx_floor: int, idx_wood: int) -> Dict[str, Dict[str, Any]]:
-        """Biến thể B/C: lấy lựa chọn thứ idx của bảng style (không phụ thuộc quyết định đã chốt cho A)."""
-        resolved = fin.resolve_finishes({}, style)
-        for key, idx in (("wall_paint", idx_wall), ("accent_wall", idx_accent), ("floor", idx_floor), ("wood_tone", idx_wood)):
-            opts = fin.options_for(key, style)
-            opt = opts[min(idx, len(opts) - 1)]
-            resolved[key] = {**resolved[key], "value": opt["label"], "option_id": opt["id"], "material_id": opt["material_id"], "hex": opt["hex"], "source": "variant"}
-        return resolved
-
-    # Option A: theo style của brief + lựa chọn người dùng đã chốt (còn thiếu thì dùng giá trị đề xuất)
+    # Option A: Japandi Standard (Balanced, warm oak + sage accent)
     proj_a = copy.deepcopy(project)
-    res_a = fin.resolve_finishes(brief_decisions, style)
-    fin.apply_finishes(proj_a, res_a, style)
+    if proj_a.rooms:
+        proj_a.rooms[0].floor_material_id = "floor_wood_oak_straight"
+        proj_a.rooms[0].wall_base_material_id = "paint_dulux_japandi_ivory"
+    for w in proj_a.walls:
+        w.face_a_material_id = "paint_dulux_sage_mist" if w.is_accent_wall else "paint_dulux_japandi_ivory"
     est_a = calculate_project_estimate(proj_a)
 
-    # Option B: biến thể gọn & tiết kiệm (sofa 1.8m) với bảng màu/sàn KHÁC phương án A
+    # Option B: Compact Minimalist Economy (< 75M VND, 1.8m compact sofa, ceramic 600x600 tile)
     proj_b = copy.deepcopy(project)
-    res_b = _variant(1, 1, 1, 1)
-    fin.apply_finishes(proj_b, res_b, style)
+    if proj_b.rooms:
+        proj_b.rooms[0].floor_material_id = "floor_tile_600x600_matte_sand"
+        proj_b.rooms[0].wall_base_material_id = "paint_jotun_morning_fog"
+    for w in proj_b.walls:
+        w.face_a_material_id = "paint_jotun_morning_fog"
     proj_b.furniture_instances = [
         FurnitureInstance(
             id="furn_sofa_main",
             sku="VN-SOFA-MIN-180",
-            name="Sofa Văng Nhỏ Gọn 1.8m",
+            name="Sofa Văng Nhỏ Gọn Minimalist 1.8m",
             category="sofa",
             room_id="room_main",
             x_mm=1100.0,
@@ -167,15 +164,18 @@ def generate_design_options(project: CanonicalProject) -> List[DesignOptionCard]
     ]
     est_b = calculate_project_estimate(proj_b)
 
-    # Option C: biến thể đậm/sang hơn (sofa góc L 2.4m) với bảng màu/sàn KHÁC A và B
+    # Option C: Indochine / Modern Luxury (Herringbone walnut wood, 800x800 marble or L-sofa, Teal accent)
     proj_c = copy.deepcopy(project)
-    res_c = _variant(2, 2, 2, 2)
-    fin.apply_finishes(proj_c, res_c, style)
+    if proj_c.rooms:
+        proj_c.rooms[0].floor_material_id = "floor_wood_walnut_herringbone"
+        proj_c.rooms[0].wall_base_material_id = "paint_dulux_japandi_ivory"
+    for w in proj_c.walls:
+        w.face_a_material_id = "paint_dulux_teal_accent" if w.is_accent_wall else "paint_dulux_japandi_ivory"
     proj_c.furniture_instances = [
         FurnitureInstance(
             id="furn_sofa_main",
             sku="VN-SOFA-LUX-240",
-            name="Sofa Góc L Khung Gỗ 2.4m",
+            name="Sofa Góc L Indochine Gỗ Óc Chó 2.4m",
             category="sofa",
             room_id="room_main",
             x_mm=1200.0,
@@ -208,7 +208,7 @@ def generate_design_options(project: CanonicalProject) -> List[DesignOptionCard]
         ),
         FurnitureInstance(
             id="furn_tv_main",
-            sku="VN-TV-OAK-180",
+            sku="VN-TV-JAP-180",
             name="Hệ Kệ Tivi Gỗ Sồi & Mây Đan 1.8m",
             category="tv_stand",
             room_id="room_main",
@@ -227,174 +227,56 @@ def generate_design_options(project: CanonicalProject) -> List[DesignOptionCard]
     est_c = calculate_project_estimate(proj_c)
 
     budget = project.design_brief.budget_limit_vnd or 120000000.0
-
-    def _summary(res: Dict[str, Dict[str, Any]]) -> str:
-        accent = res["accent_wall"]
-        accent_txt = "không tường nhấn" if accent.get("option_id") == "none" else f"tường nhấn {accent['value']}"
-        return f"Sàn {res['floor']['value']} + Sơn tường {res['wall_paint']['value']}, {accent_txt}, trần {res['ceiling_color']['value']}"
-
     return [
         DesignOptionCard(
             option_id="A",
-            title=f"Phương án A — {style_vi} Cân Bằng (Khuyên dùng){pending_note}",
-            style_name=style_vi,
-            summary=_summary(res_a),
-            pros=["Lối đi rộng rãi 950mm", f"Đúng phong cách {style_vi} bạn chọn", "Nằm gọn trong ngân sách"],
-            cons=["Sofa 2.1m vừa đủ cho 3-4 người ngồi"] + ([] if fully_decided else ["Một số lựa chọn hoàn thiện còn là đề xuất, chờ bạn chọn"]),
+            title="Phương án A — Japandi Cân Bằng (Khuyên dùng)",
+            style_name="Japandi Warm Oak",
+            summary="Sàn gỗ sồi lát thẳng + Sơn kem ấm & tường nhấn Xanh Sage + Sofa văng 2.1m kèm ghế Armchair mây.",
+            pros=["Lối đi rộng rãi 950mm", "Độ ấm cúng cao, chuẩn thẩm mỹ Japandi", "Nằm gọn trong ngân sách"],
+            cons=["Sofa 2.1m vừa đủ cho 3-4 người ngồi"],
             estimated_total_vnd=est_a.total_vnd,
             within_budget=est_a.total_vnd <= budget,
-            floor_material_id=proj_a.rooms[0].floor_material_id if proj_a.rooms else (res_a["floor"]["material_id"] or ""),
-            wall_paint_id=proj_a.rooms[0].wall_base_material_id if proj_a.rooms else (res_a["wall_paint"]["material_id"] or ""),
-            accent_paint_id=res_a["accent_wall"]["material_id"],
+            floor_material_id="floor_wood_oak_straight",
+            wall_paint_id="paint_dulux_japandi_ivory",
+            accent_paint_id="paint_dulux_sage_mist",
             furniture_list=proj_a.furniture_instances,
             clearance_ok=True,
             min_walkway_mm=950.0,
         ),
         DesignOptionCard(
             option_id="B",
-            title=f"Phương án B — Biến thể {style_vi} Tiết Kiệm & Thoáng Rộng",
-            style_name=f"{style_vi} — biến thể gọn",
-            summary=_summary(res_b) + " + Sofa gọn 1.8m & bàn trà tròn D800.",
+            title="Phương án B — Minimalist Tiết Kiệm & Thoáng Rộng",
+            style_name="Scandinavian Minimalist",
+            summary="Gạch mờ 600×600 cát sáng + Sơn Jotun Xám Sương + Sofa gọn 1.8m & bàn trà tròn D800.",
             pros=["Tiết kiệm chi phí nhất", "Lối đi siêu thoáng > 1100mm, rất hợp gia đình có trẻ nhỏ", "Dễ vệ sinh sàn gạch"],
             cons=["Ít chỗ ngồi hơn khi có đông khách"],
             estimated_total_vnd=est_b.total_vnd,
             within_budget=est_b.total_vnd <= budget,
-            floor_material_id=proj_b.rooms[0].floor_material_id if proj_b.rooms else (res_b["floor"]["material_id"] or ""),
-            wall_paint_id=proj_b.rooms[0].wall_base_material_id if proj_b.rooms else (res_b["wall_paint"]["material_id"] or ""),
-            accent_paint_id=res_b["accent_wall"]["material_id"],
+            floor_material_id="floor_tile_600x600_matte_sand",
+            wall_paint_id="paint_jotun_morning_fog",
+            accent_paint_id="paint_jotun_morning_fog",
             furniture_list=proj_b.furniture_instances,
             clearance_ok=True,
             min_walkway_mm=1120.0,
         ),
         DesignOptionCard(
             option_id="C",
-            title=f"Phương án C — Biến thể {style_vi} Đậm & Sang Hơn",
-            style_name=f"{style_vi} — biến thể đậm",
-            summary=_summary(res_c) + " + Sofa góc L 2.4m & Bàn đá Marble.",
+            title="Phương án C — Indochine Sang Trọng (Sàn Xương Cá)",
+            style_name="Modern Indochine",
+            summary="Sàn gỗ Óc Chó lát xương cá + Tường nhấn Xanh Cổ Vịt (Teal) + Sofa 2.4m & Bàn đá Marble.",
             pros=["Sang trọng, tạo điểm nhấn thị giác mạnh", "Sofa rộng 2.4m ngồi thoải mái 4-5 người"],
             cons=["Hao hụt lát gỗ xương cá 12%", "Chi phí đầu tư cao hơn Phương án A & B"],
             estimated_total_vnd=est_c.total_vnd,
             within_budget=est_c.total_vnd <= budget,
-            floor_material_id=proj_c.rooms[0].floor_material_id if proj_c.rooms else (res_c["floor"]["material_id"] or ""),
-            wall_paint_id=proj_c.rooms[0].wall_base_material_id if proj_c.rooms else (res_c["wall_paint"]["material_id"] or ""),
-            accent_paint_id=res_c["accent_wall"]["material_id"],
+            floor_material_id="floor_wood_walnut_herringbone",
+            wall_paint_id="paint_dulux_japandi_ivory",
+            accent_paint_id="paint_dulux_teal_accent",
             furniture_list=proj_c.furniture_instances,
             clearance_ok=True,
             min_walkway_mm=820.0,
         ),
     ]
-
-
-# ==============================================================================
-# 2B. FINISH DECISIONS (sơn, sàn, trần, ánh sáng...) — agent HỎI thay vì tự chọn
-# ==============================================================================
-PROVISIONAL_MARK = "đề xuất, chờ bạn chọn"
-
-
-def _pending_finish_keys(conn: Any, project_id: str) -> set:
-    rows = conn.execute(
-        "SELECT payload_json FROM questions WHERE project_id = ? AND status = 'PENDING'", (project_id,)
-    ).fetchall()
-    keys = set()
-    for r in rows:
-        try:
-            key = json.loads(r["payload_json"]).get("decision_key")
-        except Exception:
-            key = None
-        if key:
-            keys.add(key)
-    return keys
-
-
-def _merge_text_finish_decisions(project: CanonicalProject, user_text: str, style: str) -> None:
-    """Ghi các lựa chọn hoàn thiện người dùng đã nói rõ trong câu chat (không ghi đè decision đã chốt)."""
-    decisions = project.design_brief.finish_decisions
-    for key, dec in fin.finish_decisions_from_text(user_text, style).items():
-        if (decisions.get(key) or {}).get("status") != "VALIDATED":
-            decisions[key] = dec
-
-
-def _plan_and_store_finish_questions(
-    conn: Any, project: CanonicalProject, style: str, *, origin_agent: str = "agent_concierge"
-) -> List[QuestionRequest]:
-    """Tạo tối đa 3 câu hỏi hoàn thiện chưa có decision/chưa có câu đang chờ, lưu vào bảng questions."""
-    pending = _pending_finish_keys(conn, project.project_id)
-    limit = fin.MAX_QUESTIONS_PER_TURN - len(pending)
-    questions = fin.plan_finish_questions(
-        project.project_id,
-        style,
-        project.design_brief.finish_decisions,
-        origin_agent=origin_agent,
-        already_pending=pending,
-        limit=limit,
-    )
-    for q in questions:
-        conn.execute(
-            "INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (q.question_id, project.project_id, "PENDING", q.model_dump_json(), q.created_at),
-        )
-    return questions
-
-
-def _finish_question_text(questions: List[QuestionRequest]) -> str:
-    if not questions:
-        return ""
-    topics = ", ".join(fin.FINISH_LABELS[q.decision_key].lower() for q in questions if q.decision_key)
-    return (
-        f"\n\n❓ **Tôi cần bạn chọn ({len(questions)} câu): {topics}.** Trả lời ngay trên các thẻ câu hỏi bên dưới "
-        f"(hoặc chọn *Tự nhập*). Trong lúc chờ, phương án hiển thị dùng giá trị **{PROVISIONAL_MARK}** — chưa phải quyết định đã duyệt."
-    )
-
-
-def _refresh_provisional_proposal(conn: Any, project: CanonicalProject) -> None:
-    """Sau khi người dùng chọn, cập nhật đề xuất PENDING đang ở trạng thái 'đề xuất, chờ bạn chọn'."""
-    row = conn.execute(
-        "SELECT proposal_id, payload_json FROM proposals WHERE project_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
-        (project.project_id,),
-    ).fetchone()
-    if not row:
-        return
-    prop = SceneProposal.model_validate_json(row["payload_json"])
-    if PROVISIONAL_MARK not in prop.title and not prop.options:
-        return
-    style = project.design_brief.style or fin.DEFAULT_STYLE
-    decisions = project.design_brief.finish_decisions
-    resolved = fin.resolve_finishes(decisions, style)
-    style_vi = fin.style_label(style)
-    if prop.options:
-        prop.options = generate_design_options(project)
-        prop.projected_total_vnd = prop.options[0].estimated_total_vnd
-    else:
-        pc = CanonicalProject.model_validate(prop.proposed_canonical)
-        fin.apply_finishes(pc, resolved, style)
-        est = calculate_project_estimate(pc)
-        pc.estimate_snapshot = est
-        prop.proposed_canonical = pc.model_dump()
-        prop.projected_total_vnd = est.total_vnd
-        prop.cost_delta_vnd = est.total_vnd
-        suffix = "" if fin.is_fully_decided(decisions) else f" ({PROVISIONAL_MARK})"
-        prop.title = f"Phương Án Thiết Kế Căn Hộ {style_vi} — Ngân Sách 80 Triệu{suffix}"
-        for d in prop.diffs:
-            if d.entity_type == "surface_material":
-                d.after_summary = _finish_summary(resolved, style_vi)
-                d.cost_delta_vnd = est.materials_subtotal_vnd
-    conn.execute(
-        "UPDATE proposals SET payload_json = ? WHERE proposal_id = ?", (prop.model_dump_json(), prop.proposal_id)
-    )
-
-
-def _finish_summary(resolved: Dict[str, Dict[str, Any]], style_vi: str) -> str:
-    def tag(k: str) -> str:
-        return "" if resolved[k].get("status") == "VALIDATED" else f" [{PROVISIONAL_MARK}]"
-
-    accent = resolved["accent_wall"]
-    accent_txt = "không tường nhấn" if accent.get("option_id") == "none" else f"tường nhấn {accent['value']}"
-    return (
-        f"Hoàn thiện phong cách {style_vi}: sàn {resolved['floor']['value']}{tag('floor')}; "
-        f"sơn tường {resolved['wall_paint']['value']}{tag('wall_paint')}; {accent_txt}{tag('accent_wall')}; "
-        f"trần {resolved['ceiling_color']['value']}{tag('ceiling_color')}; "
-        f"ánh sáng {resolved['lighting']['value']}{tag('lighting')}"
-    )
 
 
 # ==============================================================================
@@ -413,6 +295,13 @@ async def process_user_chat_message(
     project = get_project(project_id)
     if not project:
         raise ValueError(f"Không tìm thấy dự án {project_id}")
+
+    skill_route = route_user_request(user_text, project)
+    progress = await start_task_progress(
+        project_id, "Yêu cầu thiết kế từ KTS Trưởng", user_text, skill_route.assigned_agent
+    )
+    await advance_task_progress(progress.task_id, "n4_brief", "COMPLETED", "Đã phân tích yêu cầu và kiểm tra tỷ lệ mặt bằng", 20)
+    await advance_task_progress(progress.task_id, "n5_geometry", "COMPLETED", "Đã điều phối Agent chuyên môn xử lý bố cục / vật liệu", 50)
 
     conn = get_conn()
     user_msg_id = f"msg_{uuid.uuid4().hex[:10]}"
@@ -435,235 +324,6 @@ async def process_user_chat_message(
     mat_db = load_materials_catalog()
     paints_by_id = {p["id"]: p for p in mat_db.get("paints", [])}
     tiles_by_id = {t["id"]: t for t in mat_db.get("tiles_and_flooring", [])}
-
-    # CASE 0: User approves proposal via chat
-    is_approval = any(k in lower_txt for k in ["đồng ý duyệt", "phê duyệt", "chấp nhận phương án", "duyệt phương án", "duyệt đề xuất"])
-    if is_approval:
-        pending_row = conn.execute("SELECT payload_json FROM proposals WHERE project_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1", (project_id,)).fetchone()
-        if pending_row:
-            pending_prop = SceneProposal.model_validate_json(pending_row["payload_json"])
-            res = await approve_scene_proposal(pending_prop.proposal_id)
-            project = get_project(project_id)
-            reply_text = (
-                f"✅ **Kiến Trúc Sư Trưởng xác nhận: Đã chính thức phê duyệt phương án '{pending_prop.title}'!**\n\n"
-                f"- **Phiên bản mới**: `Revision #{project.revision}` (đã lưu snapshot khôi phục an toàn).\n"
-                f"- **Mô hình 3D**: Đã đồng bộ trực tiếp vào Pascal SceneGraph.\n"
-                f"- **Tổng dự toán hoàn thiện**: `{project.estimate_snapshot.total_vnd:,.0f} VNĐ`.\n"
-                f"- **Hồ sơ kỹ thuật**: File CAD DXF R2007 và Bảng kê BOM CSV đã sẵn sàng xuất ra công trường."
-            )
-            meta = {
-                "agent_id": "agent_concierge",
-                "approved_proposal_id": pending_prop.proposal_id,
-                "revision": project.revision,
-                "workflow_state": "APPROVED",
-            }
-            conn.execute(
-                "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (f"msg_{uuid.uuid4().hex[:10]}", project_id, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply_text, json.dumps(meta, ensure_ascii=False), now_iso()),
-            )
-            conn.commit()
-            conn.close()
-            return {"user_message_id": user_msg_id, "assistant_message_id": f"msg_{uuid.uuid4().hex[:10]}", "reply": reply_text, "metadata": meta}
-
-    # CASE 1B: New Design Request / Master Design Intake
-    is_new_design = any(k in lower_txt for k in ["thiết kế căn hộ", "thiết kế toàn bộ", "mặt bằng căn hộ", "yêu cầu thiết kế", "bắt đầu thiết kế", "phương án thiết kế"])
-    if is_new_design:
-        proposed = copy.deepcopy(project)
-        # Update design brief: style nhận diện từ câu người dùng; không nêu thì Hiện đại (Modern)
-        style = fin.detect_style(user_text)
-        style_vi = fin.style_label(style)
-        project.design_brief.style = style
-        project.design_brief.room_function = f"Phòng khách {style_vi} sáng và thoáng"
-        project.design_brief.budget_limit_vnd = 80000000.0
-        if style == "Japandi":
-            project.design_brief.liked_elements = ["Gỗ sồi sáng", "Gạch porcelain mờ", "Vải linen be sáng", "Trần thạch cao có đèn LED", "Cây xanh cảnh quan"]
-        else:
-            project.design_brief.liked_elements = ["Đường nét gọn", "Gạch porcelain mờ", "Tông trung tính", "Trần thạch cao có đèn LED", "Cây xanh cảnh quan"]
-        _merge_text_finish_decisions(project, user_text, style)
-        wood_label = "Gỗ Tự Nhiên"
-
-        # 5 món nội thất cơ bản (màu gỗ theo lựa chọn của người dùng)
-        furn_items = [
-            FurnitureInstance(
-                id="furn_sofa_main",
-                sku="VN-SF-LIN-210",
-                name="Sofa Băng 3 Chỗ Vải Linen",
-                category="sofa",
-                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
-                x_mm=2000.0,
-                y_mm=3500.0,
-                z_mm=0.0,
-                width_mm=2000.0,
-                depth_mm=850.0,
-                height_mm=780.0,
-                rotation_deg=0.0,
-                color_hex="#E8E2D8",
-                price_vnd=14500000.0,
-                pascal_asset_id="sofa_linen",
-                vendor="KUKA Home Vietnam",
-                source_url="https://kuka.vn/sofa-bang-vai-linen",
-            ),
-            FurnitureInstance(
-                id="furn_coffee_table",
-                sku="VN-TB-OAK-D80",
-                name=f"Bàn Trà Tròn Mặt Đá Ceramic & Chân {wood_label}",
-                category="coffee_table",
-                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
-                x_mm=2000.0,
-                y_mm=2600.0,
-                z_mm=0.0,
-                width_mm=750.0,
-                depth_mm=750.0,
-                height_mm=420.0,
-                rotation_deg=0.0,
-                color_hex="#F5F3EF",
-                price_vnd=4200000.0,
-                pascal_asset_id="table_round",
-                vendor="Nhà Xinh",
-                source_url="https://nhaxinh.com/san-pham/ban-tra-ceramic",
-            ),
-            FurnitureInstance(
-                id="furn_tv_cabinet",
-                sku="VN-TV-OAK-180",
-                name="Kệ Tivi Treo Tường Gỗ MDF Chống Ẩm An Cường",
-                category="tv_cabinet",
-                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
-                x_mm=2000.0,
-                y_mm=300.0,
-                z_mm=0.0,
-                width_mm=1600.0,
-                depth_mm=350.0,
-                height_mm=400.0,
-                rotation_deg=0.0,
-                color_hex="#D0B89C",
-                price_vnd=5800000.0,
-                pascal_asset_id="tv_unit",
-                vendor="An Cường Wood Working",
-                source_url="https://ancuong.com/san-pham/ke-tivi",
-            ),
-            FurnitureInstance(
-                id="furn_wardrobe_cabinet",
-                sku="VN-CAB-WOOD-120",
-                name=f"Tủ Trang Trí / Kệ Sách {wood_label}",
-                category="cabinet",
-                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
-                x_mm=450.0,
-                y_mm=1700.0,
-                z_mm=0.0,
-                width_mm=400.0,
-                depth_mm=800.0,
-                height_mm=1800.0,
-                rotation_deg=0.0,
-                color_hex="#C8A986",
-                price_vnd=7900000.0,
-                pascal_asset_id="cabinet_oak",
-                vendor="Nhà Xinh",
-                source_url="https://nhaxinh.com/san-pham/tu-ke-trang-tri",
-            ),
-            FurnitureInstance(
-                id="furn_indoor_plant",
-                sku="VN-PLT-MON-120",
-                name="Cây Bàng Singapore Chậu Gốm Bát Tràng 1.4m",
-                category="plant",
-                room_id=proposed.rooms[0].id if proposed.rooms else "room_main",
-                x_mm=3500.0,
-                y_mm=1600.0,
-                z_mm=0.0,
-                width_mm=450.0,
-                depth_mm=450.0,
-                height_mm=1400.0,
-                rotation_deg=0.0,
-                color_hex="#4A6B53",
-                price_vnd=1200000.0,
-                pascal_asset_id="plant_pot",
-                vendor="Vườn Kiểng Xanh",
-                source_url="https://vuonkieng.vn/cay-bang-singapore-chau-gom",
-            ),
-        ]
-        proposed.furniture_instances = furn_items
-        resolved = fin.resolve_finishes(project.design_brief.finish_decisions, style)
-        fin.apply_finishes(proposed, resolved, style)
-        fully_decided = fin.is_fully_decided(project.design_brief.finish_decisions)
-        pending_suffix = "" if fully_decided else f" ({PROVISIONAL_MARK})"
-
-        new_est = calculate_project_estimate(proposed)
-        proposed.estimate_snapshot = new_est
-        qa = analyze_scene_spatial_quality(proposed)
-        bom = generate_project_inventory_bom(proposed)
-
-        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
-        proposal = SceneProposal(
-            proposal_id=prop_id,
-            project_id=project_id,
-            base_revision=project.revision,
-            origin_agent="agent_concierge",
-            title=f"Phương Án Thiết Kế Căn Hộ {style_vi} — Ngân Sách 80 Triệu{pending_suffix}",
-            reason=f"Điều phối 8 Agent chuyên môn hoàn thiện thiết kế: '{user_text[:80]}'",
-            diffs=[
-                SceneDiffItem(
-                    entity_type="surface_material",
-                    entity_id="room_finishes",
-                    action="UPDATE",
-                    before_summary="Mặt bằng thô ban đầu",
-                    after_summary=_finish_summary(resolved, style_vi),
-                    cost_delta_vnd=new_est.materials_subtotal_vnd,
-                ),
-                SceneDiffItem(
-                    entity_type="furniture",
-                    entity_id="furn_starter_package",
-                    action="ADD",
-                    before_summary="Chưa có đồ nội thất",
-                    after_summary=f"Bố trí 5 món nội thất {style_vi} (Sofa băng vải linen, Bàn trà tròn đá ceramic, Kệ tivi MDF An Cường, Tủ sách gỗ tự nhiên, Cây bàng Singapore)",
-                    cost_delta_vnd=new_est.furniture_subtotal_vnd,
-                )
-            ],
-            cost_delta_vnd=new_est.total_vnd,
-            projected_total_vnd=new_est.total_vnd,
-            budget_limit_vnd=project.design_brief.budget_limit_vnd or 80000000.0,
-            collision_warnings=qa.get("warnings", []),
-            proposed_canonical=proposed.model_dump(),
-            status="PENDING",
-            created_at=now_iso(),
-        )
-        conn.execute(
-            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
-        )
-        conn.commit()
-
-        save_project(project, author="Chief Architect", reason="Cập nhật Design Brief từ yêu cầu thiết kế", bump_revision=False)
-        finish_questions = _plan_and_store_finish_questions(conn, project, style, origin_agent="agent_concierge")
-        conn.commit()
-
-        reply_text = (
-            "🏛️ **Kiến Trúc Sư Trưởng (Chief Architect) đã tiếp nhận yêu cầu thiết kế:**\n\n"
-            f"- **Không gian**: Phòng khách `{project.walls[0].end_mm[0]/1000:.1f}m × {project.walls[1].end_mm[1]/1000:.1f}m` (Trần `{project.walls[0].height_mm/1000:.1f}m`).\n"
-            f"- **Phong cách chủ đạo**: **{style_vi}**" + ("" if style != fin.DEFAULT_STYLE else " (mặc định — bạn có thể nói rõ phong cách khác)") + ".\n"
-            f"- **Vật liệu hoàn thiện**: {_finish_summary(resolved, style_vi)}.\n"
-            "- **Nội thất đề xuất (5 món)**: Sofa băng vải linen KUKA Home, Bàn trà tròn đá ceramic Nhà Xinh, Kệ tivi MDF An Cường, Tủ trang trí gỗ sồi, Cây xanh Bàng Singapore.\n"
-            f"- **Tổng dự toán BOQ**: **{new_est.total_vnd:,.0f} VNĐ** (Ngân sách: **{project.design_brief.budget_limit_vnd:,.0f} VNĐ** — ĐẠT TIÊU CHUẨN).\n"
-            f"- **Kiểm định không gian (QA Agent)**: Va chạm hình học: `{qa['collision_count']}`, Lối đi thông thủy: `{int(qa['min_walkway_mm'])} mm` (Đạt chuẩn >= 800mm).\n\n"
-            f"👉 *Mã đề xuất: `{prop_id}`. Vui lòng kiểm tra thẻ đề xuất bên dưới và bấm **Phê duyệt** để áp dụng trực tiếp vào Scene 3D.*"
-            + _finish_question_text(finish_questions)
-        )
-        meta = {
-            "agent_id": "agent_concierge",
-            "proposal_id": prop_id,
-            "proposal": proposal.model_dump(),
-            "spatial_qa": qa,
-            "inventory_bom": bom.model_dump(),
-            "workflow_state": "WAITING_FOR_APPROVAL",
-        }
-        if finish_questions:
-            meta["question"] = finish_questions[0].model_dump()
-            meta["questions"] = [q.model_dump() for q in finish_questions]
-        conn.execute(
-            "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (f"msg_{uuid.uuid4().hex[:10]}", project_id, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply_text, json.dumps(meta, ensure_ascii=False), now_iso()),
-        )
-        conn.commit()
-        conn.close()
-        return {"user_message_id": user_msg_id, "assistant_message_id": f"msg_{uuid.uuid4().hex[:10]}", "reply": reply_text, "metadata": meta}
 
     # CASE 1: Uncalibrated floor plan scale -> Mandatory `ask_user` interrupt!
     if not project.scale_calibrated and ("tỷ lệ" not in lower_txt and "4000" not in lower_txt and "4m" not in lower_txt):
@@ -704,8 +364,26 @@ async def process_user_chat_message(
         project.approval_state = "WAITING_FOR_INPUT"
         save_project(project, author="FloorPlan Agent", reason="Chờ xác nhận tỷ lệ mặt bằng", bump_revision=False)
 
+    # Low-confidence or incomplete requests must pause for clarification instead of guessing.
+    elif skill_route.requires_clarification:
+        q_id = f"q_{uuid.uuid4().hex[:10]}"
+        q_req = QuestionRequest(
+            question_id=q_id, project_id=project_id, origin_agent=skill_route.assigned_agent,
+            context=f"Skill Router confidence={skill_route.confidence:.2f}; missing={skill_route.missing_slots}",
+            question_text=skill_route.clarification_question or "Bạn muốn thay đổi điều gì trong dự án?",
+            why_needed="Yêu cầu chưa đủ rõ để thay đổi Scene an toàn. Hệ thống cần xác nhận intent trước khi thực thi.",
+            choices=[QuestionChoice(id=f"route_{i}", label=label) for i, label in enumerate(skill_route.clarification_choices, 1)],
+            allow_free_text=True, blocking=True, resume_token=f"resume_{uuid.uuid4().hex[:8]}",
+            status="PENDING", created_at=now_iso(),
+        )
+        conn.execute("INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                     (q_id, project_id, "PENDING", q_req.model_dump_json(), q_req.created_at))
+        conn.commit()
+        reply_text = f"🤔 **KTS Trưởng cần làm rõ trước khi giao Agent:**\n\n{q_req.question_text}"
+        meta = {"agent_id": skill_route.assigned_agent, "question": q_req.model_dump(), "workflow_state": "WAITING_FOR_INPUT"}
+
     # CASE 2: User asks for sofa replacement / smaller sofa ("nhỏ hơn", "1.8m", "đổi sofa")
-    elif any(k in lower_txt for k in ["đổi sofa", "thay sofa", "sofa nhỏ", "sofa 1.8m", "nhỏ hơn 1.8m"]):
+    elif skill_route.skill_id == "furniture.replace_sofa" or any(k in lower_txt for k in ["sofa", "ghế", "nhỏ hơn", "1.8m", "1800"]):
         proposed = copy.deepcopy(project)
         old_sofa = next((f for f in proposed.furniture_instances if f.category == "sofa"), None)
         old_summary = f"{old_sofa.name} ({int(old_sofa.width_mm)}×{int(old_sofa.depth_mm)}mm — {old_sofa.price_vnd:,.0f} đ)" if old_sofa else "Chưa có sofa"
@@ -786,8 +464,133 @@ async def process_user_chat_message(
             "invalidated_nodes": ["n7_furniture", "n8_clearance", "n9_shopping", "n10_cost"],
         }
 
+    # CASE 2B: Add a flower pot / small plant on the requested support surface.
+    elif skill_route.skill_id == "decor.add_plant":
+        proposed = copy.deepcopy(project)
+        support = next((f for f in proposed.furniture_instances if f.category == "coffee_table"), None)
+        existing = next((f for f in proposed.furniture_instances if f.id == "decor_flower_pot_coffee_table"), None)
+        if not support:
+            skill_route.requires_clarification = True
+            skill_route.missing_slots = ["support_surface"]
+            q_id = f"q_{uuid.uuid4().hex[:10]}"
+            q_req = QuestionRequest(
+                question_id=q_id, project_id=project_id, origin_agent="agent_furniture",
+                context="Không tìm thấy bàn trà trong Scene", question_text="Dự án chưa có bàn trà. Bạn muốn đặt chậu hoa ở đâu?",
+                why_needed="Cần bề mặt đỡ hợp lệ để đặt vật trang trí.",
+                choices=[QuestionChoice(id="floor_corner", label="Góc sàn gần cửa sổ"), QuestionChoice(id="tv_cabinet", label="Trên kệ TV")],
+                resume_token=f"resume_{uuid.uuid4().hex[:8]}", created_at=now_iso(),
+            )
+            conn.execute("INSERT INTO questions (question_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (q_id, project_id, "PENDING", q_req.model_dump_json(), q_req.created_at)); conn.commit()
+            reply_text = f"🤔 {q_req.question_text}"
+            meta = {"agent_id": "agent_furniture", "question": q_req.model_dump(), "workflow_state": "WAITING_FOR_INPUT"}
+        else:
+            pot = FurnitureInstance(
+                id="decor_flower_pot_coffee_table", sku="DECOR-FLOWER-POT-25",
+                name="Chậu Hoa Gốm Trang Trí Bàn Trà", category="plant",
+                room_id=support.room_id, x_mm=support.x_mm, y_mm=support.y_mm,
+                z_mm=support.height_mm + 10.0, width_mm=250.0, depth_mm=250.0, height_mm=350.0,
+                rotation_deg=0.0, color_hex="#6F8F72", price_vnd=650000.0,
+                pascal_asset_id="plant", vendor="Decor Việt Nam (Giá minh họa)",
+            )
+            if existing:
+                proposed.furniture_instances = [pot if f.id == existing.id else f for f in proposed.furniture_instances]
+            else:
+                proposed.furniture_instances.append(pot)
+            new_est = calculate_project_estimate(proposed); proposed.estimate_snapshot = new_est
+            old_total = project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0
+            cost_delta = new_est.total_vnd - old_total
+            qa = analyze_scene_spatial_quality(proposed)
+            prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+            proposal = SceneProposal(
+                proposal_id=prop_id, project_id=project_id, base_revision=project.revision,
+                origin_agent="agent_furniture", title="Thêm chậu hoa gốm trang trí trên bàn trà",
+                reason="Chậu hoa 250mm được căn giữa trên mặt bàn trà và không chiếm diện tích lối đi.",
+                diffs=[SceneDiffItem(entity_type="furniture", entity_id=pot.id, action="UPDATE" if existing else "ADD",
+                    before_summary=existing.name if existing else "Bàn trà chưa có vật trang trí",
+                    after_summary="Chậu hoa gốm 250×250×350mm trên bàn trà", cost_delta_vnd=cost_delta)],
+                cost_delta_vnd=cost_delta, projected_total_vnd=new_est.total_vnd,
+                budget_limit_vnd=project.design_brief.budget_limit_vnd,
+                collision_warnings=qa.get("warnings", []), proposed_canonical=proposed.model_dump(),
+                status="PENDING", created_at=now_iso(),
+            )
+            conn.execute("INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at)); conn.commit()
+            mark_workflow_invalidation("furniture_change")
+            reply_text = (
+                "🌿 **Decor Agent đã tạo đề xuất chậu hoa trên bàn trà:**\n\n"
+                "- Chậu gốm `250×250×350mm`, đặt giữa mặt bàn trà.\n"
+                "- Không làm giảm lối đi vì nằm trên bề mặt bàn.\n"
+                f"- Chi phí minh họa: `{cost_delta:+,.0f} VNĐ`.\n\n"
+                "Bấm **Phê duyệt áp dụng** để thêm vào Scene 2D/3D."
+            )
+            meta = {"agent_id": "agent_furniture", "proposal": proposal.model_dump(), "spatial_qa": qa}
+
+    # CASE 2C: Add/update a real television on the existing TV cabinet.
+    elif skill_route.skill_id == "furniture.add_television":
+        proposed = copy.deepcopy(project)
+        cabinet = next((f for f in proposed.furniture_instances if f.category == "tv_cabinet"), None)
+        existing_tv = next((f for f in proposed.furniture_instances if f.category in {"television", "tv_screen"}), None)
+        tv = FurnitureInstance(
+            id=existing_tv.id if existing_tv else "furn_tv_screen_55",
+            sku="TV-55-UHD-ATELIER",
+            name="Smart TV 4K 55 inch",
+            category="television",
+            room_id=cabinet.room_id if cabinet else "room_main",
+            x_mm=cabinet.x_mm if cabinet else 3600.0,
+            y_mm=cabinet.y_mm if cabinet else 2300.0,
+            z_mm=(cabinet.height_mm if cabinet else 500.0) + 30.0,
+            width_mm=round(float(skill_route.slots.get("size_inch", 55)) * 22.36 / 10.0) * 10.0,
+            depth_mm=80.0,
+            height_mm=710.0,
+            rotation_deg=cabinet.rotation_deg if cabinet else 270.0,
+            color_hex="#17191C",
+            price_vnd=11900000.0,
+            pascal_asset_id="television",
+            source_url="https://example.com/tv-55 (Giá minh họa)",
+            vendor="Catalog điện máy minh họa",
+        )
+        if existing_tv:
+            proposed.furniture_instances = [tv if f.id == existing_tv.id else f for f in proposed.furniture_instances]
+        else:
+            proposed.furniture_instances.append(tv)
+        new_est = calculate_project_estimate(proposed)
+        proposed.estimate_snapshot = new_est
+        old_total = project.estimate_snapshot.total_vnd if project.estimate_snapshot else 0.0
+        cost_delta = new_est.total_vnd - old_total
+        qa = analyze_scene_spatial_quality(proposed)
+        prop_id = f"prop_{uuid.uuid4().hex[:10]}"
+        proposal = SceneProposal(
+            proposal_id=prop_id, project_id=project_id, base_revision=project.revision,
+            origin_agent="agent_furniture", title="Bổ sung Smart TV 4K 55 inch trên kệ TV hiện có",
+            reason="TV 55 inch rộng 1230mm, vừa kệ 1800mm và được đặt theo đúng tọa độ kệ TV.",
+            diffs=[SceneDiffItem(
+                entity_type="furniture", entity_id=tv.id, action="UPDATE" if existing_tv else "ADD",
+                before_summary=existing_tv.name if existing_tv else "Chưa có màn hình TV",
+                after_summary="Smart TV 4K 55 inch (1230×80×710mm) đặt trên kệ TV 1.8m",
+                cost_delta_vnd=cost_delta,
+            )],
+            cost_delta_vnd=cost_delta, projected_total_vnd=new_est.total_vnd,
+            budget_limit_vnd=project.design_brief.budget_limit_vnd,
+            collision_warnings=qa.get("warnings", []), proposed_canonical=proposed.model_dump(),
+            status="PENDING", created_at=now_iso(),
+        )
+        conn.execute(
+            "INSERT INTO proposals (proposal_id, project_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (prop_id, project_id, "PENDING", proposal.model_dump_json(), proposal.created_at),
+        )
+        conn.commit(); mark_workflow_invalidation("furniture_change")
+        reply_text = (
+            "📺 **Furniture Agent đã tạo đề xuất thêm Smart TV 4K 55 inch:**\n\n"
+            "- Kích thước TV: `1230×80×710mm`; kệ hiện có rộng `1800mm` — **vừa kệ**.\n"
+            f"- QA lối đi nhỏ nhất: `{int(qa.get('min_walkway_mm', 0))}mm`.\n"
+            f"- Chi phí minh họa tăng: `{cost_delta:+,.0f} VNĐ`; tổng mới: **{new_est.total_vnd:,.0f} VNĐ**.\n\n"
+            "Hãy bấm **Phê duyệt áp dụng** để TV xuất hiện trên mặt bằng 2D và Scene 3D."
+        )
+        meta = {"agent_id": "agent_furniture", "proposal": proposal.model_dump(), "spatial_qa": qa}
+
     # CASE 3: User requests paint / wall color / floor tile change (Section 7B)
-    elif any(k in lower_txt for k in ["sơn", "màu", "gạch", "sàn", "xanh", "terrazzo", "xương cá", "cổ vịt", "teal"]):
+    elif skill_route.skill_id == "surface.change_material" or any(k in lower_txt for k in ["sơn", "màu", "gạch", "sàn", "xanh", "terrazzo", "xương cá", "cổ vịt", "teal"]):
         proposed = copy.deepcopy(project)
         diffs: List[SceneDiffItem] = []
 
@@ -995,7 +798,7 @@ async def process_user_chat_message(
         reply_text = (
             "🏛️ **KTS Trưởng (Chief Architect) đã điều phối thành công 5 Agent chuyên môn:**\n\n"
             "1. 🎨 **Material Agent**: Đổi sàn sang **Gạch Porcelain Sa Thạch 600×600mm Mờ (Eurotile)** chống trơn trượt.\n"
-            "2. 🖼️ **Rendering Agent**: Thiết lập camera, HDRI và ánh sáng kết xuất để tạo phối cảnh bám sát SceneGraph.\n"
+            "2. 💡 **Ceiling & Lighting Agent**: Thiết kế **Trần giật cấp hắt sáng Vĩnh Tường BASI** + 4 đèn LED Rạng Đông 9W.\n"
             "3. 🛋️ **Furniture & Decor Agent**: Bổ sung **Cây Bàng Singapore 1.4m** tại góc đón sáng.\n"
             "4. 📊 **Cost Estimator**: Cập nhật dự toán BOQ: Biến động `{cost_delta:+,.0f} VNĐ` (Tổng mới: **{new_est.total_vnd:,.0f} VNĐ**).\n"
             f"5. 📐 **QA Agent**: Kiểm định lối đi thông thủy `{int(qa['min_walkway_mm'])}mm` (Đạt chuẩn >= 750mm).\n\n"
@@ -1004,7 +807,7 @@ async def process_user_chat_message(
         )
         meta = {
             "agent_id": "agent_chief_architect",
-            "collaboration_pipeline": ["agent_material", "agent_render", "agent_furniture", "agent_cost", "agent_qa"],
+            "collaboration_pipeline": ["agent_material", "agent_ceiling_lighting", "agent_furniture", "agent_cost", "agent_qa"],
             "proposal": proposal.model_dump(),
             "inventory_summary": {
                 "total_items": bom.total_items_count,
@@ -1109,7 +912,7 @@ async def process_user_chat_message(
                 QuestionChoice(
                     id="opt_declutter_luxury",
                     label="Phương án C: Tinh giản nội thất & Nâng cấp vật liệu cao cấp",
-                    description="Vật liệu da/nỉ cao cấp, giải phóng diện tích thông thủy, mở rộng tầm nhìn thoáng đãng và đẳng cấp.",
+                    description="Japandi Luxury, da/nỉ cao cấp, giải phóng diện tích thông thủy, mở rộng tầm nhìn thoáng đãng và đẳng cấp.",
                 ),
             ],
             allow_free_text=True,
@@ -1135,12 +938,6 @@ async def process_user_chat_message(
 
     # CASE 5: General design consultation / Layout Options A/B/C request
     else:
-        # Style chỉ đổi khi người dùng nói rõ; câu hỏi hoàn thiện chỉ tạo cho khóa chưa có decision/chưa có câu đang chờ.
-        explicit_style = fin.detect_style(user_text, default="")
-        if explicit_style and explicit_style != project.design_brief.style:
-            project.design_brief.style = explicit_style
-        style = project.design_brief.style or fin.DEFAULT_STYLE
-        _merge_text_finish_decisions(project, user_text, style)
         options = generate_design_options(project)
         opt_b = options[1]
         proposed = copy.deepcopy(project)
@@ -1196,13 +993,16 @@ async def process_user_chat_message(
             "proposal": proposal.model_dump(),
             "options": [o.model_dump() for o in options],
         }
-        conn.commit()
-        save_project(project, author="Chief Architect", reason="Cập nhật lựa chọn hoàn thiện từ chat", bump_revision=False)
-        finish_questions = _plan_and_store_finish_questions(conn, project, style, origin_agent="agent_concierge")
-        if finish_questions:
-            reply_text += _finish_question_text(finish_questions)
-            meta["question"] = finish_questions[0].model_dump()
-            meta["questions"] = [q.model_dump() for q in finish_questions]
+
+    await advance_task_progress(progress.task_id, "n8_clearance", "COMPLETED", "Đã kiểm định lối đi và tính dự toán hình học", 80)
+    if meta.get("proposal"):
+        await attach_proposal_or_question_to_progress(progress.task_id, proposal=meta["proposal"])
+    elif meta.get("question"):
+        await attach_proposal_or_question_to_progress(progress.task_id, question=meta["question"])
+    else:
+        await complete_task_progress(progress.task_id, "Hoàn tất xử lý yêu cầu", project.revision)
+    meta["task_progress"] = {"task_id": progress.task_id, "telegram_synced": True}
+    meta["skill_route"] = skill_route.model_dump()
 
     assistant_msg_id = f"msg_{uuid.uuid4().hex[:10]}"
     conn.execute(
@@ -1232,48 +1032,6 @@ async def process_user_chat_message(
 # ==============================================================================
 # 4. QUESTION RESUME & PROPOSAL APPROVAL / REJECTION
 # ==============================================================================
-def _answer_finish_question(conn: Any, q: QuestionRequest, answer_value: str) -> Dict[str, Any]:
-    """Lưu câu trả lời hoàn thiện thành decision (VALIDATED) trong design_brief; Style dùng đúng giá trị đó."""
-    project = get_project(q.project_id)
-    if not project:
-        conn.close()
-        raise ValueError(f"Không tìm thấy dự án {q.project_id}")
-    style = project.design_brief.style or fin.DEFAULT_STYLE
-    decision = fin.record_answer(q.decision_key, style, q.choices, answer_value)
-    if decision is None:
-        # Bấm 'Tự nhập' mà chưa gõ nội dung: giữ câu hỏi mở.
-        conn.close()
-        return {"ok": True, "needs_text": True, "question": q.model_dump(), "project": project.model_dump()}
-    q.status = "ANSWERED"
-    q.answer_value = answer_value
-    conn.execute(
-        "UPDATE questions SET status = 'ANSWERED', payload_json = ? WHERE question_id = ?",
-        (q.model_dump_json(), q.question_id),
-    )
-    project.design_brief.finish_decisions[q.decision_key] = decision
-    project.design_brief.approved_decisions.append(f"{decision['label']}: {decision['value']}")
-    conn.commit()
-    project = save_project(project, author="User (Finish decision)", reason=f"Chốt {decision['label']}", bump_revision=False)
-    _refresh_provisional_proposal(conn, project)
-    next_questions = _plan_and_store_finish_questions(conn, project, style, origin_agent=q.origin_agent if q.origin_agent in fin.ASKING_AGENTS else "agent_concierge")
-    reply = f"✅ **Đã ghi nhận lựa chọn của bạn — {decision['label']}: {decision['value']}.** Style sẽ dùng đúng giá trị này, không hỏi lại."
-    if next_questions:
-        reply += _finish_question_text(next_questions)
-    elif fin.is_fully_decided(project.design_brief.finish_decisions):
-        reply += "\n\nCác lựa chọn hoàn thiện đã đủ; phương án hiện hiển thị đúng theo quyết định của bạn."
-    meta: Dict[str, Any] = {"resumed_question_id": q.question_id, "decision": decision}
-    if next_questions:
-        meta["question"] = next_questions[0].model_dump()
-        meta["questions"] = [n.model_dump() for n in next_questions]
-    conn.execute(
-        "INSERT INTO chat_messages (message_id, project_id, role, sender_name, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (f"msg_{uuid.uuid4().hex[:10]}", project.project_id, "assistant", "Kiến Trúc Sư Trưởng (Chief Architect)", reply, json.dumps(meta, ensure_ascii=False), now_iso()),
-    )
-    conn.commit()
-    conn.close()
-    return {"ok": True, "question": q.model_dump(), "decision": decision, "next_questions": [n.model_dump() for n in next_questions], "project": project.model_dump()}
-
-
 def answer_question_and_resume(question_id: str, answer_value: str) -> Dict[str, Any]:
     conn = get_conn()
     row = conn.execute("SELECT payload_json FROM questions WHERE question_id = ?", (question_id,)).fetchone()
@@ -1282,8 +1040,6 @@ def answer_question_and_resume(question_id: str, answer_value: str) -> Dict[str,
         raise ValueError(f"Không tìm thấy câu hỏi {question_id}")
 
     q = QuestionRequest.model_validate_json(row["payload_json"])
-    if q.decision_key:
-        return _answer_finish_question(conn, q, answer_value)
     q.status = "ANSWERED"
     q.answer_value = answer_value
     conn.execute(
@@ -1338,24 +1094,6 @@ async def approve_scene_proposal(proposal_id: str, option_id: Optional[str] = No
     if not project:
         conn.close()
         raise ValueError(f"Không tìm thấy dự án {prop.project_id}")
-
-    # Optimistic concurrency: a proposal is a diff against one immutable base
-    # revision. Never overwrite a newer approved scene with a stale preview.
-    if project.revision != prop.base_revision:
-        prop.status = "SUPERSEDED"
-        conn.execute(
-            "UPDATE proposals SET status = 'SUPERSEDED', payload_json = ? WHERE proposal_id = ?",
-            (prop.model_dump_json(), proposal_id),
-        )
-        conn.commit()
-        conn.close()
-        return {
-            "ok": False,
-            "status": "REVISION_CONFLICT",
-            "message": f"Đề xuất dựa trên Revision #{prop.base_revision}, nhưng dự án hiện là Revision #{project.revision}.",
-            "proposal": prop.model_dump(),
-            "project": project.model_dump(),
-        }
 
     # Apply either a specific OptionCard (A/B/C) or the proposed_canonical snapshot
     if option_id and prop.options:

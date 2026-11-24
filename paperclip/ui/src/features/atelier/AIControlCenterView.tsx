@@ -6,7 +6,7 @@
  * - Rich Agent Nodes with Icon, Name, Provider/Model, Semantic Status Badge, Input/Output Ports, and Human Gate markers
  * - Live Agent editing (System Prompt, Model, Allowed MCP Tools, Enable/Disable toggle) connected to PUT /api/v1/agents/{id}
  */
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 
 interface AIControlCenterViewProps {
+  projectId: string
   workflows: any[]
   runs: any[]
   agents: any[]
@@ -54,6 +55,7 @@ const getStatusBadgeStyle = (status: string) => {
 }
 
 export const AIControlCenterView: React.FC<AIControlCenterViewProps> = ({
+  projectId,
   workflows,
   runs,
   agents,
@@ -65,6 +67,30 @@ export const AIControlCenterView: React.FC<AIControlCenterViewProps> = ({
   const activeWf = workflows[0] || { workflow_id: 'wf_default_interior_pipeline', nodes: [], edges: [] }
   const [selectedNodeId, setSelectedNodeId] = useState<string>('n6_style')
   const [showLogsDrawer, setShowLogsDrawer] = useState<boolean>(true)
+  const [showTelegram, setShowTelegram] = useState<boolean>(false)
+  const [telegramConfig, setTelegramConfig] = useState<any>({ bot_token: '', chat_id: '', enabled: false, update_mode: 'edit_single_message', notify_on_assign: true, notify_on_step: true, notify_on_approval: true })
+  const [telegramTasks, setTelegramTasks] = useState<any[]>([])
+  const [dispatchPrompt, setDispatchPrompt] = useState('Kiểm tra bố cục, lối đi và đề xuất phương án tối ưu')
+
+  const refreshTelegram = async () => {
+    const [cfg, tasks] = await Promise.all([
+      fetch('/api/v1/telegram/config').then(r => r.json()),
+      fetch(`/api/v1/tasks/progress?project_id=${projectId}`).then(r => r.json()),
+    ])
+    setTelegramConfig(cfg); setTelegramTasks(tasks)
+  }
+  useEffect(() => { if (showTelegram) refreshTelegram().catch(() => undefined) }, [showTelegram, projectId])
+  const saveTelegram = async () => {
+    await fetch('/api/v1/telegram/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(telegramConfig) })
+    await refreshTelegram()
+  }
+  const testTelegram = async () => {
+    await fetch(`/api/v1/telegram/test?project_id=${projectId}`, { method: 'POST' }); await refreshTelegram()
+  }
+  const dispatchTelegramTask = async () => {
+    await fetch('/api/v1/tasks/dispatch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_id: projectId, title: 'Công việc từ Control Center', prompt: dispatchPrompt, agent_id: 'agent_chief_architect' }) })
+    await refreshTelegram()
+  }
 
   const agentsById = useMemo(() => {
     const map: Record<string, any> = {}
@@ -159,7 +185,7 @@ export const AIControlCenterView: React.FC<AIControlCenterViewProps> = ({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
       {/* Top Control Plane Bar */}
       <div
         style={{
@@ -180,6 +206,7 @@ export const AIControlCenterView: React.FC<AIControlCenterViewProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn btn-sm" onClick={() => setShowTelegram(!showTelegram)}>📲 Telegram Progress</button>
           <button
             className="btn btn-sm"
             onClick={() => setShowLogsDrawer(!showLogsDrawer)}
@@ -191,6 +218,21 @@ export const AIControlCenterView: React.FC<AIControlCenterViewProps> = ({
           </button>
         </div>
       </div>
+
+      {showTelegram && (
+        <div style={{ position: 'absolute', zIndex: 20, top: 54, right: 12, width: 520, maxHeight: 'calc(100% - 70px)', overflow: 'auto', padding: 16, background: 'var(--surface-primary)', border: '1px solid var(--border-subtle)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><strong>Cấu hình & Giám sát Tiến độ Telegram</strong><button className="btn btn-sm" onClick={() => setShowTelegram(false)}>Đóng</button></div>
+          <input className="field-input" type="password" placeholder="Bot Token (giữ trống để mô phỏng)" value={telegramConfig.bot_token === 'REDACTED' ? '' : telegramConfig.bot_token} onChange={e => setTelegramConfig({ ...telegramConfig, bot_token: e.target.value })} />
+          <input className="field-input" placeholder="Telegram Chat ID" value={telegramConfig.chat_id || ''} onChange={e => setTelegramConfig({ ...telegramConfig, chat_id: e.target.value })} />
+          <select className="field-select" value={telegramConfig.update_mode} onChange={e => setTelegramConfig({ ...telegramConfig, update_mode: e.target.value })}><option value="edit_single_message">Cập nhật trên 1 tin nhắn</option><option value="milestone_messages">Gửi từng mốc mới</option></select>
+          <label style={{ fontSize: 12 }}><input type="checkbox" checked={telegramConfig.enabled} onChange={e => setTelegramConfig({ ...telegramConfig, enabled: e.target.checked })} /> Bật gửi Telegram thật</label>
+          <div style={{ display: 'flex', gap: 6 }}><button className="btn btn-sm btn-primary" onClick={saveTelegram}>Lưu cấu hình</button><button className="btn btn-sm" onClick={testTelegram}>Gửi thử luồng tiến độ</button></div>
+          <textarea className="field-textarea" rows={2} value={dispatchPrompt} onChange={e => setDispatchPrompt(e.target.value)} />
+          <button className="btn btn-sm btn-primary" onClick={dispatchTelegramTask}>Giao việc mới kèm thông báo Telegram</button>
+          <div style={{ fontWeight: 600, fontSize: 12 }}>Telegram Progress Live Feed</div>
+          {telegramTasks.slice(0, 8).map(task => <div key={task.task_id} className="surface-subtle" style={{ fontSize: 11.5, whiteSpace: 'pre-wrap' }}><div><b>#{task.task_id}</b> · {task.status} · {task.progress_pct}%</div><code>[{'█'.repeat(Math.floor(task.progress_pct / 10))}{'░'.repeat(10 - Math.floor(task.progress_pct / 10))}]</code><div>{task.current_step_label}</div><div style={{ color: 'var(--text-secondary)' }}>{task.delivery_logs?.[0]?.status || 'SIMULATED'}</div></div>)}
+        </div>
+      )}
 
       {/* Main 3-Column Control Plane Body */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '250px 1fr 330px', minHeight: 0, overflow: 'hidden' }}>
