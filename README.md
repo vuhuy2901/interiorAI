@@ -4,6 +4,19 @@
 
 ---
 
+## 0. Phòng 3D Đã Dựng (từ file GLB)
+
+Nhấn vào mỗi ảnh/tên file để GitHub mở trình xem 3D tương tác trực tiếp trên trình duyệt (xoay, zoom mô hình `.glb` thật, không cần tải phần mềm).
+
+| Modern Apartment | The Interior 14 (Spacious) | Small Apartment (Morning) |
+| :---: | :---: | :---: |
+| [![Modern Apartment](docs/room-previews/modern_apartment.png)](data/assets/scenes/modern_apartment_source/modern_apartment.glb) | [![The Interior 14](docs/room-previews/the_interior_14_spacious.png)](data/assets/scenes/the_interior_14_spacious/the_interior_14_is_spacious..glb) | [![Small Apartment Morning](docs/room-previews/small_apartment_morning.png)](data/assets/scenes/small_apartment_morning_source/small_apartment_morning_version.glb) |
+| [`modern_apartment.glb`](data/assets/scenes/modern_apartment_source/modern_apartment.glb) (286MB, Git LFS) | [`the_interior_14_is_spacious..glb`](data/assets/scenes/the_interior_14_spacious/the_interior_14_is_spacious..glb) (13MB) | [`small_apartment_morning_version.glb`](data/assets/scenes/small_apartment_morning_source/small_apartment_morning_version.glb) (3MB) |
+
+Database dự án (`data/atelier.db`, SQLite WAL, qua Git LFS) lưu toàn bộ metadata phòng/scene/dự án tương ứng.
+
+---
+
 ## 1. Kiến Trúc & Nguồn Tham Chiếu Mở (MIT License)
 
 1. **Lõi 3D / BIM & MCP Server**: Dựa trên [`pascalorg/editor`](https://github.com/pascalorg/editor) (`@pascal-app/core`, `@pascal-app/mcp` v1.0.7, MIT License) chạy qua [`packages/pascal-adapter/gateway.mjs`](packages/pascal-adapter/gateway.mjs).
