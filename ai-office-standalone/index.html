@@ -435,7 +435,8 @@ html, body {
   animation: slideDrawer .25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes slideDrawer { from{opacity:0;transform:translateX(18px)} to{opacity:1;transform:translateX(0)} }
-.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; cursor: grab; user-select: none; }
+.drawer-head:active { cursor: grabbing; }
 .drawer-avatar {
   width: 46px;
   height: 46px;
@@ -818,8 +819,24 @@ html, body {
 .cta-empty { color: #475569; font-size: 12px; padding: 4px 0 10px; }
 .cta-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #f8fafc; font-size: 12px; padding: 6px 8px; width: 100%; box-sizing: border-box; }
 .cta-input:focus { border-color: rgba(212,163,115,0.5); outline: none; }
-.cta-minimap-wrap { margin: 4px 0 6px; border-radius: 6px; overflow: hidden; }
-.cta-desk-hint { font-size: 10px; color: #64748b; margin-top: 2px; }
+.cta-deskgrid { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; }
+.cta-dept-group { }
+.cta-dept-header { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; padding: 3px 0 5px; border-bottom: 1px solid; margin-bottom: 5px; letter-spacing: 0.04em; }
+.cta-dept-dot { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.cta-dept-count { margin-left: auto; font-weight: 500; font-size: 9px; opacity: 0.7; }
+.cta-desk-cards { display: flex; flex-wrap: wrap; gap: 4px; }
+.cta-dcard { width: 68px; padding: 6px 4px 5px; border-radius: 6px; border: 1px solid; text-align: center; transition: border-color .12s, background .12s, transform .1s; box-sizing: border-box; }
+.cta-dcard.available { border-color: rgba(74,222,128,0.35); background: rgba(74,222,128,0.07); cursor: pointer; }
+.cta-dcard.available:hover { border-color: rgba(74,222,128,0.75); background: rgba(74,222,128,0.14); transform: translateY(-1px); }
+.cta-dcard.occupied { border-color: rgba(100,116,139,0.25); background: rgba(20,24,32,0.5); cursor: default; opacity: 0.6; }
+.cta-dcard.cta-dcard-fixed { border-color: rgba(56,189,248,0.2); background: rgba(56,189,248,0.05); cursor: default; opacity: 0.75; }
+.cta-dcard.selected { border-color: #f59e0b !important; background: rgba(245,158,11,0.18) !important; cursor: pointer; }
+.cta-dcard-lbl { font-size: 11px; font-weight: 700; color: #f1f5f9; line-height: 1.2; }
+.cta-dcard-sub { font-size: 9px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+.cta-dcard.selected .cta-dcard-sub { color: #f59e0b; font-weight: 600; }
+.cta-dcard.available .cta-dcard-sub { color: #4ade80; }
+.cta-sel-info { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px; padding: 6px 10px; font-size: 11px; color: #f59e0b; font-weight: 600; margin: 4px 0 6px; display: flex; align-items: center; gap: 6px; }
+.cta-sel-info .sel-cancel { margin-left: auto; cursor: pointer; color: #94a3b8; font-size: 14px; line-height: 1; }
 #customTeamDrawer { width: 340px; }
 @media (max-width: 600px) { #customTeamDrawer { width: calc(100vw - 28px); } }
 </style>
@@ -1826,8 +1843,52 @@ createFramedArtwork(wx(45), 1.7, wx(1) + 0.03, 2.2, 1.4, 0, 'villa_living');
 createFramedArtwork(wx(52), 1.7, wx(1) + 0.03, 1.8, 1.3, 0, 'townhouse_facade');
 // Display Pedestal with 2-Storey Villa Scale Model
 createArchitecturalScaleModel(43, 11, 'villa2');
-// Architectural Monograph Credenza
-cb(54, 3, 58, 4, 0.75, 0x332317, 0, S, { roughness: 0.5 });
+// Kệ sách kiến trúc — walnut với sách màu và đèn shelf LED
+{
+  const bsX=(54+58+1)/2*CS, bsZ=(3+4+1)/2*CS, bsW=5*CS, bsH=1.6, bsD=CS;
+  const bg = new T.Group(); bg.position.set(bsX,0,bsZ); S.add(bg);
+  const wd={roughness:0.48}, wc=0x2b1c0f, ws=0.025;
+  // 2 tấm bên
+  [-bsW/2+ws/2, bsW/2-ws/2].forEach(px => bx(px,bsH/2,0,ws,bsH,bsD,wc,bg,wd));
+  // Mặt lưng
+  bx(0,bsH/2,-bsD/2+0.008,bsW-ws*2,bsH,0.014,0x1a1008,bg,{roughness:0.75});
+  // Tấm đáy + tấm đỉnh
+  bx(0,ws/2,0,bsW,ws,bsD,wc,bg,wd);
+  bx(0,bsH-ws/2,0,bsW,ws,bsD,wc,bg,wd);
+  // 3 tầng ngăn
+  const shelfY=[0.38,0.78,1.17];
+  shelfY.forEach(sy => {
+    bx(0,sy,0,bsW-ws*2,ws,bsD-0.04,wc,bg,{roughness:0.44});
+    // LED strip dưới mỗi tầng
+    bx(0,sy-0.012,bsD/2-0.04,bsW*0.9,0.008,0.012,0xffb84d,bg,{emissive:0xffa033,emissiveIntensity:0.9});
+  });
+  // Sách trên từng tầng
+  const bkPalette=[0x8b1a1a,0x1a3d8b,0x1a6b3a,0x7a4a1a,0x6a1a7a,0x2a5a7a,0x8a7a1a,0x344a60,0x60342a];
+  [[0.38,0.025],[0.78,0.025],[1.17,0.025]].forEach(([sy,st],si) => {
+    let bkX = -bsW/2+ws+0.04;
+    const floorY = sy+st/2+0.001;
+    let bkIdx=si*3;
+    while(bkX < bsW/2-ws-0.02){
+      const bkW2=0.028+((bkIdx*7+3)%5)*0.006;
+      const bkH2=0.16+((bkIdx*3+1)%5)*0.05;
+      const bkD2=bsD*0.55;
+      bx(bkX+bkW2/2,floorY+bkH2/2,-bsD/2+0.025+bkD2/2,bkW2,bkH2,bkD2,
+        bkPalette[bkIdx%bkPalette.length],bg,{roughness:0.62});
+      bx(bkX+bkW2/2,floorY+bkH2-0.004,-bsD/2+0.025+bkD2/2,bkW2*0.9,0.006,bkD2*0.9,
+        0xf5f0e8,bg,{roughness:0.9});
+      bkX+=bkW2+0.005; bkIdx++;
+    }
+  });
+  // Đồ trang trí tầng đỉnh: lọ sứ nhỏ + khung ảnh
+  cyl(bsW/2-0.18,bsH+0.09,0,0.055,0.18,0xd4c5b0,0,bg,{roughness:0.35});
+  bx(-bsW/2+0.22,bsH+0.11,0,0.16,0.21,0.015,0x1a1510,bg,{roughness:0.4,metalness:0.6});
+  bx(-bsW/2+0.22,bsH+0.11,0.009,0.14,0.19,0.005,0xf0ece6,bg);
+  // 4 chân kim loại ngắn
+  [[-bsW/2+0.07,-bsD/2+0.07],[bsW/2-0.07,-bsD/2+0.07],
+   [-bsW/2+0.07,bsD/2-0.07],[bsW/2-0.07,bsD/2-0.07]].forEach(([lx,lz]) => {
+    bx(lx,0.03,lz,0.04,0.055,0.04,0x111111,bg,{roughness:0.35,metalness:0.75});
+  });
+}
 blk(54, 3, 58, 4);
 
 // 2. PHÒNG BẢO (XƯỞNG THIẾT KẾ NỘI THẤT)
@@ -1857,16 +1918,21 @@ createFramedArtwork(wx(54), 1.55, wx(16) - 0.03, 2.0, 1.2, Math.PI, 'luxury_kitc
 const seats = {};
 
 // Employee Ergonomic Task Chair
-function createErgonomicTaskChair(c, r, face, col = 0x22262d) {
+function createErgonomicTaskChair(c, r, face, col = 0x6e7580) {
   const g = new T.Group();
 
-  bx(0, 0.44, 0.02, 0.48, 0.07, 0.46, col, g, { roughness: 0.75 });
-  bx(0, 0.78, -0.21, 0.44, 0.56, 0.04, 0x1c1f24, g, { roughness: 0.85 });
-  cyl(0, 0.76, -0.23, 0.02, 0.45, 0x111317, 0, g);
+  // Đệm ngồi — xám trung
+  bx(0, 0.44, 0.02, 0.48, 0.07, 0.46, col, g, { roughness: 0.78 });
+  // Lưng ghế mesh xám
+  bx(0, 0.78, -0.21, 0.44, 0.56, 0.04, 0x7a8290, g, { roughness: 0.80 });
+  // Thanh trục lưng
+  cyl(0, 0.76, -0.23, 0.02, 0.45, 0x444850, 0, g, { metalness: 0.4 });
 
   [-0.24, 0.24].forEach(x => {
-    bx(x, 0.58, -0.04, 0.06, 0.03, 0.28, 0x14171c, g, { roughness: 0.7 });
-    bx(x, 0.48, -0.04, 0.02, 0.18, 0.02, 0x555555, g, { metalness: 0.8, roughness: 0.3 });
+    // Tay vịn — dark gray
+    bx(x, 0.58, -0.04, 0.06, 0.03, 0.28, 0x3a3d44, g, { roughness: 0.7 });
+    // Trụ tay vịn — chrome
+    bx(x, 0.48, -0.04, 0.02, 0.18, 0.02, 0x777b80, g, { metalness: 0.8, roughness: 0.25 });
   });
 
   cyl(0, 0.24, 0, 0.032, 0.36, 0x777777, 0, g, { metalness: 0.85, roughness: 0.2 });
@@ -1994,35 +2060,55 @@ function createDetailedDesk(c, r, screenType = 'design', dualMon = false, free =
   deskGroup.position.set(x, 0, z);
   if (free) deskGroup.rotation.y = (free.rot || 0) * Math.PI / 2; /* FEAT-2026-160: bàn tự do, không chặn lưới cũ */
 
-  bx(0, 0.74, 0, 4 * CS - 0.08, 0.05, 2 * CS - 0.08, 0x3d2c1f, deskGroup, { roughness: 0.45 });
-  bx(0, 0.768, 0.06, 1.25, 0.008, 0.58, 0x1f2229, deskGroup, { roughness: 0.9 });
-  [-1.5 * CS + 0.1, 1.5 * CS - 0.1].forEach(lx => {
-    bx(lx, 0.36, 0, 0.06, 0.72, 1.6 * CS, 0x181a1f, deskGroup, { roughness: 0.4, metalness: 0.7 });
+  // Mặt bàn gỗ sáng (light oak) — giống ảnh tham chiếu
+  bx(0, 0.74, 0, 4 * CS - 0.06, 0.04, 2 * CS - 0.06, 0xc8a870, deskGroup, { roughness: 0.40 });
+  // Viền dưới mặt bàn
+  bx(0, 0.720, 0, 4 * CS - 0.03, 0.005, 2 * CS - 0.03, 0x9a7a48, deskGroup, { roughness: 0.5 });
+  // Keyboard + mouse mat — gray
+  bx(0, 0.768, 0.08, 1.30, 0.008, 0.62, 0x44484e, deskGroup, { roughness: 0.88 });
+
+  // 4 chân thép hộp (thay 2 side panel) — style "công ty chuẩn"
+  const legW = 0.045, legD = 0.045, legH = 0.72, legCol = 0x1a1c20;
+  const legOpt = { roughness: 0.35, metalness: 0.75 };
+  const legOffX = 1.5 * CS - 0.08, legOffZ = CS * 0.72;
+  [[-legOffX, -legOffZ], [-legOffX, legOffZ], [legOffX, -legOffZ], [legOffX, legOffZ]].forEach(([lx, lz]) => {
+    bx(lx, legH / 2, lz, legW, legH, legD, legCol, deskGroup, legOpt);
+    // Thanh nối ngang phía trước/sau (crossbar)
+    if (lz > 0) bx(0, 0.08, lz, 2 * legOffX - legW, 0.03, legD, 0x111317, deskGroup, { roughness: 0.5, metalness: 0.6 });
+  });
+  // Thanh nối dọc giữa 2 chân trái + 2 chân phải
+  [-legOffX, legOffX].forEach(lx => {
+    bx(lx, 0.08, 0, legW, 0.03, 2 * legOffZ - legD, 0x111317, deskGroup, { roughness: 0.5, metalness: 0.6 });
   });
 
-  bx(1.2 * CS, 0.36, 0, 0.55, 0.7, 0.75, 0x281d15, deskGroup, { roughness: 0.6 });
-  bx(1.2 * CS, 0.52, 0.39, 0.22, 0.02, 0.02, 0xd4af37, deskGroup, { metalness: 0.8, roughness: 0.2 });
-  bx(1.2 * CS, 0.24, 0.39, 0.22, 0.02, 0.02, 0xd4af37, deskGroup, { metalness: 0.8, roughness: 0.2 });
+  // PC Tower — đặt trên bàn bên phải (giống ảnh tham chiếu)
+  const tX = 1.15 * CS;
+  bx(tX, 0.90, -0.14, 0.22, 0.30, 0.42, 0x48505a, deskGroup, { roughness: 0.55 });  // thân tower
+  bx(tX, 0.88, 0.09, 0.20, 0.28, 0.02, 0x3c434c, deskGroup, { roughness: 0.5 });     // mặt trước
+  bx(tX, 0.92, 0.10, 0.14, 0.012, 0.015, 0x222529, deskGroup);                        // CD slot
+  bx(tX, 0.86, 0.10, 0.14, 0.012, 0.015, 0x222529, deskGroup);                        // CD slot 2
+  cyl(tX - 0.05, 0.98, 0.10, 0.012, 0.01, 0x0088ff, 0, deskGroup, { emissive: 0x0066dd, emissiveIntensity: 0.9 }); // power LED
+  cyl(tX + 0.04, 0.98, 0.10, 0.008, 0.01, 0x888888, 0, deskGroup, { metalness: 0.7 }); // power button
 
   const monTex = screenTextures[screenType] || screenTextures.design;
   const createMonitor = (offsetX, angle = 0) => {
     const mg = new T.Group();
     mg.position.set(offsetX, 0.77, -0.22);
     mg.rotation.y = angle;
-    cyl(0, 0.15, 0, 0.015, 0.3, 0x666666, 0, mg, { metalness: 0.85 });
-    bx(0, 0.01, 0, 0.18, 0.01, 0.14, 0x222222, mg);
-    bx(0, 0.22, 0, 0.68, 0.38, 0.02, 0x111317, mg);
+    cyl(0, 0.16, 0, 0.014, 0.32, 0x555555, 0, mg, { metalness: 0.88 });
+    bx(0, 0.01, 0, 0.17, 0.01, 0.13, 0x222222, mg);
+    bx(0, 0.225, 0, 0.70, 0.40, 0.022, 0x0e1014, mg);
     const scrMat = new T.MeshStandardMaterial({
       map: monTex,
       color: 0xffffff,
-      roughness: 0.24,
-      metalness: 0.12,
+      roughness: 0.22,
+      metalness: 0.10,
       emissive: 0x08101a,
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.20,
     });
     scrMat.name = 'screen';
-    const scr = new T.Mesh(new T.PlaneGeometry(0.64, 0.34), scrMat);
-    scr.position.set(0, 0.22, 0.012);
+    const scr = new T.Mesh(new T.PlaneGeometry(0.66, 0.36), scrMat);
+    scr.position.set(0, 0.225, 0.013);
     mg.add(scr);
     deskGroup.add(mg);
   };
@@ -2040,12 +2126,32 @@ function createDetailedDesk(c, r, screenType = 'design', dualMon = false, free =
   cyl(0.06, 0.36, 0, 0.05, 0.08, 0xffe0a0, 0.8, lamp, { emissive: 0xffb84d, emissiveIntensity: 0.9 });
   deskGroup.add(lamp);
 
-  const plantPot = cyl(dualMon ? -0.72 : 0.72, 0.81, 0.1, 0.045, 0.09, 0xd9c5b2, 0, deskGroup);
-  cyl(0, 0.05, 0, 0.04, 0.05, 0x3d7048, 0, plantPot);
+  // Cốc cà phê trên bàn (giống ảnh)
+  const mugX = dualMon ? -0.68 : 0.72;
+  cyl(mugX, 0.80, 0.14, 0.038, 0.09, 0xeae8e5, 0, deskGroup, { roughness: 0.5 });  // thân cốc
+  cyl(mugX, 0.845, 0.14, 0.036, 0.015, 0x8ba8c0, 0, deskGroup, { roughness: 0.3, emissive: 0x336688, emissiveIntensity: 0.1 }); // nước
 
   S.add(deskGroup);
   if (free) return deskGroup;
   blk(c, r, c + 3, r + 1);
+}
+
+/* Workstation = bàn + ghế làm 1 unit. agentId dùng để đăng ký seat. */
+const fixedDeskHitboxes = [];
+
+function createWorkstation(c, r, screenType, dualMon, agentId) {
+  createDetailedDesk(c, r, screenType, dualMon);
+  // Invisible hitbox để click bàn trong 3D → mở drawer agent
+  const hb = new T.Mesh(
+    new T.BoxGeometry(4 * CS, 0.6, 2 * CS),
+    new T.MeshBasicMaterial({ visible: false })
+  );
+  hb.position.set((c + 2) * CS, 0.45, (r + 1) * CS);
+  hb.userData.fixedAgentId = agentId;
+  S.add(hb);
+  fixedDeskHitboxes.push(hb);
+  // Ghế căn giữa bàn (c+2 = trung tâm 4-cell desk)
+  registerSeat('d_' + agentId, [c + 2, r + 2], [c + 2, r + 3], Math.PI, false);
 }
 
 function createSculpturalPlant(c, r, isTall = false) {
@@ -2083,8 +2189,7 @@ const AG = [
 ];
 
 AG.forEach(([id, , , , c, r, , , screenType]) => {
-  createDetailedDesk(c, r, screenType, id === 'minh' || id === 'mira');
-  registerSeat('d_' + id, [c + 1, r + 2], [c + 1, r + 3], Math.PI, false);
+  createWorkstation(c, r, screenType, id === 'minh' || id === 'mira', id);
 });
 
 /* 16-position desk pool — desks created on demand when agent assigned */
@@ -2332,18 +2437,44 @@ rugMesh.rotation.x = -Math.PI / 2;
 rugMesh.position.set(wx(4.0), 0.025, wx(3.2));
 loungeGroup.add(rugMesh);
 
-// Ghế Sofa nỉ màu be cao cấp (L-Sofa)
+// Ghế Sofa nỉ màu be cao cấp — IMPROVED v2
 const sofaGroup = new T.Group();
 sofaGroup.position.set(wx(4.0), 0, wx(2.2));
-bx(0, 0.25, 0, 2.6, 0.45, 0.9, 0xd0c7ba, sofaGroup, { roughness: 0.75 });
-bx(0, 0.58, -0.36, 2.6, 0.48, 0.22, 0xc5beb1, sofaGroup, { roughness: 0.75 });
-[-1.22, 1.22].forEach(sx => {
-  bx(sx, 0.42, 0.05, 0.22, 0.42, 0.92, 0xc0b8aa, sofaGroup, { roughness: 0.75 });
+const sofaW = 0x2a1f17, sofaC = 0xd4c8b8, sofaB = 0xc8bfae, sofaPA = 0xc25e36, sofaPB = 0x5a7d65;
+// 4 chân thép mờ
+[[-1.14,0.40],[-1.14,-0.40],[1.14,0.40],[1.14,-0.40]].forEach(([lx,lz]) => {
+  cyl(lx, 0.07, lz, 0.022, 0.13, 0x777777, 0, sofaGroup, { metalness:0.75, roughness:0.25 });
 });
-[-0.8, -0.2, 0.4, 0.9].forEach((gx, idx) => {
-  const gCol = idx % 2 === 0 ? 0xc25e36 : 0x5a7d65;
-  const pillow = bx(gx, 0.46, -0.2, 0.36, 0.32, 0.12, gCol, sofaGroup, { roughness: 0.6 });
-  pillow.rotation.x = -0.2;
+// Khung đế walnut
+bx(0, 0.17, 0, 2.5, 0.08, 0.84, sofaW, sofaGroup, { roughness:0.5 });
+// 3 đệm ngồi riêng (hơi lệch nhau cho tự nhiên)
+[-0.83, 0, 0.83].forEach((sx, i) => {
+  bx(sx, 0.29 + (i===1?0.012:0), i===1?0.015:0, 0.80, 0.19, 0.78, sofaC, sofaGroup, { roughness:0.72 });
+  bx(sx, 0.275, 0, 0.78, 0.004, 0.76, 0xbfb8ad, sofaGroup);
+});
+// 3 đệm tựa lưng (nghiêng nhẹ)
+[-0.83, 0, 0.83].forEach((sx, i) => {
+  const bg = new T.Group();
+  bg.position.set(sx, 0.52, -0.33);
+  bg.rotation.x = -0.14;
+  bx(0, 0, 0, 0.80, 0.46, 0.18, sofaB, bg, { roughness:0.70 });
+  bx(0, 0.01, -0.085, 0.78, 0.44, 0.012, 0xb9b4aa, bg);
+  sofaGroup.add(bg);
+});
+// Tay vịn trái + phải (gỗ + đệm)
+[-1.22, 1.22].forEach(sx => {
+  bx(sx, 0.26, 0.02, 0.18, 0.44, 0.88, sofaW, sofaGroup, { roughness:0.5 });
+  bx(sx, 0.52, 0.02, 0.21, 0.08, 0.90, sofaC, sofaGroup, { roughness:0.72 });
+  bx(sx, 0.57, 0.02, 0.19, 0.025, 0.88, 0xbfb8ad, sofaGroup);
+});
+// 3 gối trang trí
+[[-0.83, sofaPA, -0.1], [0, sofaPB, 0.1], [0.83, 0x9b7c5a, -0.05]].forEach(([gx, gc, gz]) => {
+  const pg = new T.Group();
+  pg.position.set(gx, 0.60, -0.26 + gz);
+  pg.rotation.x = -0.22; pg.rotation.z = gz * 0.4;
+  bx(0, 0, 0, 0.30, 0.28, 0.09, gc, pg, { roughness:0.55 });
+  bx(0, 0, 0, 0.28, 0.26, 0.004, 0xffffff, pg, { roughness:0.95, transparent:true, opacity:0.07 });
+  sofaGroup.add(pg);
 });
 loungeGroup.add(sofaGroup);
 
@@ -2500,9 +2631,15 @@ const marbleMat = new T.MeshStandardMaterial({ map: marbleTex, roughness: 0.25, 
 const marbleMesh = new T.Mesh(new T.BoxGeometry(9.2 * CS, 0.015, 1.4 * CS), marbleMat);
 marbleMesh.position.set(0, 0.785, 0);
 confTable.add(marbleMesh);
-[-4 * CS, 4 * CS].forEach(bxPos => {
-  bx(bxPos, 0.35, 0, 1.25, 0.7, 1.8 * CS, 0x1c1713, confTable, { roughness: 0.7 });
+// 8 chân tròn thép đánh bóng (4 cặp) thay cho 2 khối hộp
+const cfLegOpt = { roughness:0.25, metalness:0.80 };
+[[-3.5*CS, 0.68*CS], [-3.5*CS,-0.68*CS], [3.5*CS, 0.68*CS], [3.5*CS,-0.68*CS]].forEach(([lx,lz]) => {
+  cyl(lx, 0.37, lz, 0.044, 0.74, 0x1a1510, 0, confTable, cfLegOpt);
+  // chân phụ chia cặp
+  cyl(lx, 0.08, lz, 0.065, 0.015, 0xd4af37, 0, confTable, { metalness:0.9, roughness:0.2 });
 });
+// Cross-beam nối 2 cụm chân
+bx(0, 0.08, 0, 7.5*CS, 0.04, 0.07, 0x1a1510, confTable, { roughness:0.5, metalness:0.6 });
 S.add(confTable);
 blk(22, 6, 33, 9);
 
@@ -5757,6 +5894,24 @@ window.addEventListener('resize', onResize);
 onResize();
 
 let drag = null;
+let panMode = false;
+
+// Phím H: bật/tắt chế độ kéo camera (pan) kiểu SketchUp
+document.addEventListener('keydown', e => {
+  if (e.key !== 'h' && e.key !== 'H') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+  if (FP2.active) return;
+  panMode = !panMode;
+  cv.style.cursor = panMode ? 'move' : '';
+  // Mini toast notification
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:72px;left:50%;transform:translateX(-50%);background:rgba(20,24,30,0.92);color:#e2a053;padding:7px 18px;border-radius:20px;font:600 13px "Space Grotesk",sans-serif;border:1px solid rgba(212,175,55,0.3);pointer-events:none;z-index:9999;';
+  toast.textContent = panMode ? '✋ Kéo Camera BẬT — kéo chuột để di chuyển (H tắt)' : '🔄 Kéo Camera TẮT — kéo chuột để xoay';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2200);
+});
+
 cv.addEventListener('pointerdown', e => {
   if (FP2.active && FP2._onPointerDown) { FP2._onPointerDown(e); return; }
   if (e.button === 0) {
@@ -5767,8 +5922,17 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   if (FP2.active && FP2._onPointerMove) { FP2._onPointerMove(e); if(!drag) return; }
   if (!drag) return;
-  camOrbit.th -= (e.clientX - drag[0]) * 0.005;
-  camOrbit.ph = Math.min(1.3, Math.max(0.25, camOrbit.ph - (e.clientY - drag[1]) * 0.004));
+  const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+  if (panMode) {
+    // Pan camera: dịch camTarget theo hướng phải/trước của camera (kiểu SketchUp H)
+    const th = camOrbit.th;
+    const spd = camOrbit.r * 0.0025;
+    camTarget.x += (Math.cos(th) * dx + Math.sin(th) * dy) * spd;
+    camTarget.z += (-Math.sin(th) * dx + Math.cos(th) * dy) * spd;
+  } else {
+    camOrbit.th -= dx * 0.005;
+    camOrbit.ph = Math.min(1.3, Math.max(0.25, camOrbit.ph - dy * 0.004));
+  }
   drag = [e.clientX, e.clientY];
   updateCamera();
 });
@@ -5786,15 +5950,58 @@ const raycaster = new T.Raycaster();
 const mouse = new T.Vector2();
 const hitboxes = agents.map(a => a.hitbox);
 
+/* Invisible hitboxes cho pool desk slots — click trong 3D sẽ mở drawer */
+const poolDeskHitboxes = DESK_POOL.map((sl, i) => {
+  const hb = new T.Mesh(
+    new T.BoxGeometry(2 * CS, 0.8, 2 * CS),
+    new T.MeshBasicMaterial({ visible: false })
+  );
+  hb.position.set((sl.c + 2) * CS, 0.4, (sl.r + 1) * CS);
+  hb.userData.poolDeskIdx = i;
+  S.add(hb);
+  return hb;
+});
+
+function openPoolDeskAssign(pidx) {
+  const drawer = document.getElementById('customTeamDrawer');
+  if (!drawer) return;
+  drawer.style.display = 'block';
+  document.getElementById('btnCustomTeam')?.classList.add('active');
+  _ctaSelPoolIdx = pidx;
+  renderCustomTeamPanel();
+  setTimeout(() => document.getElementById('ctaFormArea')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 120);
+}
+
 cv.addEventListener('click', e => {
   if (FP2.active) return;
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, cam);
-  const intersects = raycaster.intersectObjects(hitboxes, false);
-  if (intersects.length > 0) {
-    const agent = intersects[0].object.userData.agent;
-    if (agent) openAgentDrawer(agent);
+
+  // Agent avatar hitboxes — ưu tiên cao nhất
+  const agentHits = raycaster.intersectObjects(hitboxes, false);
+  if (agentHits.length > 0) {
+    const agent = agentHits[0].object.userData.agent;
+    if (agent) { openAgentDrawer(agent); return; }
+  }
+
+  // Fixed desk hitboxes — click bàn agent cũ → mở drawer agent
+  const fixedHits = raycaster.intersectObjects(fixedDeskHitboxes, false);
+  if (fixedHits.length > 0) {
+    const agentId = fixedHits[0].object.userData.fixedAgentId;
+    const ag = A[agentId] || agents.find(a => a.id === agentId);
+    if (ag) { openAgentDrawer(ag); return; }
+  }
+
+  // Pool desk hitboxes — click vị trí trống → mở drawer gán agent
+  const deskHits = raycaster.intersectObjects(poolDeskHitboxes, false);
+  if (deskHits.length > 0) {
+    const pidx = deskHits[0].object.userData.poolDeskIdx;
+    if (pidx !== undefined) {
+      const configs = getCustomAgentConfigs();
+      const isOccupied = configs.some(c => c.poolIdx === pidx);
+      if (!isOccupied) openPoolDeskAssign(pidx);
+    }
   }
 });
 
@@ -6881,8 +7088,15 @@ function updateLabelsWithCollisionAvoidance(w, h) {
 
   items.forEach(item => {
     const a = item.agent;
-    a.lb.style.left = `${item.x}px`;
-    a.lb.style.top = `${item.y}px`;
+    // Ẩn label khi agent đang ngồi tại bàn (trừ: đang họp, đang nói, đang được chọn)
+    const atDesk = a.sitting && a.state !== 'meeting';
+    const show = !atDesk || item.isSpeaking || item.isSelected;
+    a.lb.style.display = show ? '' : 'none';
+
+    if (show) {
+      a.lb.style.left = `${item.x}px`;
+      a.lb.style.top = `${item.y}px`;
+    }
     a.lb.classList.toggle('speaking', item.isSpeaking);
 
     a.bb.style.display = item.isSpeaking ? 'block' : 'none';
@@ -7027,32 +7241,83 @@ setInterval(syncLiveCompanyStatus, 6000);
 let _ctaSelPoolIdx = null;
 let _ctaPcAgents = null; // null = not fetched yet
 
-function _ctaBuildMinimap(occupied, selIdx) {
-  const SC = 3.1;
-  const rooms = [
-    { x: 0,  z: 23, w: 19, h: 17, fill: 'rgba(56,189,248,0.1)',   lbl: 'Thiết Kế' },
-    { x: 19, z: 22, w: 19, h: 18, fill: 'rgba(52,211,153,0.1)',   lbl: 'BIM' },
-    { x: 38, z: 22, w: 14, h: 18, fill: 'rgba(251,191,36,0.1)',   lbl: 'Kế Toán' },
-    { x: 52, z: 22, w:  8, h: 18, fill: 'rgba(192,132,252,0.1)',  lbl: 'QA' },
-  ];
-  const fixedAg = [[44,4],[3,27],[13,27],[3,34],[22,27],[30,27],[39,27],[39,34],[54,34]];
-  let s = `<svg id="ctaMapSvg" xmlns="http://www.w3.org/2000/svg" width="${60*SC}" height="${40*SC}" style="display:block;border-radius:6px;">`;
-  s += `<rect width="${60*SC}" height="${40*SC}" fill="rgba(0,0,0,0.45)" rx="4"/>`;
-  rooms.forEach(rm => {
-    s += `<rect x="${rm.x*SC}" y="${rm.z*SC}" width="${rm.w*SC}" height="${rm.h*SC}" fill="${rm.fill}" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>`;
-    s += `<text x="${(rm.x+rm.w/2)*SC}" y="${(rm.z+2.4)*SC}" text-anchor="middle" fill="rgba(255,255,255,0.3)" font-size="4.5" font-family="sans-serif">${rm.lbl}</text>`;
+/* Fixed agent → dept mapping (index 0=id, 3=col, 4=c, 5=r, 9=shortName) */
+const FIXED_BY_DEPT = (() => {
+  const deptMap = { design: [], bim: [], cost: [], qa: [] };
+  const remap = { lux: 'bim', po: null }; // render→bim; mira→skip
+  AG.forEach(([id, role, , , c, r, dept, , , shortName]) => {
+    const d = remap[dept] ?? dept;
+    if (!d || !deptMap[d]) return;
+    deptMap[d].push({ agentId: id, label: shortName || role.split(' ')[0] });
   });
-  fixedAg.forEach(([c,r]) => {
-    s += `<circle cx="${(c+0.5)*SC}" cy="${(r+0.5)*SC}" r="2" fill="rgba(248,113,113,0.8)"/>`;
-  });
+  return deptMap;
+})();
+
+/* Desk card grid — đọc từ DESK_POOL + fixed agents, nhóm theo phòng. */
+function _ctaDeskGrid(occupied, selIdx, occupantMap) {
+  const deptInfo = {
+    design: { label: 'Thiết Kế',  col: '#38bdf8', order: 0 },
+    bim:    { label: 'BIM',       col: '#34d399', order: 1 },
+    cost:   { label: 'Kế Toán',  col: '#fbbf24', order: 2 },
+    qa:     { label: 'QA DevOps', col: '#c084fc', order: 3 },
+  };
+
+  // Group DESK_POOL by dept
+  const groups = {};
   DESK_POOL.forEach((sl, i) => {
-    const isOcc = occupied.has(i), isSel = selIdx === i;
-    const fill = isSel ? '#f59e0b' : (isOcc ? 'rgba(100,116,139,0.55)' : 'rgba(74,222,128,0.75)');
-    const cur = isOcc ? 'default' : 'pointer';
-    s += `<rect class="cta-dc" data-pidx="${i}" x="${sl.c*SC+0.4}" y="${sl.r*SC+0.4}" width="${SC*1.7}" height="${SC*1.7}" fill="${fill}" rx="1.2" style="cursor:${cur}"/>`;
+    if (!groups[sl.dept]) groups[sl.dept] = [];
+    groups[sl.dept].push({ ...sl, idx: i, isPool: true });
   });
-  s += '</svg>';
-  return s;
+
+  const sortedDepts = Object.keys(groups).sort((a, b) =>
+    (deptInfo[a]?.order ?? 99) - (deptInfo[b]?.order ?? 99)
+  );
+
+  let html = '<div class="cta-deskgrid">';
+  sortedDepts.forEach(dept => {
+    const info = deptInfo[dept] || { label: dept, col: '#6366f1' };
+    const slots = groups[dept] || [];
+    const fixedAgs = FIXED_BY_DEPT[dept] || [];
+    const availCount = slots.filter(s => !occupied.has(s.idx)).length;
+    const totalShown = fixedAgs.length + slots.length;
+
+    html += `<div class="cta-dept-group">
+      <div class="cta-dept-header" style="color:${info.col};border-bottom-color:${info.col}30;">
+        <span class="cta-dept-dot" style="background:${info.col}"></span>
+        ${info.label}
+        <span class="cta-dept-count">${availCount} trống / ${totalShown} bàn</span>
+      </div>
+      <div class="cta-desk-cards">`;
+
+    // Fixed agents — hiện là "đã có" (không thể gán)
+    fixedAgs.forEach(fa => {
+      const words = fa.label.split(' ');
+      const abbr = words.find(w => !['Agent','Specialist','Planner','Estimator'].includes(w)) || words[0];
+      html += `<div class="cta-dcard cta-dcard-fixed" title="${fa.label} (agent cố định)">
+        <div class="cta-dcard-lbl" style="font-size:10px;">${abbr}</div>
+        <div class="cta-dcard-sub" style="color:#38bdf850;">Cố định</div>
+      </div>`;
+    });
+
+    // Pool slots
+    slots.forEach(sl => {
+      const isOcc = occupied.has(sl.idx);
+      const isSel = selIdx === sl.idx;
+      const occupant = occupantMap?.[sl.idx] || '';
+      const shortLbl = sl.label.replace('Kế Toán', 'KT').replace('Thiết Kế', 'TK');
+      const cls = isSel ? 'cta-dcard selected' : (isOcc ? 'cta-dcard occupied' : 'cta-dcard available');
+      const sub = isSel ? '✓ Chọn' : (isOcc ? (occupant || 'Có agent') : 'Trống');
+      const pidxAttr = (!isOcc && !isSel) ? `data-pidx="${sl.idx}"` : (isSel ? `data-pidx="${sl.idx}"` : '');
+      html += `<div class="${cls}" ${pidxAttr} title="${sl.label}">
+        <div class="cta-dcard-lbl">${shortLbl}</div>
+        <div class="cta-dcard-sub">${sub}</div>
+      </div>`;
+    });
+
+    html += '</div></div>';
+  });
+  html += '</div>';
+  return html;
 }
 
 async function renderCustomTeamPanel() {
@@ -7108,6 +7373,8 @@ async function renderCustomTeamPanel() {
   const pcAgents = _ctaPcAgents || [];
 
   const occupied = new Set(configs.map(c => c.poolIdx));
+  const occupantMap = {};
+  configs.forEach(c => { if (typeof c.poolIdx === 'number') occupantMap[c.poolIdx] = c.shortName || c.name.split(' ')[0]; });
   const linkedIds = new Set(configs.map(c => c.paperclipAgentId).filter(Boolean));
   const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const pcSel = pcAgents.length > 0
@@ -7116,9 +7383,20 @@ async function renderCustomTeamPanel() {
          <option value="">── Nhập tay ──</option>
          ${pcAgents.map(a => `<option value="${escAttr(a.id)}"${linkedIds.has(a.id) ? ' disabled' : ''} data-name="${escAttr(a.name)}" data-role="${escAttr(a.role||a.title||'')}">${escAttr(a.name)}${a.role ? ' — '+escAttr(a.role) : ''}</option>`).join('')}
        </select>`
-    : '<div class="cta-label" style="color:#475569;">Paperclip offline — nhập tay</div>';
+    : '';
+
+  const selInfo = _ctaSelPoolIdx !== null
+    ? `<div class="cta-sel-info">📍 ${DESK_POOL[_ctaSelPoolIdx]?.label || ''} đã chọn
+         <span class="sel-cancel" title="Bỏ chọn" onclick="_ctaSelPoolIdx=null;renderCustomTeamPanel()">×</span>
+       </div>`
+    : '';
 
   formArea.innerHTML = `<hr class="cta-sep">
+<div class="cta-label" style="margin-bottom:6px;font-size:11px;color:#94a3b8;">📌 Chọn vị trí bàn</div>
+${_ctaDeskGrid(occupied, _ctaSelPoolIdx, occupantMap)}
+${selInfo}
+${_ctaSelPoolIdx !== null ? `
+<hr class="cta-sep" style="margin:8px 0;">
 ${pcSel}
 <form id="ctaForm" class="cta-form-row" style="margin-top:4px;">
   <input id="ctaName" placeholder="Tên agent *" required maxlength="32">
@@ -7126,42 +7404,32 @@ ${pcSel}
   <input id="ctaRole" placeholder="Chức danh / Vai trò" maxlength="48">
   <textarea id="ctaBio" placeholder="Mô tả công việc" rows="2" maxlength="120"></textarea>
   <div class="cta-color-row"><input type="color" id="ctaColor" value="#7c3aed"><label>Màu nhận diện</label></div>
-  <div class="cta-label" style="margin-top:6px;">Chọn vị trí bàn <span id="ctaDeskLbl" style="color:#f59e0b;font-weight:600;"></span></div>
-  <div class="cta-minimap-wrap">${_ctaBuildMinimap(occupied, _ctaSelPoolIdx)}</div>
-  <div class="cta-desk-hint">🟢 Trống &nbsp;⬛ Đã có agent &nbsp;🟡 Đang chọn</div>
-  <button type="submit" class="cta-add-btn" id="ctaSubmitBtn" ${_ctaSelPoolIdx === null ? 'disabled style="opacity:0.4"' : ''}>
-    ${_ctaSelPoolIdx === null ? 'Chọn vị trí trên sơ đồ ↑' : '+ Thêm vào văn phòng (' + (DESK_POOL[_ctaSelPoolIdx]?.label||'') + ')'}
+  <button type="submit" class="cta-add-btn" id="ctaSubmitBtn">
+    + Thêm agent vào ${DESK_POOL[_ctaSelPoolIdx]?.label || ''}
   </button>
-</form>`;
+</form>` : ''}`;
 
-  if (pcAgents.length > 0) {
-    document.getElementById('ctaPcSel').addEventListener('change', e => {
-      const opt = e.target.selectedOptions[0];
-      if (opt.value) {
-        document.getElementById('ctaName').value = opt.dataset.name || '';
-        document.getElementById('ctaRole').value = opt.dataset.role || '';
-      }
-    });
-  }
-
-  document.getElementById('ctaMapSvg').addEventListener('click', e => {
-    const pidx = e.target.dataset?.pidx;
-    if (pidx === undefined) return;
-    const idx = parseInt(pidx);
-    if (occupied.has(idx)) return;
-    _ctaSelPoolIdx = idx;
-    const lbl = DESK_POOL[idx]?.label || '';
-    const deskLbl = document.getElementById('ctaDeskLbl');
-    if (deskLbl) deskLbl.textContent = '— ' + lbl;
-    const btn = document.getElementById('ctaSubmitBtn');
-    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '+ Thêm vào văn phòng (' + lbl + ')'; }
-    document.querySelectorAll('.cta-dc').forEach(el => {
-      const i = parseInt(el.dataset.pidx);
-      const occ = occupied.has(i);
-      el.setAttribute('fill', i === idx ? '#f59e0b' : (occ ? 'rgba(100,116,139,0.55)' : 'rgba(74,222,128,0.75)'));
-      el.style.cursor = occ ? 'default' : 'pointer';
+  // Event: click card để chọn slot
+  formArea.querySelectorAll('.cta-dcard.available').forEach(card => {
+    card.addEventListener('click', () => {
+      const pidx = parseInt(card.dataset.pidx);
+      if (isNaN(pidx) || occupied.has(pidx)) return;
+      _ctaSelPoolIdx = pidx;
+      renderCustomTeamPanel();
     });
   });
+
+  if (_ctaSelPoolIdx !== null) {
+    if (pcAgents.length > 0) {
+      document.getElementById('ctaPcSel')?.addEventListener('change', e => {
+        const opt = e.target.selectedOptions[0];
+        if (opt.value) {
+          document.getElementById('ctaName').value = opt.dataset.name || '';
+          document.getElementById('ctaRole').value = opt.dataset.role || '';
+        }
+      });
+    }
+  }
 
   document.getElementById('ctaForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -7211,6 +7479,58 @@ if (btnCustomTeam) {
 }
 
 requestAnimationFrame(loop);
+
+/* ── Draggable panels ───────────────────────────────────────────────── */
+(function () {
+  function makeDraggable(el, gripSel) {
+    const grip = el.querySelector(gripSel);
+    if (!grip) return;
+
+    // Visual affordance
+    grip.style.cursor = 'grab';
+    grip.title = 'Kéo để di chuyển';
+
+    let ox, oy, ox0, oy0;
+
+    grip.addEventListener('mousedown', e => {
+      // Ignore clicks on interactive children
+      if (e.target.closest('button,input,select,a,.cta-dcard,.drawer-close')) return;
+      e.preventDefault();
+
+      const rect = el.getBoundingClientRect();
+      // Switch from right/bottom anchor to left/top so we can move freely
+      el.style.right  = 'auto';
+      el.style.bottom = 'auto';
+      el.style.left   = rect.left + 'px';
+      el.style.top    = rect.top  + 'px';
+      el.style.animation = 'none';
+
+      ox = e.clientX; oy = e.clientY;
+      ox0 = rect.left; oy0 = rect.top;
+
+      grip.style.cursor = 'grabbing';
+      document.body.style.userSelect = 'none';
+
+      function onMove(e) {
+        const nx = Math.max(0, Math.min(window.innerWidth  - el.offsetWidth,  ox0 + e.clientX - ox));
+        const ny = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, oy0 + e.clientY - oy));
+        el.style.left = nx + 'px';
+        el.style.top  = ny + 'px';
+      }
+      function onUp() {
+        grip.style.cursor = 'grab';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  }
+
+  makeDraggable(document.getElementById('agentDrawer'),     '.drawer-head');
+  makeDraggable(document.getElementById('customTeamDrawer'), 'h4');
+})();
 </script>
 </body>
 </html>
